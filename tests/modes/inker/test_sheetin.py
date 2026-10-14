@@ -260,37 +260,29 @@ def test_grid_rects_refuses_a_cell_count_past_a_sane_ceiling():
         sheetin.grid_rects((1024, 1024), (2, 2))
 
 
-def test_document_from_sheet_refuses_a_cell_count_past_max_sheet_frames():
-    """The 2026-09-11 audit (inker-09): ``MAX_SHEET_FRAMES`` was added
-    specifically so a cell count read from a file cannot decide an allocation
-    before it is checked, and it is enforced inside ``grid_rects()``
-    (``document_from_grid``'s door, the test above) -- but
-    ``document_from_sheet`` takes ``cells`` verbatim from a rendered sheet's
-    on-disk sidecar JSON and built one Frame
-    plus one Layer per entry with no ceiling of its own. A 1MB sidecar (the
-    generic size cap every sidecar gets) can still encode roughly 28,000 cell
-    entries, about 7x past this ceiling.
-    """
+def test_a_rect_list_past_max_sheet_frames_is_refused_before_a_frame_is_built():
+    """The 2026-09-11 audit (inker-09): ``MAX_SHEET_FRAMES`` is enforced inside
+    ``_document_from_rects`` as well as ``grid_rects()``, so a cell count read
+    from a file cannot decide an allocation before it is checked. The sidecar
+    door that read them (``document_from_sheet``) is gone (the 2026-10-14 audit,
+    finding inker-80); the shared slicer keeps the ceiling."""
     atlas = np.zeros((1, 1, 4), dtype=np.uint8)
-    cells = [{"x": 0, "y": 0, "w": 1, "h": 1} for _ in range(sheetin.MAX_SHEET_FRAMES + 1)]
+    rects = [(0, 0, 1, 1)] * (sheetin.MAX_SHEET_FRAMES + 1)
     with pytest.raises(ValueError, match=str(sheetin.MAX_SHEET_FRAMES)):
-        sheetin.document_from_sheet(atlas, cells)
+        sheetin._document_from_rects(atlas, rects)
 
 
-def test_document_from_sheet_refuses_a_frame_count_times_cell_area_past_a_document_pixel_ceiling():
+def test_a_frame_count_times_cell_area_past_a_document_pixel_ceiling_is_refused():
     """The 2026-09-20 audit, finding inker-01: ``MAX_SHEET_FRAMES`` bounds the
-    *count* of cells a sidecar can name, but nothing bounded count times cell
-    area -- 800 identical 512x512 cells, well under that 4096-cell ceiling,
-    allocated 800 MiB with no refusal, and the real ceilings (4096 cells at a
-    generous cell size) reach terabytes. ``_document_from_rects`` now charges
-    ``len(rects) * cell_w * cell_h`` against ``pixelguard.MAX_DECODE_PIXELS``,
-    the one pixel budget every other decoded-image door in this build shares,
-    before the copy loop that would otherwise pay for it."""
+    *count* of cells, but nothing bounded count times cell area -- 800 identical
+    512x512 cells, well under that 4096-cell ceiling, allocated 800 MiB with no
+    refusal. ``_document_from_rects`` charges ``len(rects) * cell_w * cell_h``
+    against ``MAX_SHEET_PIXELS`` before the copy loop that would pay for it."""
     atlas = np.zeros((512, 512, 4), dtype=np.uint8)
-    cells = [{"x": 0, "y": 0, "w": 512, "h": 512} for _ in range(800)]
-    assert len(cells) < sheetin.MAX_SHEET_FRAMES
+    rects = [(0, 0, 512, 512)] * 800
+    assert len(rects) < sheetin.MAX_SHEET_FRAMES
     with pytest.raises(ValueError, match=str(sheetin.MAX_SHEET_PIXELS)):
-        sheetin.document_from_sheet(atlas, cells)
+        sheetin._document_from_rects(atlas, rects)
 
 
 def _striped(width: int, height: int) -> np.ndarray:

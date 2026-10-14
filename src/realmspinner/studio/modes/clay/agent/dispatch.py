@@ -770,6 +770,13 @@ def instructions() -> str:
         "with no selection or edit. clay_checkpoint/clay_restore name and "
         "return to a history position -- session-only, and a checkpoint "
         "can report 'gone' once a later edit makes it unreachable.\n\n"
+        "A rig: clay_op's mark-bone makes each selected object a bone and "
+        "unmark-bone undoes it, add-bone grows an empty bone upward from the "
+        "selected one, and unbind-skin drops a mesh's weights. Posing and "
+        "keying belong to the person in Pose mode. clay_scene shows the "
+        "rig: 'bone' and 'skin' on each "
+        "row, and a 'rig' block with the bone count, fps and each "
+        "animation's name, duration, loop and interpolation.\n\n"
         "References: clay_reference_add takes a Library job id or inline "
         "base64; pass 'compare' to clay_render to see the current render "
         "beside the reference or blended over it.\n\n"
@@ -835,7 +842,9 @@ def tools() -> list[Any]:
 
     protocol = _protocol()
     primitive_names = sorted(bp.CLAY_GENERATOR_NAMES)
-    op_names = [op.name for op in clay_ops.OPS]
+    # The 2026-10-14 audit's clay-12: the Pose-mode ops can never be enabled for an agent (no
+    # tool switches Pose mode on, and the playhead is session state), so the enum leaves them out.
+    op_names = [op.name for op in clay_ops.OPS if op.name not in clay_ops.POSE_OPS]
     axis_views = sorted(Camera.AXIS_VIEWS) + ["three_quarter"]
     batch_names = sorted(set(_HANDLERS) - BATCH_EXCLUDED)
     # The 2026-10-07 audit's clay-82: the sentence below listed what cannot be
@@ -864,7 +873,9 @@ def tools() -> list[Any]:
                 "current selection, element mode and whether it has "
                 "unsaved changes. 'offset' and 'limit' page the object "
                 "rows (the rest of the reply stays the whole document's), "
-                "for a document too large to read in one reply."
+                "for a document too large to read in one reply. A bone shows "
+                "as 'bone': true, a weighted mesh lists its bones' uids as "
+                "'skin', and 'rig' counts the bones and the animations."
             ),
             schema={
                 "type": "object",
@@ -1758,15 +1769,15 @@ def tools() -> list[Any]:
                 "select (uids), repeat (ranges/steps, "
                 "expanding every named range's cartesian product), array "
                 "(id/count/var/add, sugar for a numbered row), mirror "
-                "(axis/add, places the original and a reflected copy -- "
-                "placement only, never the mesh itself), group (id/"
+                "(axis/add, places the original and a reflected copy named "
+                "<id>_mirror -- placement only, never the mesh itself), group (id/"
                 "members, names a set for a later uids field), let (vars, "
                 "binds more variables for the rest of this steps list), if "
                 "(cond/then/else), move (uid/by -- by added to the "
-                "target's current translation), turn (uid/by -- degrees "
+                "target's world position), turn (uid/by -- degrees "
                 "composed in world space onto the current rotation), "
                 "scale_by (uid/factor -- a number or [x,y,z] multiplied "
-                "onto the current scale) and assert (condition, optionally "
+                "onto the object's own scale) and assert (condition, optionally "
                 "uid -- a false or unevaluable condition refuses the whole "
                 "program). move/turn/scale_by read the live document, so "
                 "their uid may also name a group (one call per member, "
@@ -1774,7 +1785,11 @@ def tools() -> list[Any]:
                 "expression language below plus facts, each taking bare "
                 "ids/groups (never $name or a string): lo/hi/size/center"
                 "(id, axis 0|1|2) read a world-space box; count(group); "
-                "exists(name); volume(id) (0 unless closed). A numeric field (translation, a "
+                "exists(name); volume(id) (0 unless closed); an id there is "
+                "letters, digits and underscores only, not starting with a digit. "
+                "An op step that merges (join, union, difference, "
+                "intersection) keeps the first-made object and consumes the "
+                "others: later steps cannot name them. A numeric field (translation, a "
                 "params value, a range bound, ...) takes a plain number or "
                 "an expression string: + - * / % and ^ for power, "
                 "comparisons and and/or/not, parentheses, degree trig "
@@ -1794,8 +1809,9 @@ def tools() -> list[Any]:
                 "(every nested repeat/if body counts its own, up to "
                 f"{agent_program.PROGRAM_MAX_NESTING} lists deep), "
                 f"{agent_program.PROGRAM_MAX_CALLS} expanded tool calls "
-                f"total, {agent_program.PROGRAM_MAX_REPEAT} iterations per "
-                f"repeat/array, and "
+                f"total, {agent_program.PROGRAM_MAX_VISITS} steps visited "
+                f"once repeats expand, {agent_program.PROGRAM_MAX_REPEAT} "
+                f"iterations per repeat/array, and "
                 f"{agent_program.PROGRAM_MAX_VARIABLES} variables in scope "
                 "at once. dry_run runs the program for real and then "
                 "undoes it before returning, reporting what would have "

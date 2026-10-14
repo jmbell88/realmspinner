@@ -106,16 +106,19 @@ def _pinned() -> list[Path]:
     return [*_modules(), *EXTRA]
 
 
-def test_there_are_fourteen_modules_to_check():
+def test_there_are_thirteen_modules_to_check():
     """A glob that quietly started matching fewer files would measure less
     than it claims to; a glob that started matching more (a stray script
     dropped in the package) is worth noticing too.
 
     Fourteen since 2026-09-17, not the seventeen this was first written for
     -- P3 of ``dev/RESTRUCTURE.md`` moved ``math3d``, ``gltf`` and
-    ``glbwrite`` to ``realmspinner/kernels/geom3d/``. See the module docstring.
+    ``glbwrite`` to ``realmspinner/kernels/geom3d/``. Thirteen since
+    2026-10-14: ``sheet.py``, the direction-strip preview, had no caller once
+    Poser left (the 2026-10-14 audit, finding create-viewer-03). See the
+    module docstring.
     """
-    assert len(_modules()) == 14
+    assert len(_modules()) == 13
 
 
 def test_none_of_them_imports_a_window_or_an_immediate_mode_gui():

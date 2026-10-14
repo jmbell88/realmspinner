@@ -1,12 +1,11 @@
 """Words in, a :class:`Resolution` out: what the prompt asked for, and what of it we can make.
 
-The Create surface takes a plain-language brief -- "fire ogre, 3/4 top down
-sprite sheet" -- and has to show the user *controls*, not a guess: a species
-picker already on Ogre, a theme already on Fire, a camera already on 3/4
-top-down, and every word it could not account for listed where the user can see
-it. That is all this module does. It never builds anything and it never refuses:
-:mod:`.recipe` is the layer that refuses by name, and it does so against a
-species the user has by then seen and can change.
+The Create surface takes a plain-language brief -- "fire ogre with a greataxe" --
+and has to show the user *controls*, not a guess: a species picker already on
+Ogre, a theme already on Fire, and every word it could not account for listed
+where the user can see it. That is all this module does. It never builds
+anything and it never refuses: :mod:`.recipe` is the layer that refuses by name,
+and it does so against a species the user has by then seen and can change.
 
 Three decisions are load-bearing.
 
@@ -54,11 +53,13 @@ __all__ = [
     "CAMERA_WORDS",
     "KNOWN_CREATURES",
     "NOISE_WORDS",
+    "SHEET_WORDS",
     "STOPWORDS",
     "THEME_WORDS",
     "Creature",
     "Resolution",
     "Span",
+    "is_sheet_word",
     "offer_sentence",
     "resolve",
     "vocabulary",
@@ -118,7 +119,10 @@ THEME_WORDS: dict[str, tuple[str, ...]] = {
     "forge": ("forge", "forged", "foundry", "smithy"),
     "swamp": ("swamp", "swampy", "bog", "marsh", "mire", "boggy"),
     "blood": ("blood", "bloody", "bloodied", "crimson", "gore", "gory"),
-    "stone": ("stone", "stony", "rock", "rocky", "granite", "marble"),
+    # "earth" is here because "earth elemental" used to be a species alias, which
+    # swallowed the word and left the species' first look (fire) in place -- the
+    # 2026-10-14 audit, finding poser-characters-03.
+    "stone": ("stone", "stony", "rock", "rocky", "granite", "marble", "earth", "earthen"),
     "frost": ("frost", "frosty", "frozen", "ice", "icy", "glacial", "snow", "snowy", "arctic"),
     "cursed": ("cursed", "curse", "hexed", "haunted", "spectral", "wraithlike"),
     # "dark" is deliberately absent: a "dark elf" is a species with a mood, not
@@ -188,6 +192,20 @@ NOISE_WORDS: tuple[str, ...] = (
     "top down view", "turnaround", "full body", "fullbody", "reference",
     "render", "rendering", "png", "transparent", "no background",
     "high quality", "detailed", "clean", "retro", "16 bit", "8 bit", "hd",
+)
+
+#: The part of :data:`NOISE_WORDS` that asks for a *sprite sheet*: the sheet
+#: itself and its direction counts. Consumed as noise like the rest, but a
+#: rigged-mesh character has no sheet and no facings, so Create's "Not
+#: interpreted" line names them -- the 2026-10-14 audit, finding
+#: poser-characters-04, found "sprite sheet" and "8 directions" swallowed with
+#: no hint that the sheet is the other asset type. ``test_every_sheet_word_is_a_noise_word``
+#: keeps it a subset.
+SHEET_WORDS: tuple[str, ...] = (
+    "sprite sheet", "sprite sheets", "spritesheet", "spritesheets", "sheet", "sheets",
+    "8 direction", "8 directions", "8-direction", "8-directional",
+    "eight direction", "eight directions", "4 direction", "4 directions",
+    "four direction", "four directions", "directional", "directions", "turnaround",
 )
 
 #: Dropped without a span. Grammar, not vocabulary.
@@ -755,6 +773,11 @@ def _theme_for_species(
 def _alias_key(alias: str) -> str:
     """An alias in matching form: space-separated normalised tokens."""
     return " ".join(_normal(part) for part in alias.split() if _normal(part))
+
+
+def is_sheet_word(text: str) -> bool:
+    """Whether a span's text, as the user typed it, is one of :data:`SHEET_WORDS`."""
+    return _alias_key(text) in {_alias_key(word) for word in SHEET_WORDS}
 
 
 def _table(

@@ -354,6 +354,7 @@ def wang_field(data: np.ndarray, ref: TilesetRef, wangset: Any) -> Any:
     such reads per touched cell. `dev/measurements/2026-09-06-native-batch-7-candidates.md`
     (B9) measured a 128-cell diagonal drag at 131 ms shipped, 68 ms with this
     hoist -- same answers, by inspection of ``holds``.
+    (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     """
     height, width = data.shape
     firstgid, last_gid, tiles, mask = ref.firstgid, ref.last_gid, wangset.tiles, gidlib.GID_MASK
@@ -368,6 +369,32 @@ def wang_field(data: np.ndarray, ref: TilesetRef, wangset: Any) -> Any:
         return tiles.get(local)
 
     return field_of
+
+
+def _holds_local(ref: TilesetRef, local: int) -> bool:
+    """Whether the tileset has a tile at this local id.
+
+    Spelled on the tileset rather than as ``ref.holds``: ``wang_field`` hoists
+    ``last_gid`` out of the per-neighbour loop and a test pins that count, and
+    this is asked per distinct neighbourhood.
+    """
+    tileset = ref.tileset
+    if tileset.collection is not None:
+        return tileset.collection.slot_of(local) is not None
+    return 0 <= local <= tileset.max_local_id
+
+
+def _held(ref: TilesetRef, locals_: list[int]) -> list[int]:
+    """The matches the tileset actually has.
+
+    A set that names a tile its tileset lacks must not paint it: the 2026-10-14
+    audit, finding plotter-tiles-01, painted gid 501 over a four-tile tileset --
+    a map this app then refused to reopen -- and a negative id painted the
+    previous tileset's tile. ``Tileset`` now trims its own sets, but a
+    ``wangset`` is a separate argument to the brush, so it does not lean on
+    that alone.
+    """
+    return [local for local in locals_ if _holds_local(ref, local)]
 
 
 def _wang_cell(
@@ -401,12 +428,12 @@ def _wang_cell(
     if not wanted:
         return False
     if cache is None:
-        found = wangset.matching(wanted)
+        found = _held(ref, wangset.matching(wanted))
     else:
         key = tuple(sorted(wanted.items()))
         found = cache.get(key)
         if found is None:
-            found = wangset.matching(wanted)
+            found = _held(ref, wangset.matching(wanted))
             cache[key] = found
     if not found:
         return False
@@ -458,7 +485,7 @@ def paint_wang_cells(
     if box is None:
         return None
     local = wang_interior(wangset, colour)
-    if local is None:
+    if local is None or not _held(ref, [local]):
         return None
 
     work = np.array(data, dtype=gidlib.DTYPE)
@@ -480,6 +507,7 @@ def paint_wang_cells(
     # the algorithm rather than the implementation. Batch 7 profiled that cost
     # (dev/measurements/2026-09-06-native-batch-7-candidates.md, B9): it was
     # ``TilesetRef.holds``'s property chain, not the loop -- see wang_field.
+    # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     field = wang_field(work, ref, wangset)
     cache: dict[tuple[tuple[int, int], ...], list[int]] = {}
     for y in range(y0, y1):

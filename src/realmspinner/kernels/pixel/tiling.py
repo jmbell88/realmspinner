@@ -219,13 +219,12 @@ def seam_seeds(
 #: Above this the wrap seam is a visible edge rather than part of the texture.
 #:
 #: Copied from ``pipelines/seam.py`` with its citation:
-#: ``dev/measurements/2026-08-08-seam-threshold.md``. 72 units on sdxl-turbo put
-#: the highest legitimately seamless tile at 2.50 and the lowest visible seam at
-#: 5.52, an empty band whose geometric centre is 3.72; 3.5 is the round value
-#: inside it. A copy at a second surface moves nothing -- **the same document
-#: governs both**, and re-measuring before moving it applies here exactly as it
-#: does there. A copy rather than an import because this package is headless and
-#: pinned against reaching into ``pipelines`` (which imports PIL at module
+#: ``dev/measurements/2026-08-08-seam-threshold.md`` [lost; re-measure to change]. 72 units on
+#: sdxl-turbo put the highest legitimately seamless tile at 2.50 and the lowest visible seam at
+#: 5.52, an empty band whose geometric centre is 3.72; 3.5 is the round value inside it. A copy at a
+#: second surface moves nothing -- **the same document governs both**, and re-measuring before
+#: moving it applies here exactly as it does there. A copy rather than an import because this
+#: package is headless and pinned against reaching into ``pipelines`` (which imports PIL at module
 #: scope), the same reason ``dither`` keeps its own conversion.
 # Its dev/measurements document was lost in the 2026-09-20 restore: re-measure to change.
 SEAM_MAX = 3.5
@@ -293,19 +292,16 @@ def seam_ratio(pixels: np.ndarray) -> tuple[float, float]:
 #: mean one (:func:`seam_dominance`, not :func:`seam_ratio` above).
 #:
 #: Copied from ``pipelines/seam.py`` with its citation:
-#: ``dev/measurements/2026-08-30-seam-dominance.md``. Dividing by the interior
-#: *mean* (``SEAM_MAX`` above) inflates on a texture of flat cells parted by
-#: thin hard lines -- pixel art, ceramic grout, riveted panels -- because the
-#: mean collapses toward zero on exactly that population while the seam does
-#: not; on a held-out corpus it called 18 of 72 confirmed-seamless tiles
-#: seamed, 15 of them under the pixel-art LoRA this app ships, against 0 of 72
-#: for the interior *maximum*. The 2026-09-07 audit found Inker's own live
-#: indicator still on the ratio -- false-alarming on exactly the flat-cell
-#: pixel art this editor produces -- while ``pipelines/seam.py`` had already
-#: moved to dominance on 2026-08-30. A copy at a second surface moves nothing
-#: -- **the same document governs both** -- for the reason ``SEAM_MAX``
-#: above already is a copy rather than an import.
-#: Its dev/measurements document is gone with the backup (confirmed
+#: ``dev/measurements/2026-08-30-seam-dominance.md`` [lost; re-measure to change]. Dividing by the
+#: interior *mean* (``SEAM_MAX`` above) inflates on a texture of flat cells parted by thin hard
+#: lines -- pixel art, ceramic grout, riveted panels -- because the mean collapses toward zero on
+#: exactly that population while the seam does not; on a held-out corpus it called 18 of 72
+#: confirmed-seamless tiles seamed, 15 of them under the pixel-art LoRA this app ships, against 0 of
+#: 72 for the interior *maximum*. The 2026-09-07 audit found Inker's own live indicator still on the
+#: ratio -- false-alarming on exactly the flat-cell pixel art this editor produces -- while
+#: ``pipelines/seam.py`` had already moved to dominance on 2026-08-30. A copy at a second surface
+#: moves nothing -- **the same document governs both** -- for the reason ``SEAM_MAX`` above already
+#: is a copy rather than an import. Its dev/measurements document is gone with the backup (confirmed
 #: 2026-09-28): re-measure to change.
 SEAM_DOMINANCE_MAX = 1.0
 

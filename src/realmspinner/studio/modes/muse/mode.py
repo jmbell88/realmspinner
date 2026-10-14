@@ -82,6 +82,10 @@ LOAD_PREFIX = "muse-load:"
 #: the shell reads any other type as "not Create's".
 SUBMIT_TAG = ("muse",)
 
+#: The task key a Stems press submits under, one per take. ``on_task_done``
+#: claims the landing by it (the 2026-10-14 audit, finding muse-mode-13).
+SEPARATE_PREFIX = "muse-separate:"
+
 
 def generate(ctx: Any) -> bool:
     """Queue the brief. -> whether the submit was accepted.
@@ -117,7 +121,11 @@ def generate(ctx: Any) -> bool:
         return False
 
     state = ensure(ctx)
-    form = state.form
+    # The 2026-10-14 audit, finding muse-mode-11: ``run`` used to close over the
+    # live ``state.form`` and read it on the task thread, so Tags edited between
+    # the press and the task starting changed the brief that was submitted.
+    # ``compose_from_sirens`` and ``derive`` already snapshot; so does this.
+    form = dict(state.form)
 
     def run():
         return svc_jobs.create_music_job(
@@ -474,6 +482,16 @@ def on_task_done(ctx: Any, done: Any) -> None:
             else:
                 ctx.toast("No loop points stood out in this take.", "warn")
         return
+    if key.startswith(SEPARATE_PREFIX):
+        # The 2026-10-14 audit, finding muse-mode-13: the ``muse-`` prefix routes
+        # a landed ``separate_job`` here and nothing below claimed it, so a
+        # successful queueing said nothing and the new row waited for the idle
+        # backstop (up to 3 s) -- unlike the ``"submit"`` landing, which toasts
+        # and drops the jobs cache. The result is the queued row; a failure
+        # arrives through ``on_task_failed`` and the shell's own toast.
+        ctx.cache.invalidate()
+        ctx.toast("Splitting queued - the stems appear on the take when it finishes.")
+        return
     if key.startswith(muse_io.EXPORT_PREFIX):
         # **2026-09-16 audit.** This branch did not exist: every ``muse-export:``
         # result -- success or failure alike -- fell through to the
@@ -688,7 +706,15 @@ def sync(ctx: Any) -> None:
             int(getattr(cache, "total", 0) or 0) <= len(jobs)
             and not getattr(cache, "count_error", None)
         )
-        if whole and jobs and not any(str(job["id"]) == state.player.job for job in jobs):
+        #
+        # **muse-02 (2026-10-14 audit).** A row with ``deleted_at`` is a take in
+        # the trash: the cache keeps those rows, so a trashed take still matched
+        # and its ~42 MB player (and the Play beside it) outlived it. A trashed
+        # row counts as gone, and the window need not be whole to say so -- the
+        # row itself is the evidence.
+        # One short-circuiting scan (muse-06's rule), for the row itself.
+        mine = next((job for job in jobs if str(job["id"]) == state.player.job), None)
+        if (mine is not None and mine.get("deleted_at")) or (whole and jobs and mine is None):
             state.player = None
 
 
@@ -709,7 +735,7 @@ def separate(ctx: Any, job_id: str) -> bool:
     from ....service import jobs as svc_jobs
 
     ctx.state.clear_field_errors()
-    if not ctx.submit(f"muse-separate:{job_id}", svc_jobs.separate_job, ctx.svc, job_id):
+    if not ctx.submit(f"{SEPARATE_PREFIX}{job_id}", svc_jobs.separate_job, ctx.svc, job_id):
         ctx.toast("Already splitting that take.")
         return False
     return True
@@ -755,15 +781,19 @@ def position(ctx: Any) -> float:
     if one is None or not is_playing(ctx, one.job):
         return one.play_offset if one is not None else 0.0
     raw = sirens_audio.position()
-    if (
-        one.loop_anchor is not None
-        and one.loop_start is not None
-        and one.loop_end is not None
-        and one.loop_end > one.loop_start
-    ):
-        length = one.loop_end - one.loop_start
-        phase = one.loop_anchor - one.loop_start
-        return one.loop_start + (phase + raw) % length
+    # **The region the buffer was built from, not the live markers (the
+    # 2026-10-14 audit, finding muse-05).** Clear, a marker drag, ``[``/``]``
+    # and a chosen candidate change ``loop_start``/``loop_end`` while the old
+    # rotated buffer goes on sounding; unwinding against the new numbers read a
+    # loop truly at 3 s as 9 s after Clear, and Stop stored that. A player whose
+    # anchor was set without a recorded span (older state) falls back to the
+    # live region, which is what this always read.
+    span = one.loop_sounding
+    if span is None and one.loop_start is not None and one.loop_end is not None:
+        span = (one.loop_start, one.loop_end)
+    if one.loop_anchor is not None and span is not None and span[1] > span[0]:
+        start, end = span
+        return start + ((one.loop_anchor - start) + raw) % (end - start)
     return min(one.play_offset + raw, one.duration)
 
 
@@ -886,12 +916,14 @@ def _play_from(ctx: Any, one: Any, seconds: float) -> None:
             # near the region's far edge. ``cut % len(body)`` collapses the
             # rounded-up case onto 0, agreeing with the buffer it names.
             one.loop_anchor = one.loop_start + (cut % len(body)) / rate
+            one.loop_sounding = (one.loop_start, one.loop_end)
             ensure(ctx).playing_job = one.job
         else:
             ctx.toast(_play_refusal(), "warn")
         return
 
     one.loop_anchor = None
+    one.loop_sounding = None
     start = int(seconds * rate)
     tail = one.pcm[start:]
     if len(tail) == 0:
@@ -1036,9 +1068,14 @@ def select(ctx: Any, jobs: list[Any], delta: int) -> None:
         # Down from nothing landed on the *second*-newest take. Down enters at
         # the first card and Up wraps to the last.
         state.selected_job = ids[0] if delta > 0 else ids[-1]
+        state.scroll_to_selected = True
         return
     here = ids.index(state.selected_job)
     state.selected_job = ids[(here + delta) % len(ids)]
+    # The tray scrolls the card into view and clears this (the 2026-10-14 audit,
+    # finding muse-25): in a tray taller than its pane Up/Down selected a card
+    # nobody could see, and Space then played it.
+    state.scroll_to_selected = True
 
 
 def handle_key(ctx: Any, event: Any) -> bool:
@@ -1051,11 +1088,11 @@ def handle_key(ctx: Any, event: Any) -> bool:
     binding every other form in this app already carries.
 
     Up/Down move the tray's selection. They are bound rather than left alone
-    for the reason ``poser_mode.sheet_handle_key`` states at length (Troupe's
-    own ``handle_key``, before P9 2026-09-18 folded that mode into Poser):
-    membership of ``NAV_KEY_MODES`` withholds those keys from imgui whether or
-    not anything binds them, so an unbound one is a key taken from one
-    consumer and given to none.
+    for the reason ``events.py``'s workspace arms give: membership of
+    ``NAV_KEY_MODES`` withholds those keys from imgui whether or not anything
+    binds them, so an unbound one is a key taken from one consumer and given to
+    none. (The 2026-10-14 audit, finding muse-mode-15: this sentence cited a
+    module that no longer exists.)
 
     The player's six are the same bargain, and cheap for the same reason.
     Left/Right nudge the playhead (Shift, ten times as far), Home returns it to
@@ -1101,6 +1138,21 @@ def handle_key(ctx: Any, event: Any) -> bool:
         select(ctx, muse_results.plan_for(ctx), -1 if event.key == pygame.K_UP else 1)
         return True
 
+    if event.key in (pygame.K_LEFT, pygame.K_RIGHT):
+        # **The bar's arrow stepping lives here, not in the draw (the 2026-10-14
+        # audit, findings muse-mode-07 and muse-mode-09).** ``muse`` is in
+        # ``NAV_KEY_MODES``, so imgui is handed the arrows only while a text
+        # field has the caret -- which is exactly when a read of them in
+        # ``brief._duration``/``_count`` must not act. Read there, the Length
+        # and Takes pills never stepped on a press that meant them, and Tags'
+        # caret keys cycled Takes. This path is only reached with no field
+        # typing (``events.py`` withholds plain keys from it otherwise), so a
+        # press while the Tab ring sits on Length or Takes belongs to that
+        # control; with the ring anywhere else the arrows nudge the playhead.
+        from .ui import brief as muse_brief
+
+        if muse_brief.step_ring(ctx, 1 if event.key == pygame.K_RIGHT else -1):
+            return True
     one = player(ctx)
     if one is None:
         return False
@@ -1154,13 +1206,23 @@ def open_in_sirens(ctx: Any, job_id: str) -> bool:
         ctx.toast("that take has no audio on disk", "warn")
         return False
     tab = sirens_mode.active(ctx)
-    if tab is None:
+    made = tab is None
+    if made:
         tab = sirens_mode.new_document(ctx)
     # Its own answer, not a flat ``True``: a tab that is being saved turns the import
     # away (out loud, in Sirens) and the docstring promises "whether it started"
     # -- the 2026-10-03 audit, finding sirens-16.
     # ``is not False``: a refusal is the one answer that means "did not start".
-    return sirens_io.import_sample(ctx, tab, path, switch=True) is not False
+    started = sirens_io.import_sample(ctx, tab, path, switch=True) is not False
+    if not started and made:
+        # The 2026-10-14 audit, finding muse-mode-12: the song was made before
+        # the import was asked for, so a refusal left an empty "Untitled" behind.
+        # The import needs a tab to key its task on, so the song cannot be made
+        # after; it is taken back instead. ``import_sample`` has already said why.
+        uid = getattr(tab, "uid", None)
+        if uid is not None:
+            sirens_mode.close_tab(ctx, uid)
+    return started
 
 
 def compose_from_sirens(ctx: Any, tab: Any = None) -> bool:

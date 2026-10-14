@@ -179,6 +179,57 @@ def _json(data: bytes) -> dict:
 
 
 
+#: Most ``<tile><image>`` entries one collection ``.tsx`` / ``.tsj`` may name.
+#: Far past any collection anyone drew (ten thousand icons is a library, not a
+#: tileset); the pixel budget below is what bounds the memory.
+MAX_COLLECTION_ENTRIES = 16_384
+
+
+def _decode_collection(base: Path, sources: dict[int, str]) -> dict[int, np.ndarray]:
+    """Every tile image of one image collection, under one budget.
+
+    The 2026-10-14 audit (finding plotter-mode-08) found the number of decodes
+    set by the file: a dict comprehension decoded one image per ``<tile>``, each
+    allowed up to ``pixelguard``'s 8192x8192, and all of them were held at once
+    before ``compose_collection`` summed anything -- one crafted ``.tsx`` could
+    pin tens of gigabytes on the task thread. ``MAX_COLLECTION_PIXELS`` bounds
+    only the composed atlas, *after* those decodes.
+
+    Counted here instead, while decoding, and refused **before the next decode**:
+    the entries against :data:`MAX_COLLECTION_ENTRIES` up front, and the pixels
+    of every tile against the same ``MAX_COLLECTION_PIXELS`` the atlas is held
+    to (read at call time, so a test lowers it). An entry naming a file already
+    decoded for this tileset reuses the array rather than decoding it again --
+    ``compose_collection`` copies each tile anyway, so nothing is shared past
+    this call.
+    """
+    from ....kernels.grid2d import tileset as tileset_module
+
+    if len(sources) > MAX_COLLECTION_ENTRIES:
+        raise ValueError(
+            f"this image collection names {len(sources)} tile images; "
+            f"{MAX_COLLECTION_ENTRIES} is the most this build reads"
+        )
+    budget = tileset_module.MAX_COLLECTION_PIXELS
+    pixels = 0
+    decoded: dict[Path, np.ndarray] = {}
+    out: dict[int, np.ndarray] = {}
+    for local, source in sources.items():
+        path = _resolve_source(base, source)
+        image = decoded.get(path)
+        if image is None:
+            image = _decode(path)
+            decoded[path] = image
+        pixels += int(image.shape[0]) * int(image.shape[1])
+        if pixels > budget:
+            raise ValueError(
+                f"this image collection's tile images add up to more than the "
+                f"{budget} pixels this build will hold at once"
+            )
+        out[local] = image
+    return out
+
+
 def _loaders(base: Path):
     """The two callbacks :mod:`~realmspinner.studio.modes.plotter.engine.tmx` needs.
 
@@ -211,15 +262,9 @@ def _loaders(base: Path):
         )
         if sources:
             # An image collection: every tile is its own file, so the host
-            # fetches each and the engine composes. One decode per tile is the
-            # whole cost, and it is what the format asks for.
-            return read(
-                data,
-                {
-                    local: _decode(_resolve_source(target.parent, source))
-                    for local, source in sources.items()
-                },
-            )
+            # fetches each and the engine composes -- through one budget, see
+            # :func:`_decode_collection`.
+            return read(data, _decode_collection(target.parent, sources))
         image = (tsxlib.tsj_source if json_tileset else tsxlib.tsx_source)(data)
         return read(data, _decode(_resolve_source(target.parent, image)))
 
@@ -295,6 +340,10 @@ def ask_open(ctx: Any) -> None:
     ctx.submit("plotter-open", run)
 
 
+#: The key an open of a *recents* path is submitted under; see :func:`open_path`.
+OPEN_PREFIX = "plotter-open:"
+
+
 def open_path(ctx: Any, path: Path) -> None:
     state = ensure(ctx)
     path = Path(path)
@@ -303,7 +352,13 @@ def open_path(ctx: Any, path: Path) -> None:
         # Focus rather than fork: two tabs over one path would race on save.
         state.activate(existing.uid)
         return
-    ctx.submit(f"plotter-open:{abs(hash(str(path)))}", _load, path)
+    # The path itself is the rest of the key, split on the first colon (which
+    # leaves a drive letter intact), and not a hash of it: the 2026-10-14 audit
+    # (finding plotter-mode-09) found a hash leaving ``on_task_failed`` unable
+    # to name the file that did not open, so a moved or corrupt map stayed on
+    # Home's Resume list and failed the same way on every click. The four
+    # sibling modes forget it; this is how Packwright's ``OPEN_PREFIX`` does.
+    ctx.submit(f"{OPEN_PREFIX}{path}", _load, path)
 
 
 # --- saving -------------------------------------------------------------------

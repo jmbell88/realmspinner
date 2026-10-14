@@ -57,9 +57,14 @@ HOLE_WARN = 0.02
 # relative to the model because an absolute epsilon means something different
 # on a 0.02 m gear than on a 30 m building.
 #
-# No `dev/measurements/` document backs this number: nothing in the stored
-# corpus is keyed on it. It decides one boolean, and the boolean it replaces
-# was measuring the wrong thing entirely.
+# **It is not only this module's boolean any more.** The 2026-10-14 audit,
+# finding pipelines-mesh-04: this comment used to say nothing was keyed on the
+# number, but `pipelines/blender_worker.weld_distance` imports it and welds real
+# geometry with it in the rig skin step, the preserve-shape simplify and the
+# remesh, so changing it changes the mesh that ships. No `dev/measurements/`
+# document backs the number: it began as a threshold for one report boolean and
+# gained a second role without one. Re-measure those three steps and write the
+# document before moving it.
 WELD_TOLERANCE = 1e-5
 
 

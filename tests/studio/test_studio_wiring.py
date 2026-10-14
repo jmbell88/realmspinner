@@ -437,14 +437,19 @@ def test_the_handler_is_a_method_rather_than_a_no_op_lambda():
 # --- H50: the blocking strip is gone ----------------------------------------
 
 
-def test_the_whole_strip_renderer_is_not_callable():
-    """A draw plus a synchronous ``read_rgba`` per cell, sixteen cells to a
-    frame. ``StripRender`` renders one per ``step()`` for exactly that reason,
-    and a live method whose documented property is "never call this" is worse
-    than an absent one."""
-    assert not hasattr(viewer_embed.Viewer, "render_sheet_strip")
-    assert hasattr(viewer_embed.Viewer, "begin_sheet_strip")
-    assert hasattr(viewer_embed.Viewer, "step_sheet_strip")
+def test_the_direction_strip_is_gone_from_the_viewer_whole():
+    """H50 removed the blocking ``render_sheet_strip`` (a draw plus a synchronous
+    ``read_rgba`` per cell, sixteen cells to a frame); the incremental
+    ``begin_``/``step_sheet_strip`` that replaced it had no caller once Poser left, and
+    went too on 2026-10-14 (the 2026-10-14 audit, finding create-viewer-03)."""
+    for name in (
+        "render_sheet_strip",
+        "begin_sheet_strip",
+        "step_sheet_strip",
+        "cancel_sheet_strip",
+        "strip_progress",
+    ):
+        assert not hasattr(viewer_embed.Viewer, name), name
 
 
 # --- H55: one answer to "what counts as an image file" -----------------------

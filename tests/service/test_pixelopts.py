@@ -155,27 +155,14 @@ def test_a_named_palette_is_loaded_at_the_door_and_thrown_away(svc, tmp_path):
     assert _check(svc, {"palette": " duo "})["palette"] == "duo"
 
 
-# Task G, 2026-09-12: a custom sprite size inside a caller-given range.
+# A size off the ladder is refused. ``size_range`` -- the custom-size escape hatch the removed
+# character-sheet pipeline used -- has no caller and is gone (the 2026-10-14 audit, finding
+# service-assets-06), so the ladder is the only door.
 
 
-def test_without_size_range_an_off_ladder_size_is_still_refused(svc):
-    """No behaviour change for a caller that never asks for the range --
-    tile sheets and characters keep the strict ladder they always had."""
+def test_an_off_ladder_size_is_refused_on_logical_size_and_names_the_ladder(svc):
     with pytest.raises(Invalid) as excinfo:
         _check(svc, {"logical_size": 37})
     assert excinfo.value.field == "logical_size"
     assert "must be one of" in excinfo.value.message
-
-
-def test_size_range_accepts_a_whole_number_off_the_ladder(svc):
-    assert _check(svc, {"logical_size": 37}, size_range=(8, 256))["logical_size"] == 37
-
-
-def test_size_range_still_refuses_outside_the_range(svc):
-    with pytest.raises(Invalid) as excinfo:
-        _check(svc, {"logical_size": 300}, size_range=(8, 256))
-    assert excinfo.value.field == "logical_size"
-    assert "8 and 256" in excinfo.value.message
-    # And the ladder is still named, so a form reading the message can still
-    # offer the presets beside the range.
     assert str(list(SIZES)) in excinfo.value.message

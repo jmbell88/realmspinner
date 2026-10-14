@@ -128,10 +128,27 @@ _SLICE_TEX_PREFIX = packwright_textures.SLICE_PREFIX
 _slice_grid_cache: tuple[tuple[int, tuple[int, int]], Any] | None = None
 
 
-def _occupancy_for(pixels: Any, tile: tuple[int, int]) -> Any:
+def seed_slice_grid(pixels: Any, tile: tuple[int, int], grid: Any) -> None:
+    """Hand the preview the occupancy grid its off-thread task already computed.
+
+    The 2026-10-14 audit, finding packwright-05: ``_occupancy_for`` ran
+    ``tileset_occupancy`` on the frame thread on every edit of the tile-size
+    field (60-130 ms on an 8192 px sheet), although ``request_tileset_preview``'s
+    task computes the same grid for its counts. The landing seeds the cache here.
+    """
+    global _slice_grid_cache
+    cell = (int(tile[0]), int(tile[1]))
+    _slice_grid_cache = ((id(pixels), cell), grid)
+
+
+def _occupancy_for(pixels: Any, tile: tuple[int, int], *, compute: bool = True) -> Any:
     """The occupancy grid for one sheet at one cell size -- ``tileset_occupancy``'s
     own output, cached until either input moves. Returns ``None`` for a cell
-    size ``tileset_occupancy`` refuses (below 1 x 1)."""
+    size ``tileset_occupancy`` refuses (below 1 x 1).
+
+    ``compute=False`` is the popup's: a miss answers ``None`` rather than
+    computing, because the preview task for these inputs is in flight and will
+    seed the cache (:func:`seed_slice_grid`)."""
     global _slice_grid_cache
     from ...engine.sources import tileset_occupancy
 
@@ -139,6 +156,8 @@ def _occupancy_for(pixels: Any, tile: tuple[int, int]) -> Any:
     key = (id(pixels), cell)
     if _slice_grid_cache is not None and _slice_grid_cache[0] == key:
         return _slice_grid_cache[1]
+    if not compute:
+        return None
     try:
         grid = tileset_occupancy(pixels, tile=cell)
     except ValueError:
@@ -200,6 +219,9 @@ def clear_tileset_import(ctx: Any, state: Any) -> None:
     state.tileset_import_uid = ""
     state.tileset_import_open = False
     state.tileset_preview_key = None
+    # The sprites the preview task sliced for Import to add: as big as the sheet
+    # again, so they go with it (``packwright_mode.import_tileset``).
+    state._pw_preview_sprites = None
     _forget_slice_preview(ctx)
 
 
@@ -251,7 +273,9 @@ def _slice_cells_markable(rows: int, columns: int, step_w: float, step_h: float)
     return rows * columns <= _SLICE_MAX_MARKS and min(step_w, step_h) >= 2.0
 
 
-def _slice_preview(ctx: Any, pixels: Any, tile: tuple[int, int]) -> None:
+def _slice_preview(
+    ctx: Any, pixels: Any, tile: tuple[int, int], *, pending: bool = False
+) -> None:
     """The sheet with its occupancy grid over it: what Import is about to keep.
 
     Kept cells (opaque somewhere in them) are **outlined**, so the sheet still
@@ -262,14 +286,18 @@ def _slice_preview(ctx: Any, pixels: Any, tile: tuple[int, int]) -> None:
     **hatched**. Three different marks for three different fates, because the
     sentence above this already says the counts and a fourth repetition of the
     same three numbers would not tell anyone *which* cells.
+
+    ``pending`` is the popup's "the counts for these inputs are still being
+    computed": the sheet is drawn with no marks until the task seeds the grid,
+    where it used to compute the grid here, on the frame thread.
     """
     from imgui_bundle import imgui
 
     from ..... import theme
     from .....tokens import sp
 
-    grid = _occupancy_for(pixels, tile)
-    if grid is None or grid.shape[0] == 0 or grid.shape[1] == 0:
+    grid = _occupancy_for(pixels, tile, compute=not pending)
+    if not pending and (grid is None or grid.shape[0] == 0 or grid.shape[1] == 0):
         return
     height, width = pixels.shape[:2]
     tile_w, tile_h = int(tile[0]), int(tile[1])
@@ -289,6 +317,8 @@ def _slice_preview(ctx: Any, pixels: Any, tile: tuple[int, int]) -> None:
         imgui.image(widgets.texture_ref(texture), (draw_w, draw_h))
 
     draw = imgui.get_window_draw_list()
+    if grid is None or grid.shape[0] == 0 or grid.shape[1] == 0:
+        return  # pending: the picture alone, until the grid lands
     step_w, step_h = tile_w * zoom, tile_h * zoom
     rows, columns = grid.shape
     kept_colour = imgui.get_color_u32(theme.rgba(theme.OK, 0.9))
@@ -432,7 +462,7 @@ def _tileset_popup(ctx: Any, state: Any) -> None:
         widgets.muted(f"{columns} x {rows} cells - {kept} tile(s), {dropped} empty dropped")
 
     imgui.dummy((0, sp(tokens.SP_1)))
-    _slice_preview(ctx, pixels, state.tileset_cell)
+    _slice_preview(ctx, pixels, state.tileset_cell, pending=computing)
 
     # The 2026-09-23 audit (second run, packwright-03): this used to disable
     # only on ``problem`` or ``computing``, never on the *target* tab being

@@ -277,6 +277,46 @@ def _triangles_of(mesh: bm.Mesh) -> int:
     return got
 
 
+def _similarity(matrix: np.ndarray) -> tuple[float, np.ndarray] | None:
+    """``(scale, rotation)`` when the linear part of *matrix* is a uniform scale and a proper
+    rotation, else ``None`` -- the only change of frame under which a bone's translation,
+    rotation and scale keys can each be carried on their own (a shearing one has no
+    translation/rotation/scale answer)."""
+    linear = np.asarray(matrix, dtype="f8")[:3, :3]
+    det = float(np.linalg.det(linear))
+    if not det > 0.0 or not np.isfinite(det):
+        return None
+    scale = det ** (1.0 / 3.0)
+    rotation = linear / scale
+    if not np.allclose(rotation @ rotation.T, np.eye(3), atol=1e-6):
+        return None
+    return scale, rotation
+
+
+def _rekeyed(
+    animation: anim.Animation, uid: int, offset: np.ndarray, scale: float, basis: np.ndarray
+) -> anim.Animation:
+    """*animation* with bone *uid*'s keys carried through the change of frame
+    ``[scale * basis | offset]``: translation keys are moved, rotation keys are turned and scale
+    keys are scaled, so ``frame @ key`` is the key in the new parent's space."""
+    props = animation.channels.get(uid)
+    if not props:
+        return animation
+    turn = m3.mat3_to_quat(basis)
+    channels = {u: dict(p) for u, p in animation.channels.items()}
+    for prop, channel in props.items():
+        values = np.array(channel.values, dtype="f8", copy=True)
+        if prop == "translation":
+            values = (scale * values) @ basis.T + offset
+        elif prop == "rotation":
+            values = np.array([m3.quat_mul(turn, row) for row in values])
+            values /= np.linalg.norm(values, axis=1, keepdims=True)
+        else:
+            values = values * scale
+        channels[uid][prop] = anim.Channel(channel.times, values)
+    return anim.Animation(animation.name, animation.loop, animation.interpolation, channels)
+
+
 def _empty_mesh() -> bm.Mesh:
     """A mesh with zero vertices and zero faces -- what :meth:`ClayDoc.group`
     gives its new empty object. Draws nothing (:func:`to_primitives` already
@@ -906,6 +946,7 @@ class ClayDoc:
         target = self._relative_matrix(world, parent, by_uid)
         t, r, s, shear = m3.decompose_with_shear(target)
         trs = self._finite_place(child.name, (t, r, s))
+        self._refuse_unkeyable(child, trs)
         if shear is None:
             return trs, None, []
         baked = self._bake_shear(child, shear)
@@ -949,6 +990,7 @@ class ClayDoc:
                     owner_shear @ m3.compose(*c.trs())
                 )
                 trs = self._finite_place(c.name, (t, r, s))
+                self._refuse_unkeyable(c, trs)
                 baked = None
                 if c_shear is not None:
                     baked = self._bake_shear(c, c_shear)
@@ -984,6 +1026,89 @@ class ClayDoc:
                 obj.generator, obj.params = None, {}
                 edits.append(ObjectPropsEdit(obj.uid, was, {"generator": None, "params": {}}))
         return edits
+
+    # -- keeping a bone's keys with its place -------------------------------------------------
+
+    def _keyed_bones(self) -> set[int]:
+        """The bones any animation has a key on."""
+        return {uid for a in self.rig_state.animations for uid in a.channels}
+
+    @staticmethod
+    def _key_shift(before: Sequence[Any], after: Sequence[Any]) -> np.ndarray:
+        """The matrix that carries a transform local to a bone's old parent into the frame it
+        has after a placement kept its world rest: ``new_local @ inverse(old_local)``."""
+        return m3.compose(*after) @ np.linalg.inv(m3.compose(*before))
+
+    def _refuse_unkeyable(self, obj: Obj, after: Sequence[Any]) -> None:
+        """OpError when *obj* is an animated bone whose keys cannot follow a re-expression of its
+        local transform to *after* -- raised with the other refusals, before anything changes.
+
+        The 2026-10-14 audit, finding clay-document-03: a bone's keys are absolute transforms
+        local to its parent, and every door that re-expresses the bone to keep its place (Parent,
+        Clear Parent, Group, deleting its parent, Origin moves) left them as they were, so the
+        evaluated pose jumped. The keys now ride with the rest transform (:meth:`_fold_rekeys`);
+        that is only exact when the change of frame is a rotation, a translation and one uniform
+        scale, so a shearing one (a non-uniformly scaled parent) is refused here and says why.
+        """
+        if not obj.bone or obj.uid not in self._keyed_bones():
+            return
+        try:
+            shift = self._key_shift(obj.trs(), after)
+        except np.linalg.LinAlgError:
+            shift = None
+        if shift is None or _similarity(shift) is None:
+            raise el.OpError(
+                f"{obj.name!r} has animation keys, and that move would shear them (a scaled "
+                "frame sits between it and its new place). Clear its keys first."
+            )
+
+    def _rekey_moves(self, moves: Mapping[int, tuple[Any, Any]]) -> RigEdit | None:
+        """Carry the keys of every animated bone in *moves* (``{uid: (old trs, new trs)}``)
+        through its change of frame, in every animation, applied now -> the step that records it,
+        or ``None`` when no key moved. A bone's held (unkeyed) pose is dropped: it was local to
+        the frame it no longer has."""
+        keyed = self._keyed_bones()
+        shifts: dict[int, tuple[np.ndarray, float, np.ndarray]] = {}
+        for uid, (before, after) in moves.items():
+            if uid not in keyed:
+                continue
+            shift = self._key_shift(before, after)
+            if np.allclose(shift, np.eye(4), rtol=0.0, atol=1e-12):
+                continue
+            found = _similarity(shift)
+            if found is None:
+                raise el.OpError(
+                    f"{self.by_uid(uid).name!r} has animation keys that cannot follow it."
+                )
+            shifts[uid] = (shift[:3, 3].copy(), found[0], found[1])
+        if not shifts:
+            return None
+        animations = []
+        for animation in self.rig_state.animations:
+            for uid, (offset, scale, basis) in shifts.items():
+                animation = _rekeyed(animation, uid, offset, scale, basis)
+            animations.append(animation)
+        before_state = self.rig_state
+        self.rig_state = before_state.with_animations(animations)
+        return RigEdit(before_state, self.rig_state)
+
+    def _fold_rekeys(self, edits: list[Any]) -> None:
+        """Append to *edits* the re-keying of every bone a placement edit in it moved, so keys and
+        rest transform undo together. Call after the doors' own pruning, just before the push."""
+        moves: dict[int, tuple[Any, Any]] = {}
+        for edit in edits:
+            if isinstance(edit, TransformEdit):
+                first = moves[edit.obj_uid][0] if edit.obj_uid in moves else edit.before
+                moves[edit.obj_uid] = (first, edit.after)
+        held = [uid for uid in moves if uid in self.live_pose]
+        for uid in held:
+            del self.live_pose[uid]
+        if held:
+            self.pose_rev += 1
+        rekeyed = self._rekey_moves(moves) if moves else None
+        if rekeyed is not None:
+            edits.append(rekeyed)
+            self.pose_rev += 1
 
     @staticmethod
     def _finite_place(name: str, trs: tuple[Any, Any, Any]) -> tuple[Any, Any, Any]:
@@ -1021,6 +1146,10 @@ class ClayDoc:
         object's mesh and its generator freezes, and the object's own
         descendants are carried the same way so none is left behind by the
         shear -- see :meth:`_kept_placement`.
+
+        **An animated bone's keys ride along**: they are transforms local to its parent, so the
+        same step re-expresses them for the new one (:meth:`_fold_rekeys`), and a move that
+        would shear them is refused (:meth:`_refuse_unkeyable`).
         """
         obj = self.by_uid(uid)
         if parent is not None:
@@ -1054,6 +1183,7 @@ class ClayDoc:
             edits.extend(self._placement_edits(obj, placement))
         obj.parent = parent
         edits.append(ObjectPropsEdit(uid, {"parent": old_parent}, {"parent": parent}))
+        self._fold_rekeys(edits)
         self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
         self.touch()
         return True
@@ -1125,6 +1255,8 @@ class ClayDoc:
             )
             for c in children
         }
+        for c in children:
+            self._refuse_unkeyable(self.by_uid(c), child_trs[c])
 
         # The 2026-10-07 audit's clay-68: only the children's placements were
         # checked, and an object whose scale is tiny (``set_transform`` accepts
@@ -1153,6 +1285,18 @@ class ClayDoc:
             before_c = tuple(np.array(v, copy=True) for v in child.trs())
             child.translation, child.rotation, child.scale = t, r, s
             edits.append(TransformEdit(c, before_c, (t, r, s)))
+        # The object's own origin move is not a re-expression of its place (its keys are its
+        # own), so only the children's moves carry keys.
+        rekeyed = self._rekey_moves(
+            {
+                e.obj_uid: (e.before, e.after)
+                for e in edits
+                if isinstance(e, TransformEdit) and e.obj_uid != uid
+            }
+        )
+        if rekeyed is not None:
+            edits.append(rekeyed)
+            self.pose_rev += 1
 
         self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
         self.touch()
@@ -1499,6 +1643,7 @@ class ClayDoc:
         pruned = self._prune_animation_edit(gone)
         if pruned is not None:
             edits.append(pruned)
+        self._fold_rekeys(edits)
         # In place: nothing else may be holding a stale list.
         doomed = set(gone)
         self.objects[:] = [o for o in self.objects if o.uid not in doomed]
@@ -1722,8 +1867,24 @@ class ClayDoc:
         # The 2026-10-09 audit's clay-17: the merged mesh was adopted with no
         # finiteness check (a 1e-20 and a 1e20 scale joined to ``inf``), the one
         # refusal ``set_mesh`` makes that this door skipped.
+        absorbed = [self.by_uid(u) for u in doomed]
         if mesh is not obj.mesh:
+            # The 2026-10-14 audit, finding clay-document-11: this door adopted the merged
+            # mesh without the validity and triangle-ceiling refusals ``set_mesh`` makes, and a
+            # boolean can produce more triangles than it consumed -- a document near the
+            # ceiling could be pushed past what the writer then refuses to save.
+            self._refuse_invalid(obj.name, mesh)
             self._refuse_unstorable(obj.name, mesh)
+            leaving = [obj, *absorbed]
+            if _triangles_of(mesh) > sum(_triangles_of(o.mesh) for o in leaving):
+                self._refuse_past_ceilings([Obj(uid=obj.uid, name=obj.name, mesh=mesh)], leaving)
+        # The 2026-10-14 audit, finding clay-document-02: an absorbed bone left its animation
+        # channels (and a surviving mesh's skin joints) naming a uid that was no longer a
+        # bone, so the document failed ``rig_problems`` and could not be saved. ``remove_objects``
+        # and ``set_bone`` both refuse the skin case and prune the channels; so does this.
+        absorbed_bones = {o.uid for o in absorbed if o.bone}
+        if absorbed_bones:
+            self._without_skin_bones(absorbed_bones, self._uid_map(), None)
         for uid in doomed:
             new_parent = self.by_uid(uid).parent
             if new_parent is not None and kids.get(uid):
@@ -1779,6 +1940,10 @@ class ClayDoc:
         # has just been replaced, so it describes geometry that is no longer
         # there -- the same reason ``_forget_elements`` drops one after an undo.
         self.element_sel.pop(target_uid, None)
+        pruned = self._prune_animation_edit(absorbed_bones)
+        if pruned is not None:
+            edits.append(pruned)
+        self._fold_rekeys(edits)
         self.history.push(CompoundEdit(edits))
         self.touch()
         return True
@@ -1843,6 +2008,14 @@ class ClayDoc:
                     if name == "scale"
                     else "A rotation of (0, 0, 0, 0) is not a rotation."
                 )
+            # The 2026-10-14 audit, finding clay-document-05: a bone flattened on one axis has a
+            # singular rest matrix, which skin_palette and to_model must invert, and Pose mode
+            # raised a bare "Singular matrix" from the viewport draw.
+            if name == "scale" and obj.bone and not np.all(arr):
+                raise el.OpError(
+                    f"{obj.name!r} is a bone, and a bone cannot be scaled to zero on an axis: "
+                    "its rest pose could not be inverted, so nothing weighted to it could move."
+                )
         before = tuple(np.array(v, dtype="f8", copy=True) for v in (was or obj.trs()))
         if rotation is not None:
             # The 2026-10-07 audit's clay-69: ``[0, .5, 0, .5]`` was accepted as
@@ -1867,14 +2040,31 @@ class ClayDoc:
         if all(np.array_equal(a, b) for a, b in zip(before, after, strict=True)):
             return False
         if obj.skin is not None:
-            raise el.OpError(
-                f"{obj.name!r} is weighted to a skeleton, and a weighted mesh's own transform "
-                "is ignored when it is exported. Move its bones instead."
-            )
+            raise el.OpError(self.transform_refusal(obj))
         obj.translation, obj.rotation, obj.scale = after
         self.history.push(TransformEdit(uid, before, after))  # type: ignore[arg-type]
         self.touch()
         return True
+
+    @staticmethod
+    def transform_refusal(obj: Obj) -> str:
+        """Why *obj*'s own transform cannot be edited, or ``""``. One sentence for the door
+        (:meth:`set_transform`) and for a pane that greys the fields up front.
+
+        The 2026-10-14 audit, finding clay-document-13: this used to say the mesh's own
+        transform "is ignored when it is exported", which is false for Clay's readers
+        (``_skin_mesh`` bakes the object's world matrix into the exported vertices and the
+        viewport skins through it). The real reason is that the weights were made against
+        the bones' rest frames, so moving the mesh alone carries it away from them. And the
+        2026-10-14 audit, finding clay-panes-05: the Inspector offered the fields anyway and
+        met this refusal once per keystroke, so it asks first and greys them with this text.
+        """
+        if obj.skin is None:
+            return ""
+        return (
+            f"{obj.name!r} is weighted to a skeleton, and moving it alone would carry it "
+            "away from the bones its weights belong to. Move its bones instead."
+        )
 
     # -- animation ---------------------------------------------------------
 
@@ -1934,7 +2124,9 @@ class ClayDoc:
 
     def set_rig_time(self, seconds: float) -> None:
         """Move the playhead. Not an edit; an unkeyed pose does not survive a time change."""
-        seconds = max(0.0, float(seconds))
+        # Bounded above as well as below: the 2026-10-14 audit, finding clay-rig-05, found
+        # Next-frame walking the playhead past the ruler's 600 s, where a key is refused.
+        seconds = min(max(0.0, float(seconds)), anim.MAX_ANIMATION_SECONDS)
         if seconds == self.rig_time and not self.live_pose:
             return
         self.rig_time = seconds
@@ -2048,7 +2240,10 @@ class ClayDoc:
     def _rest_to_world(self, uid: int, world: np.ndarray) -> None:
         """Give bone *uid* the rest transform that puts it at *world*, leaving everything that
         sits under it where it was: each child is re-expressed against the bone's new frame. A
-        weighted mesh's own transform is ignored by every reader, so it is left alone."""
+        weighted mesh is left alone, because re-placing it would move it against the bones its
+        weights were made for (the 2026-10-14 audit, finding clay-document-13: it is *not* that
+        its transform is ignored -- ``_skin_mesh`` bakes the world matrix into the export); the
+        one caller, :meth:`adopt_rig`, adds its meshes at the origin, so none sits under a bone."""
         by_uid = self._uid_map()
         kids = [o.uid for o in self.objects if o.parent == uid and o.skin is None]
         kept = {c: self._world_in(c, by_uid) for c in kids}
@@ -2185,27 +2380,46 @@ class ClayDoc:
             out[i] = found if found is not None else self.add_material(m)
         return out
 
+    @staticmethod
+    def slide_delta(keys: Iterable[tuple[int, float]], delta: float) -> float:
+        """The slide :meth:`move_bone_keys` would actually apply: *delta* clamped so the earliest
+        key lands on 0 or the latest on 600 s, the same shift for every key. ``0.0`` for no keys.
+
+        Public so a pane that previews and re-selects a slide asks this rather than clamping each
+        key on its own: the 2026-10-14 audit, finding clay-rig-11, found the timeline selecting
+        and ghosting every key at its own ``max(t + delta, 0)`` while the document moved them all
+        by one clamped delta, so a slide of keys at 0.5 s and 2.0 s by -1 s selected 0.0 and 1.0
+        where the keys landed at 0.0 and 1.5.
+        """
+        times = [round(float(t), 6) for _u, t in keys]
+        if not times:
+            return 0.0
+        return min(max(float(delta), -min(times)), anim.MAX_ANIMATION_SECONDS - max(times))
+
     def move_bone_keys(self, keys: Iterable[tuple[int, float]], delta: float) -> bool:
         """Slide every key of each ``(bone, time)`` by *delta* seconds, as **one** step.
 
         All three properties move together (a key on the timeline is a bone's key at a time),
         the nearest ones first so a key never lands on one that has not moved yet, and a key
         landing on an untouched one replaces it. Times stay within ``0..600`` s: a slide that
-        would leave is clamped so the earliest key lands on 0.
+        would leave is clamped so the earliest key lands on 0 or the latest on 600 (the 2026-10-14
+        audit, finding clay-document-08: only the low end was, and a slide past 600 raised a plain
+        ``ValueError`` out of the timeline pane's drag).
         """
         picked = sorted({(int(u), round(float(t), 6)) for u, t in keys})
         if not picked or self.animation() is None:
             return False
-        low = min(t for _u, t in picked)
-        delta = max(float(delta), -low)
+        delta = self.slide_delta(picked, delta)
         if abs(delta) <= anim.TIME_EPSILON:
             return False
         order = sorted(picked, key=lambda k: k[1], reverse=delta > 0)
 
         def make(a: anim.Animation) -> anim.Animation:
             for uid, time in order:
+                # Clamped again per key: ``high + delta`` can land a rounding error past 600.
+                to = min(max(time + delta, 0.0), anim.MAX_ANIMATION_SECONDS)
                 for prop in list(a.channels.get(uid, {})):
-                    a = a.moved(uid, prop, time, time + delta)
+                    a = a.moved(uid, prop, time, to)
             return a
 
         changed = self._edit_animation(None, make)
@@ -2261,13 +2475,19 @@ class ClayDoc:
         for obj in self.objects:
             if obj.skin is None or obj.mesh.joints is None:
                 continue
-            if not any(j in overrides for j in obj.skin.joints):
+            # The 2026-10-14 audit, finding clay-document-04: a mesh was re-shaped only when one
+            # of its own skin joints was in the overrides, so a limb weighted to the bones BELOW
+            # a posed shoulder was skipped although its joints still ride the posed ancestor, and
+            # jumped by the whole pose when the pose became the rest. The palette says whether a
+            # joint moved, ancestors included.
+            palette = self.skin_palette(obj, overrides, by_uid)
+            if np.allclose(palette, np.eye(4), rtol=0.0, atol=1e-9):
                 continue
             positions = rig.skin_positions(
                 obj.mesh.positions,
                 obj.mesh.joints,
                 obj.mesh.weights,
-                self.skin_palette(obj, overrides, by_uid),
+                palette,
                 self._world_in(obj.uid, by_uid),
             )
             reshaped.append((obj.uid, replace(obj.mesh, positions=positions)))
@@ -2277,6 +2497,12 @@ class ClayDoc:
             )
             for bone in driven
         }
+        for uid, (_t, _r, s) in targets.items():
+            if not np.all(s):
+                raise el.OpError(
+                    f"{by_uid[uid].name!r} is posed scaled to zero on an axis, which cannot "
+                    "become a bone's rest pose."
+                )
         mark = self.history.mark()
         try:
             for uid, mesh in reshaped:
@@ -2292,10 +2518,16 @@ class ClayDoc:
     def pose_overrides(self) -> dict[int, dict[str, Any]]:
         """Every animated or unkeyed bone's local transform now: the selected animation at the
         playhead with the live pose over it. Only the properties that are driven appear."""
-        merged = {
-            uid: dict(props)
-            for uid, props in anim.pose(self.animation(), self.rig_time).items()
-        }
+        animation = self.animation()
+        at = self.rig_time
+        if animation is not None and not self.playing:
+            # The 2026-10-14 audit, finding clay-rig-06: a clip is extended by stepping the
+            # playhead past its last key, and a looping clip then showed ``time % duration``, the
+            # frame after the last key looking like the first -- so the nudge keyed there was
+            # keyed from the start pose and the clip jumped. Playback folds its own time
+            # (``timeline.tick``); a parked playhead holds the last key.
+            at = min(at, animation.duration)
+        merged = {uid: dict(props) for uid, props in anim.pose(animation, at).items()}
         for uid, props in self.live_pose.items():
             merged.setdefault(uid, {}).update(props)
         return merged
@@ -2338,8 +2570,20 @@ class ClayDoc:
         out = []
         for joint in obj.skin.joints:
             rest = self._world_in(joint, by_uid)
-            out.append(self.posed_world(joint, overrides, by_uid) @ np.linalg.inv(rest))
+            try:
+                inverse = np.linalg.inv(rest)
+            except np.linalg.LinAlgError as error:
+                raise el.OpError(self._flat_bone_message(by_uid[joint])) from error
+            out.append(self.posed_world(joint, overrides, by_uid) @ inverse)
         return np.array(out)
+
+    @staticmethod
+    def _flat_bone_message(bone: Obj) -> str:
+        return (
+            f"The bone {bone.name!r} (or something above it) is scaled to zero on an axis, so its "
+            "rest pose cannot be inverted and nothing weighted to it can be posed or exported. "
+            "Give it a scale again."
+        )
 
     def set_active_animation(self, index: int | None) -> None:
         """Select an animation. Not an edit: nothing is pushed and nothing is dirtied."""
@@ -2422,7 +2666,17 @@ class ClayDoc:
         animations = list(self.rig_state.animations)
         if index is None or not 0 <= index < len(animations):
             raise el.OpError("Select or create an animation first.")
-        replacement = make(animations[index])
+        try:
+            replacement = make(animations[index])
+        except el.OpError:
+            raise
+        except ValueError as error:
+            # ``Animation`` and ``Channel`` refuse with a bare ValueError (a key past 600 s, a
+            # channel past its cap), and the doors above them -- Insert Key, Reset Pose, a pose
+            # drag's release -- catch ``OpError`` only: the 2026-10-14 audit, finding
+            # clay-rig-05, found a mocap clip at the cap letting the ValueError out of the
+            # frame handler instead of a toast.
+            raise el.OpError(str(error)) from error
         if replacement is animations[index]:
             return False
         animations[index] = replacement
@@ -2501,6 +2755,14 @@ class ClayDoc:
         step that records it -- or ``None`` when nothing animated them. For the doors that
         delete or unmark bones to fold into their own compound step."""
         gone = {int(u) for u in uids}
+        # The 2026-10-14 audit, finding clay-panes-08: a held (unkeyed) pose survived its bone's
+        # deletion, so ``pose_overrides`` still reported it and Apply Pose as Rest stayed lit
+        # for a pose that no longer existed.
+        held = [uid for uid in gone if uid in self.live_pose]
+        for uid in held:
+            del self.live_pose[uid]
+        if held:
+            self.pose_rev += 1
         animations = self.rig_state.animations
         pruned = tuple(a.without_bones(gone) for a in animations)
         if all(new is old for new, old in zip(pruned, animations, strict=True)):
@@ -2829,6 +3091,11 @@ class ClayDoc:
         pieces = list(pieces)
         obj = self.by_uid(uid)
         self._refuse_skinned([obj], "separated")
+        if obj.bone:
+            # The 2026-10-14 audit, finding clay-document-02: the pieces are not bones, so
+            # separating one removes a bone exactly as deleting it does -- with the same refusal
+            # for a skin that names it and the same pruning of its keys.
+            self._without_skin_bones({uid}, self._uid_map(), None)
         if len(pieces) < 2:
             raise el.OpError("Nothing to separate: that would produce a single piece.")
         for mesh in pieces:
@@ -2906,6 +3173,10 @@ class ClayDoc:
         self.element_sel.pop(uid, None)
         self._mesh_stamps.pop(uid, None)
         edits.append(ObjectRemoveEdit(removed_index, removed))
+        pruned = self._prune_animation_edit([uid] if obj.bone else [])
+        if pruned is not None:
+            edits.append(pruned)
+        self._fold_rekeys(edits)
         self.history.push(CompoundEdit(edits))
         self.touch()
         return new_objs
@@ -3693,6 +3964,7 @@ def to_model(
     place: np.ndarray | None = None,
     bone_names: Mapping[int, str] | None = None,
     at_time: float | None = None,
+    held: Mapping[int, Mapping[str, Any]] | None = None,
 ) -> gltf.Model:
     """The document as a :class:`~gltf.Model`: real glTF hierarchy.
 
@@ -3753,7 +4025,11 @@ def to_model(
     bone's translation and scale keys carry ``place`` as its node does. ``at_time`` instead
     writes the pose of the selected animation at that moment into the nodes and *no* animations
     -- "Export Posed": the meshes stay in the rest pose they were baked in and the joint nodes
-    carry the pose, which is how a skinned file shows one.
+    carry the pose, which is how a skinned file shows one. *held* is a pose nobody keyed
+    (``ClayDoc.live_pose``, ``{uid: {prop: value}}``) laid over the sampled one, as
+    :meth:`ClayDoc.pose_overrides` lays it over the viewport's: "Export Posed" writes what the
+    viewport shows (the 2026-10-14 audit, finding clay-28). It needs *at_time* and is ignored
+    without one.
     """
     kept = kept_objects(doc)
     by_uid = doc._uid_map()
@@ -3770,6 +4046,10 @@ def to_model(
             raise ValueError("to_model's place must be a scale and a translation, with no shear")
         place_s = float(place_scale[0])
     posed = anim.pose(doc.animation(), at_time) if marked and at_time is not None else {}
+    if marked and at_time is not None and held:
+        posed = {uid: dict(props) for uid, props in posed.items()}
+        for uid, props in held.items():
+            posed.setdefault(uid, {}).update(props)
     if marked:
         wanted = {obj.uid for obj in kept}
         for bone in marked:
@@ -3788,7 +4068,10 @@ def to_model(
         mesh_index: int | None = None
         if obj.visible:
             home = rig.nearest_bone(by_uid, obj.uid) if marked else None
-            if (obj.skin is not None or home is not None) and bm.face_count(obj.mesh):
+            # The 2026-10-14 audit, finding clay-document-01: ``obj.skin is not None`` was not
+            # gated on ``marked``, which is empty for ``skinned=False``, so the library's own
+            # ``model.glb`` build (a static model) raised ``KeyError`` on any weighted mesh.
+            if marked and (obj.skin is not None or home is not None) and bm.face_count(obj.mesh):
                 skinned_meshes.append(
                     (obj, _skin_mesh(doc, by_uid, obj, home, joint_of_bone, place))
                 )
@@ -3830,7 +4113,13 @@ def to_model(
     skins: list[gltf.Skin] = []
     if marked:
         lift = np.eye(4) if place is None else place
-        inverse = np.array([np.linalg.inv(lift @ doc._world_in(b.uid, by_uid)) for b in marked])
+        inverse_bind = []
+        for b in marked:
+            try:
+                inverse_bind.append(np.linalg.inv(lift @ doc._world_in(b.uid, by_uid)))
+            except np.linalg.LinAlgError as error:
+                raise el.OpError(ClayDoc._flat_bone_message(b)) from error
+        inverse = np.array(inverse_bind)
         skins.append(
             gltf.Skin(joints=[index_of_uid[bone.uid] for bone in marked], inverse_bind=inverse)
         )

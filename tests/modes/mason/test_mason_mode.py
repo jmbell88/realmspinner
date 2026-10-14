@@ -299,7 +299,11 @@ def test_the_journal_provider_round_trips_a_document() -> None:
     ctx = FakeCtx()
     tab = _tab(ctx, dirty=True)
 
-    encoded = mason_mode.JOURNAL.encode(tab)
+    # The 2026-10-14 audit, finding mason-mode-13: the provider returns a closure and the
+    # archive is built when the write task calls it, never on the frame thread.
+    deferred = mason_mode.JOURNAL.encode(tab)
+    assert callable(deferred)
+    encoded = deferred()
     assert isinstance(encoded, bytes) and encoded
 
     from realmspinner.studio.modes.mason.engine import serialize

@@ -9,7 +9,7 @@ in three of them. This module holds the ones that are genuinely one rule; the
 ones that differ on purpose stay where they are, and say why there.
 
 :func:`viewer_guard` is the same question asked over a *viewer* instead of a
-document list -- what the two pose editors ask, where the unsaved work lives in
+document list -- what Create's Pose stage asks, where the unsaved work lives in
 a ``PoseEditor`` rather than in tabs.
 
 **Import discipline is what makes this importable from anywhere.** stdlib,
@@ -489,15 +489,32 @@ def tab_bar(ctx: Any, state: Any, bar_id: str, close: Any) -> None:
     flags = imgui.TabBarFlags_.reorderable.value | imgui.TabBarFlags_.auto_select_new_tabs.value
     if not imgui.begin_tab_bar(bar_id, flags):
         return
+    # **A change made from outside the bar is pushed into it once.** imgui keeps
+    # its own selected tab and the loop below copies *that* into the state, so
+    # ``cycle`` (Ctrl+Tab), a palette jump or a close that moved to a neighbour
+    # set ``active_uid`` and the very next frame's bar handed the old tab back:
+    # the key looked dead (the 2026-10-14 audit, finding plotter-09). The uid
+    # drawn last frame is remembered, and on the frame the state disagrees with
+    # it the state's tab is selected explicitly. A click needs none of this --
+    # imgui selects the clicked tab itself and the two agree by the frame's end.
+    drawn = getattr(state, "_tab_bar_drawn", None)
+    pushed = drawn != state.active_uid
     for tab in list(state.docs):
         item_flags = imgui.TabItemFlags_.unsaved_document.value if tab.dirty else 0
+        if pushed and tab.uid == state.active_uid:
+            item_flags |= imgui.TabItemFlags_.set_selected.value
         opened, keep = imgui.begin_tab_item(tab.label, True, item_flags)
         if opened:
-            state.activate(tab.uid)
+            # On the frame the state is pushing, imgui still shows its old tab
+            # (the explicit selection lands a frame later), so what the bar
+            # reports as open is the stale half of the disagreement.
+            if not pushed:
+                state.activate(tab.uid)
             imgui.end_tab_item()
         if not keep:
             close(tab)
     imgui.end_tab_bar()
+    state._tab_bar_drawn = state.active_uid
 
 
 def mark_recovered(tab: Any, path: Any, doc: Any = None) -> None:
@@ -524,7 +541,14 @@ def title_for(path: Path | None) -> str:
     return path.name if path is not None else "Untitled"
 
 
-def decode_rgba(path: Path) -> np.ndarray:
+class ImageOverBudget(ValueError):
+    """A file whose declared size is past the caller's own pixel budget.
+
+    Its own type so a batch decoder can stop *this* refusal (the pack cannot
+    take more) without swallowing a ValueError that means the file is bad."""
+
+
+def decode_rgba(path: Path, *, max_pixels: int | None = None) -> np.ndarray:
     """One image file as RGBA. Task thread only.
 
     Through :mod:`.pixelguard` rather than a bare ``Image.open`` because the
@@ -532,10 +556,27 @@ def decode_rgba(path: Path) -> np.ndarray:
     allocates -- ``packwright/rpack.py`` states that rule verbatim at the one
     door that already had it. This is the door every other mode reaches an
     image through, so it is the one place the rule buys the most.
+
+    ``max_pixels`` is the caller's own, tighter ceiling, asked from the header
+    at the same point: the 2026-10-14 audit, finding packwright-06 -- a
+    multi-file drop decoded every file to RGBA before the pack's document-wide
+    budget was consulted, so 40 PNGs of 2000 x 2000 held 640 MB for the 16 the
+    pack would accept. Past it, :class:`ImageOverBudget` is raised before
+    anything allocates.
     """
     from ..core.safeio import pixelguard
 
-    return pixelguard.decode_rgba(path, f"{Path(path).name}")
+    name = f"{Path(path).name}"
+    if max_pixels is None:
+        return pixelguard.decode_rgba(path, name)
+    with pixelguard.opened(path, name) as image:
+        if image.width * image.height > max_pixels:
+            raise ImageOverBudget(
+                f"{name} is {image.width} x {image.height} "
+                f"({image.width * image.height} pixels), more than the "
+                f"{max(max_pixels, 0)} this pack can still take from one image"
+            )
+        return np.asarray(image.convert("RGBA"), dtype=np.uint8).copy()
 
 
 def forget_texture(texture: Any) -> None:
@@ -589,8 +630,9 @@ def _doc_modes() -> tuple[str, ...]:
     (shell-08); this is that fix applied to its sibling.
 
     A mode whose unsaved work is not a ``DocTabs`` with an ``any_dirty`` property
-    would have to be excluded here (Poser's was: a ``PoseEditor``, asked about by
-    :func:`viewer_guard` instead); none is today.
+    would have to be excluded here (Create's Pose stage is not one: its
+    ``PoseEditor`` is asked about by :func:`viewer_guard` instead, and it is
+    not a document mode); none is today.
 
     ``mode_manifest`` is imported here, at the call site, rather than at
     module scope -- this module's own import-discipline rule (see the module

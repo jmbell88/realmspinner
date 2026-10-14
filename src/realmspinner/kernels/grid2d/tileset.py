@@ -211,6 +211,13 @@ class TileMeta:
         object.__setattr__(self, "probability", float(self.probability))
         object.__setattr__(self, "animation", tuple(self.animation))
         object.__setattr__(self, "collision", tuple(self.collision))
+        # ``not >= 0`` rather than ``< 0``: the 2026-10-14 audit (finding
+        # plotter-tiles-03) found ``probability="inf"`` and ``"nan"`` slipping
+        # past a bare ``< 0`` test, loading from a ``.tsx`` / ``.rmap`` and then
+        # taking the Random brush down on the frame thread, where
+        # ``values / values.sum()`` was NaN and ``Generator.choice`` raised.
+        if not math.isfinite(self.probability):
+            raise ValueError("a tile probability must be a finite number")
         if self.probability < 0.0:
             raise ValueError("a tile probability cannot be negative")
         for shape in self.collision:
@@ -371,6 +378,17 @@ class Collection:
             raise ValueError("a collection's ids are ascending")
         if self.columns < 1 or self.cell_w < 1 or self.cell_h < 1:
             raise ValueError("a collection's atlas is at least one cell across")
+        # Built once, here, because ``ids`` is immutable and this record is
+        # frozen: the table cannot fall out of step with it. The 2026-10-14
+        # audit, finding plotter-tiles-04, measured the scan this replaces at
+        # 19 ms a frame for 1000 tiles and 84 ms for 5000 -- the canvas asks
+        # ``uv`` and ``tile_size`` once per visible cell, and the document-size
+        # ceiling allows thousands of tiles, not the "tens" the old docstring
+        # assumed. Not a field, so equality, hashing and ``replace`` are as
+        # they were.
+        object.__setattr__(
+            self, "_slots", {local: slot for slot, local in enumerate(self.ids)}
+        )
 
     @property
     def rows(self) -> int:
@@ -379,14 +397,10 @@ class Collection:
     def slot_of(self, local_id: int) -> int | None:
         """Where a local id sits in the composed atlas, or ``None``.
 
-        A linear scan, deliberately: a collection is tens of tiles, the callers
-        are a draw loop that already memoises per tile id and a click, and a
-        parallel dict would be a second thing to keep in step with ``ids``.
+        A dict lookup, so a draw loop asking per visible cell per frame pays
+        O(1) however many tiles the collection holds.
         """
-        try:
-            return self.ids.index(int(local_id))
-        except ValueError:
-            return None
+        return self._slots.get(int(local_id))
 
 
 def compose_collection(
@@ -597,6 +611,78 @@ class Tileset:
                     f"{len(self.terrains)} terrains at {self.phases} phases need "
                     f"{needed} rows, and this image holds {self.rows}"
                 )
+        # A Wang set may only name tiles this tileset has. The 2026-10-14 audit,
+        # finding plotter-tiles-01: a four-tile ``.tsx`` carrying
+        # ``<wangtile tileid="500">`` was accepted, the Wang brush painted gid
+        # 501 where ``last_gid`` was 4, and the map it saved was refused on the
+        # way back in ("uses tile 501, which none of this map's tilesets
+        # accounts for"); a negative id painted the previous tileset's tile.
+        # Dropped rather than refused, as ``read_wang_model`` already skips a
+        # malformed wangid: it is one tile of one set, and refusing the file
+        # would lose the whole map.
+        object.__setattr__(self, "wangsets", self._trimmed_wangsets())
+        # Likewise the per-tile records. The 2026-10-14 audit, findings
+        # plotter-map-11 and plotter-tiles-02: a ``.tsx`` or ``.rmap`` carrying
+        # ``<frame tileid="-5">`` was accepted and survived the round trip, and
+        # the canvas turned ``firstgid + local_id`` into a negative gid and
+        # raised ``OverflowError`` on the frame thread, while the tileset
+        # editor's preview raised ``IndexError`` from ``uv``. A frame naming a
+        # tile the set lacks is dropped, and so is a record keyed on one (its
+        # animation would otherwise play on whatever the *next* tileset's tile
+        # of that number is). One bad frame loses the frame, not the map.
+        object.__setattr__(self, "tiles", self._trimmed_tiles())
+
+    def has_tile(self, local_id: int) -> bool:
+        """Whether ``local_id`` names a tile this set has.
+
+        A collection's ids may be sparse, so this is not a bare range test.
+        """
+        local = int(local_id)
+        if self.collection is not None:
+            return local in self.collection.ids
+        return 0 <= local < self.tile_count
+
+    def _trimmed_tiles(self) -> dict[int, TileMeta]:
+        out: dict[int, TileMeta] = {}
+        for local, meta in self.tiles.items():
+            if not self.has_tile(local):
+                continue
+            kept = self._meta_in_range(meta)
+            if not kept.is_empty:
+                out[local] = kept
+        return out
+
+    def _meta_in_range(self, meta: TileMeta) -> TileMeta:
+        """``meta`` without the animation frames that name a missing tile."""
+        frames = meta.animation
+        if not frames or all(self.has_tile(frame.local_id) for frame in frames):
+            return meta
+        return replace(
+            meta, animation=tuple(f for f in frames if self.has_tile(f.local_id))
+        )
+
+    def _trimmed_wangsets(self) -> tuple[Any, ...]:
+        """The Wang sets with every wangtile this tileset lacks removed.
+
+        A set with nothing to drop is returned as the same object, so identity
+        still says "same set".
+        """
+        if not self.wangsets:
+            return self.wangsets
+        held: Any = (
+            set(self.collection.ids)
+            if self.collection is not None
+            else range(self.tile_count)
+        )
+        out = []
+        for wangset in self.wangsets:
+            tiles = getattr(wangset, "tiles", None)
+            if not tiles:
+                out.append(wangset)
+                continue
+            kept = {local: wangid for local, wangid in tiles.items() if local in held}
+            out.append(wangset if len(kept) == len(tiles) else replace(wangset, tiles=kept))
+        return tuple(out)
 
     # -- geometry ------------------------------------------------------------
 
@@ -757,6 +843,12 @@ class Tileset:
         the entry.
         """
         tiles = dict(self.tiles)
+        # ``copy.copy`` below skips ``__post_init__``, so the range rule is
+        # applied here: an animation frame pasted or typed for a tile this set
+        # lacks would otherwise reach the canvas (the 2026-10-14 audit, finding
+        # plotter-tiles-02).
+        if meta is not None:
+            meta = self._meta_in_range(meta)
         if meta is None or meta.is_empty:
             tiles.pop(int(local_id), None)
         else:

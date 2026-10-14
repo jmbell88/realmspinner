@@ -1,6 +1,9 @@
 """Regression tests for the 2026-09-26 audit's `mcp/` findings owned by wave
 3, fixer 8: `agents-host-03` (`bridge.py`), `agents-protocol-01` (`protocol.py`),
-and `agents-protocol-02`/`03`/`04`/`05` (`pipe.py`).
+and `agents-protocol-03`/`04`/`05` (`pipe.py`). `agents-protocol-02`'s pin on
+`accept()`'s old double read of `self._listener` is gone: the 2026-10-14 audit
+(finding agents-06) moved the accept loop onto an acceptor thread, and
+`tests/mcp/test_audit_2026_10_14_f20.py` pins the cleared-mid-accept case there.
 """
 
 from __future__ import annotations
@@ -109,85 +112,6 @@ def test_a_request_id_of_nan_or_infinity_is_not_echoed_back_as_invalid_json(bad_
     # happily accepts the very tokens this reply must no longer contain.
     parsed = json.loads(text)
     assert parsed["error"]["code"] == -32600
-
-
-# =============================================================================
-# agents-protocol-02: pipe.py -- accept() must not re-read a cleared listener.
-# =============================================================================
-
-
-class _FakeConn:
-    def close(self) -> None:
-        pass
-
-
-class _StubListener:
-    """Stands in for the real `mpconn.Listener`. `.accept()` must only ever
-    be reached by code that captured `self._listener` into a local variable
-    *before* calling it -- see `_RacyListenerServer`'s own docstring for
-    exactly what race this reproduces."""
-
-    def __init__(self) -> None:
-        self.accept_calls = 0
-
-    def accept(self) -> _FakeConn:
-        self.accept_calls += 1
-        return _FakeConn()
-
-
-class _RacyListenerServer(pipe.Server):
-    """A `Server` whose `_listener` attribute answers its first read with the
-    real (stub) listener and every read after with `None` -- reproducing,
-    deterministically and with no real thread timing, `close()` landing in
-    the gap between `accept()`'s own `while self._listener is not None:`
-    guard (read #1) and the very next statement's separate, second read of
-    the same name to call `.accept()` on it (read #2). The 2026-09-26 audit
-    (agents-protocol-02) found that gap real: a GIL switch between two
-    statements is not contrived, and a `close()` running in it sets
-    `self._listener = None` right after the guard already passed, so the
-    old code's second read saw `None` and `None.accept()` raised
-    `AttributeError` -- not the `OSError` the next line is written to catch
-    -- ending the accept loop's thread outright.
-    """
-
-    def __init__(self, home) -> None:
-        super().__init__(home)
-        self._racy_reads = 0
-
-    @property
-    def _listener(self):
-        self._racy_reads += 1
-        return self._racy_stub if self._racy_reads == 1 else None
-
-    @_listener.setter
-    def _listener(self, value) -> None:
-        self._racy_stub = value
-
-
-def test_accept_survives_the_listener_being_cleared_between_its_guard_and_its_dereference(
-    tmp_path,
-) -> None:
-    server = _RacyListenerServer(tmp_path)
-    stub = _StubListener()
-    server._listener = stub
-    # The fast `_handshake` reject path (`key is None`), so the stub
-    # connection this test hands back is dropped cleanly rather than this
-    # test also having to fake out a real crypto exchange.
-    server._authkey = None
-
-    try:
-        result = server.accept()
-    except AttributeError as exc:  # pragma: no cover -- the bug this pins
-        pytest.fail(
-            f"accept() re-read self._listener after it was cleared and "
-            f"crashed calling .accept() on None: {exc!r}"
-        )
-
-    assert result is None
-    assert stub.accept_calls == 1, (
-        "accept() must read self._listener exactly once per iteration and "
-        "call .accept() on that same reference, never re-read the attribute"
-    )
 
 
 # =============================================================================

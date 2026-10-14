@@ -72,6 +72,7 @@ __all__ = [
     "PROGRAM_MAX_REPEAT",
     "PROGRAM_MAX_STEPS",
     "PROGRAM_MAX_VARIABLES",
+    "PROGRAM_MAX_VISITS",
     "STEP_KINDS",
     "UID_BEARING_KEYS",
     "LIVE_KINDS",
@@ -112,6 +113,17 @@ address."""
 PROGRAM_MAX_REPEAT = 64
 """The most iterations one ``repeat`` (or the ``array`` sugar built on it)
 may produce -- the product of every named range's own length."""
+
+PROGRAM_MAX_VISITS = 2048
+"""The most steps the compiler may *visit* in one program, counted for every
+step of every pass through every ``repeat`` body -- whether or not the step
+emits a tool call. The 2026-10-14 audit, finding agents-clay-01: only emitted
+calls counted (:data:`PROGRAM_MAX_CALLS`), so three nested 64-iteration
+``repeat``s around a body of ``let``s emitted nothing, ran 64^3 = 262,144
+passes (2.7 s for one ``let``, 19.5 s for eight) on the frame thread, and
+only then finished -- before ``PROGRAM_DEADLINE_S`` even starts. Eight times
+the call cap: a body that is mostly ``let``/``if``/``group`` bookkeeping has
+room, a program that is nothing but bookkeeping does not."""
 
 PROGRAM_MAX_NESTING = 4
 """How many ``steps`` lists may sit inside one another -- the top-level list
@@ -220,6 +232,11 @@ per its own turn in the same fold a real tool call's entry runs in, so a
 program with a live step is still one atomic undo step start to finish."""
 
 _CREATOR_KINDS = frozenset({"add", "mesh"})
+_MERGING_OPS = frozenset({"join", "union", "difference", "intersection"})
+"""The object-mode ops that merge the selection into its topmost object (``clay_ops``'s ``join``
+and the three booleans), consuming every other selected object."""
+_REGROUPING_OPS = frozenset({"group", "ungroup", "parent-to-last", "clear-parent", "add-bone"})
+"""Object-mode ops that change who is whose parent, and with it the outliner's order."""
 _WRAPPER_KINDS = frozenset({"repeat", "array", "mirror", "group", "let", "if"})
 _TOP_LEVEL_KEYS = frozenset({"variables", "steps", "dry_run"})
 
@@ -1003,6 +1020,10 @@ def _eval_params_tree(value: Any, scope: dict[str, float], path: str, field_name
 class _Obj:
     alive: bool = True
     consumed_by: str | None = None
+    order: int = 0
+    """Creation order within this program -- a new object is appended to the document, so among
+    the program's own objects the earlier made is the topmost in the outliner (see
+    :meth:`_Compiler._consume_by_op`)."""
 
 
 class _Scope(dict):
@@ -1147,7 +1168,7 @@ def _register_id(
             f"id {new_id!r} collides with an object already in the live document.",
             field=field_name, path=path,
         )
-    objects[new_id] = _Obj()
+    objects[new_id] = _Obj(order=len(objects))
     return new_id
 
 
@@ -1175,6 +1196,21 @@ class _Compiler:
     groups: dict[str, tuple[str, ...]] = field(default_factory=dict)
     calls: list[tuple[Any, ...]] = field(default_factory=list)
     expanded: int = 0
+    visits: int = 0
+    regrouped: bool = False
+    """True once an op that reparents or groups has been compiled: the outliner's order is then
+    no longer the order the program made its objects in."""
+
+    def visit(self, path: str) -> None:
+        """Count one step visited against :data:`PROGRAM_MAX_VISITS` -- see that constant for the
+        incident."""
+        self.visits += 1
+        if self.visits > PROGRAM_MAX_VISITS:
+            raise _err(
+                f"program visits over PROGRAM_MAX_VISITS ({PROGRAM_MAX_VISITS}) steps "
+                "once its repeats are expanded -- fewer or smaller repeats.",
+                field="steps", path=path,
+            )
 
     def _budget(self, units: int, path: str) -> None:
         self.expanded += units
@@ -1257,7 +1293,7 @@ class _Compiler:
         elif kind == "mirror":
             self._compile_mirror(body, kind_path, scope)
         elif kind == "group":
-            self._compile_group(body, kind_path)
+            self._compile_group(body, kind_path, scope)
         elif kind == "let":  # pragma: no cover - intercepted by _compile_top
             raise AssertionError("let is handled by the caller, which owns the scope")
         elif kind == "if":  # pragma: no cover - intercepted by _compile_top
@@ -1433,7 +1469,7 @@ class _Compiler:
                 f"{op_name!r} is an element-mode op; clay_program only compiles object-mode ops.",
                 field="steps", path=path,
             )
-        refs = self._refN(body["uids"], path)
+        refs, names = self._refN_with_names(body["uids"], path)
         self._emit("clay_select", {"uids": refs}, path)
         args: dict[str, Any] = {"name": op_name}
         if "params" in body:
@@ -1444,6 +1480,36 @@ class _Compiler:
                 k: _num(v, scope, f"{path}.params.{k}", "steps") for k, v in raw.items()
             }
         self._emit("clay_op", args, path)
+        self._consume_by_op(op_name, refs, names)
+
+    def _consume_by_op(self, op_name: str, refs: list[Any], names: list[str]) -> None:
+        """Mark the program ids an object-mode op takes out of the document dead, the way the
+        ``delete`` step does.
+
+        The 2026-10-14 audit, finding agents-clay-06: only ``delete`` did, so a ``join`` followed
+        by a step naming one of the merged objects compiled, ran four calls, then refused at run
+        time with "no object named 'b'" and rolled everything back. ``join`` and the three
+        booleans keep the topmost selected object in the outliner and absorb the others; ``delete``
+        takes all of them. A program's own objects are appended to the document in the order it
+        makes them, so among them the earliest made survives -- but only while that is knowable:
+        a live uid in the selection has an unknown rank, and an op that reparents or groups
+        changes the outliner's order, so in either case nothing is marked (a stale reference
+        then still refuses at run time, as before)."""
+        if op_name in _REGROUPING_OPS:
+            self.regrouped = True
+            return
+        if op_name == "delete":
+            dead = list(names)
+        elif op_name in _MERGING_OPS:
+            if self.regrouped or len(names) != len(refs) or len(names) < 2:
+                return
+            ranked = sorted(set(names), key=lambda n: self.objects[n].order)
+            dead = ranked[1:]
+        else:
+            return
+        for name in dead:
+            self.objects[name].alive = False
+            self.objects[name].consumed_by = op_name
 
     def _compile_select(self, body: dict, path: str, scope: dict[str, float]) -> None:
         del scope
@@ -1476,6 +1542,17 @@ class _Compiler:
         if not isinstance(ranges, dict) or not ranges:
             raise _err(
                 "ranges must be a non-empty object of name -> range/list.", field="steps", path=path
+            )
+        # The 2026-10-14 audit, finding agents-clay-02: every range was evaluated, and then
+        # ``_cartesian`` concatenated a tuple per name, before ``_bind`` reached its own variable
+        # cap -- a 3.9 MB object of 200,000 one-value ranges held the frame thread for 118 s.
+        # Names are distinct scope entries, so more of them than the cap can never bind: refused
+        # before any range is touched.
+        if len(ranges) > PROGRAM_MAX_VARIABLES:
+            raise _err(
+                f"a repeat names {len(ranges)} ranges, over PROGRAM_MAX_VARIABLES "
+                f"({PROGRAM_MAX_VARIABLES}) variables in scope.",
+                field="steps", path=path,
             )
         names = list(ranges)
         value_lists: list[list[float]] = []
@@ -1514,17 +1591,23 @@ class _Compiler:
                 )
                 if step == 0.0:
                     raise _err(f"range {name!r}'s step must not be 0.", field="steps", path=path)
-                values = []
-                v = lo
-                guard = 0
-                while (step > 0 and v < hi) or (step < 0 and v > hi):
-                    values.append(v)
-                    v += step
-                    guard += 1
-                    if guard > PROGRAM_MAX_REPEAT:
-                        break
-                if not values:
+                # The 2026-10-14 audit, findings agents-clay-03 and -07: values used to be built
+                # by ``v += step`` (0.1 summed ten times is 0.9999999999999999, below ``to``, so
+                # ``from 0 to 1 step 0.1`` made eleven values), and a range past the cap was cut
+                # off at 65 and reported as 65. Each value is now ``lo + k*step``, and the count
+                # is worked out from the span first, so an oversize range is refused with the
+                # number it asked for.
+                count = _span_count(lo, hi, step)
+                if count is None or count > PROGRAM_MAX_REPEAT:
+                    asked = "more than" if count is None else str(count)
+                    raise _err(
+                        f"range {name!r} produces {asked} values, over PROGRAM_MAX_REPEAT "
+                        f"({PROGRAM_MAX_REPEAT}).",
+                        field="steps", path=path,
+                    )
+                if count == 0:
                     raise _err(f"range {name!r} produces no values.", field="steps", path=path)
+                values = [lo + k * step for k in range(count)]
             else:
                 raise _err(
                     f"range {name!r} must be "
@@ -1567,6 +1650,13 @@ class _Compiler:
         if count_f != int(count_f) or count_f < 1:
             raise _err("count must be a positive whole number.", field="steps", path=path)
         count = int(count_f)
+        if count > PROGRAM_MAX_REPEAT:
+            # The 2026-10-14 audit, finding agents-clay-07: this used to surface as "expands to
+            # 65 iterations", a number the agent never asked for.
+            raise _err(
+                f"array count {count} is over PROGRAM_MAX_REPEAT ({PROGRAM_MAX_REPEAT}).",
+                field="steps", path=path,
+            )
         var = body.get("var", "i")
         if not isinstance(var, str) or not var:
             raise _err("var must be a non-empty string.", field="steps", path=path)
@@ -1614,13 +1704,18 @@ class _Compiler:
             mirrored["rotation"] = r
         self.compile_step({"add": mirrored}, f"{path}.mirrored", scope, 1)
 
-    def _compile_group(self, body: dict, path: str) -> None:
+    def _compile_group(self, body: dict, path: str, scope: dict[str, float]) -> None:
         for required in ("id", "members"):
             if required not in body:
                 raise _err(f"group requires {required}.", field="steps", path=path)
         gid = body["id"]
         if not isinstance(gid, str) or not gid:
             raise _err("group id must be a non-empty string.", field="steps", path=path)
+        # The 2026-10-14 audit, finding agents-clay-04: the tool says an id field takes a
+        # {name}-templated string inside a repeat, but a group's id and members were used
+        # verbatim, so ``group g_{i} members [leg_{i}]`` was refused as "unknown id 'leg_{i}'" and
+        # a group per iteration could not be declared. Rendered the way ``add`` renders its id.
+        gid = _render_id(gid, scope, path, "steps")
         if gid in self.objects or gid in self.groups:
             raise _err(f"id {gid!r} is already used in this program.", field="steps", path=path)
         members = body["members"]
@@ -1630,6 +1725,7 @@ class _Compiler:
         for m in members:
             if not isinstance(m, str):
                 raise _err("each member must be an id or group name.", field="steps", path=path)
+            m = _render_id(m, scope, path, "steps")
             if m in self.groups:
                 flat.extend(self.groups[m])
                 continue
@@ -1708,11 +1804,21 @@ class _Compiler:
         condition = body["condition"]
         if not isinstance(condition, str) or not condition:
             raise _err("condition must be a non-empty string.", field="steps", path=path)
+        # The 2026-10-14 audit, finding agents-clay-05: an ``add`` id may be any string, but a
+        # condition can only spell an identifier, so ``front-left``, ``pi``, ``wheel.L`` and
+        # ``1st`` compiled as ids and then every fact naming them was refused as "takes a bare id
+        # here" or "bad token", never saying the name was the cause. Said at the refusal.
         try:
-            ast = _parse_condition(condition)
-        except _ExprError as exc:
-            raise _err(str(exc), field="steps", path=path) from None
-        _validate_condition(ast, self.objects, self.groups, scope, path)
+            try:
+                ast = _parse_condition(condition)
+            except _ExprError as exc:
+                raise _err(str(exc), field="steps", path=path) from None
+            _validate_condition(ast, self.objects, self.groups, scope, path)
+        except ProgramError as exc:
+            hint = _unnameable_hint(condition, [*self.objects, *self.groups])
+            if hint:
+                raise _err(f"{exc.reason} {hint}", field="steps", path=path) from None
+            raise
         # ``scope`` is copied, not aliased, for the identical reason
         # ``clay_material``'s color and every other numeric field already
         # copies its own evaluated result: a *later* step's ``let`` rebinding
@@ -1720,6 +1826,27 @@ class _Compiler:
         # compiled condition would see when it finally runs.
         args = {"condition": condition, "ast": ast, "scope": dict(scope)}
         self._emit_live("assert", args, path)
+
+
+_BARE_ID_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _unnameable_hint(condition: str, ids: list[str]) -> str:
+    """Why a refused condition may be refused for an id's own spelling: the ids it mentions that
+    a condition cannot write bare. ``""`` when none of them is in it."""
+    bad = [
+        i
+        for i in ids
+        if i in condition
+        and (_BARE_ID_RE.fullmatch(i) is None or i in _KEYWORDS or i == "pi")
+    ]
+    if not bad:
+        return ""
+    return (
+        f"({', '.join(repr(i) for i in bad)} cannot be written in a condition: an id there is "
+        "letters, digits and underscores, not starting with a digit, and not and/or/not/pi -- "
+        "give the object an id that is.)"
+    )
 
 
 def _negate_grammar(value: Any) -> Any:
@@ -1734,6 +1861,33 @@ def _negate_grammar(value: Any) -> Any:
     if isinstance(value, str):
         return f"-({value})"
     return value
+
+
+def _span_count(lo: float, hi: float, step: float) -> int | None:
+    """How many values ``lo + k*step`` lie strictly before *hi* (after it, for a negative step) --
+    ``None`` when the span is not a finite number of steps, which is always over the cap.
+
+    ``ceil(span / step)`` is the estimate; the two loops settle it against the very values the
+    range will hold, because ``1.1 / 0.1`` is 11.000000000000002 and its twelfth value is not
+    below 1.1. Both loops are bounded: the estimate is only trusted near the cap."""
+    ratio = (hi - lo) / step
+    if not math.isfinite(ratio):
+        return None
+    if ratio <= 0.0:
+        return 0
+    if ratio > PROGRAM_MAX_REPEAT + 1:
+        return None if ratio >= 1e15 else math.ceil(ratio)
+
+    def inside(k: int) -> bool:
+        v = lo + k * step
+        return v < hi if step > 0 else v > hi
+
+    n = math.ceil(ratio)
+    while n > 0 and not inside(n - 1):
+        n -= 1
+    while inside(n):
+        n += 1
+    return n
 
 
 def _cartesian(lists: list[list[float]]) -> list[tuple[float, ...]]:
@@ -1815,6 +1969,7 @@ def _compile_top(
         )
     for i, step in enumerate(steps):
         step_path = f"{path}[{i}]"
+        compiler.visit(step_path)
         if not isinstance(step, dict) or len(step) != 1:
             raise _err(
                 "each step must be an object with exactly one kind key.",

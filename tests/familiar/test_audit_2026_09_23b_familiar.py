@@ -93,7 +93,7 @@ def _character_plan_action() -> dict:
         "overrides": {"family": "goblin", "theme": "swamp", "animations": {"walk": None}},
         "summary": {
             "species": "Goblin", "theme": "swamp", "movements": ["walk"],
-            "directions": None, "cells": 24, "estimate_minutes": 3.5, "ignored": [],
+            "directions": None, "estimate_minutes": 3.5, "ignored": [],
         },
     }
 

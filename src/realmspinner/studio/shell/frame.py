@@ -414,7 +414,6 @@ class FrameMixin:
         viewer = self.viewer
         if viewer is not None and (
             viewer.pending is not None
-            or viewer.stripping
             or viewer.camera.auto_rotate
             or not viewer.camera.settled()
         ):
@@ -465,6 +464,16 @@ class FrameMixin:
             if sirens_audio.playing():
                 return True
         inker = state.inker
+        # An armed Inker export, in every mode (it is stepped beside
+        # ``journal.pump`` for that reason). The 2026-10-14 audit, finding
+        # shell-shell-pkg-04: ``pump_export`` flattens exactly one frame per app
+        # frame, no task key is busy until ``_submit_export`` and nothing else on
+        # screen moves, so an idle user watching an N-frame export had it
+        # stepped at IDLE_FPS -- five times slower than a wiggled mouse. Gated
+        # on the armed state, not on time, so it stops holding the cadence the
+        # frame the last leg is submitted.
+        if inker is not None and getattr(inker, "export", None) is not None:
+            return True
         tab = None if inker is None else inker.active
         return tab is not None and bool(getattr(tab, "playing", False))
 
@@ -495,6 +504,7 @@ class FrameMixin:
         # the pids ``Popen`` returned, which under a uv venv are trampolines
         # rather than the interpreters holding the weights
         # (dev/measurements/2026-08-22-trampoline-child-pids.md).
+        # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
         summary = memlog.summary(children=winjob.measured_pids())
         if summary is not None:
             # The frame rate rides along on the same line: a session that dies
@@ -818,6 +828,10 @@ class FrameMixin:
         # to "is the layout editor open", which every splitter reads (P5.4).
         from .. import layout_edit
 
+        # Closed first when this mode has no skeleton to edit, so a switch out of
+        # Inker cannot leave every splitter dead (shell-documents-04, the
+        # 2026-10-14 audit).
+        layout_edit.settle(ctx)
         layout_mod.begin_frame(layout_edit.ensure(ctx.state).open)
         # And one record of where every *control* that a tour can point at
         # ended up. Cleared here rather than in ``layout`` so the two clears

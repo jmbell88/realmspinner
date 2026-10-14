@@ -933,6 +933,13 @@ class PaintOps:
             layer = self._convert_target(uid, before)
             if layer is not None:
                 layer.pixels[:, :] = converted
+        # Stamped as well as invalidated: ``invalidate_all`` deliberately stamps
+        # no frame, and a cel linked into another frame is rewritten in place
+        # here, so that frame's cached flatten (onion skin, playback, the
+        # timeline's thumbnail) went on showing the previewed colours -- the
+        # 2026-10-14 audit, finding inker-document-11. ``_restore_convert``
+        # below does the same for the cancel.
+        self._stamp_all()
         self.invalidate_all()
         return True
 
@@ -965,6 +972,7 @@ class PaintOps:
             layer = self._convert_target(uid, before)
             if layer is not None:
                 layer.pixels[:, :] = before
+        self._stamp_all()  # ``preview_convert``'s reason: a linked cel's other frames
         self.invalidate_all()
 
     def end_convert(self: Document) -> None:

@@ -19,9 +19,10 @@ from ..... import focus, widgets
 from .....manual import render as manual_render
 from .....panes import model_gate
 from ... import mode as muse_mode
+from .. import brief as muse_brief
 
-#: This pane's key in the focus ring.
-FOCUS_PANE = "muse-recipe"
+#: The bar's ring, shared; see ``brief.FOCUS_PANE``.
+FOCUS_PANE = muse_brief.FOCUS_PANE
 
 #: The scheduler and guidance choices, and their bounds are
 #: ``_jobs_music._SCHEDULERS`` / ``_CFG_TYPES``. Listed here as (key, label)

@@ -24,13 +24,14 @@ import io
 import json
 import math
 import zipfile
+import zlib
 from typing import Any
 
 import numpy as np
 
 from .....core.safeio import zipguard
 from ...plotter.engine.pngio import png_bytes
-from .document import MAX_DISPLAY_NAME_LEN, PackDoc, Source, check_name, new_uid
+from .document import PackDoc, Source, check_display_name, check_name, new_uid
 from .layout import PackSettings
 from .sources import EMPTY_META, SliceSpec, Sprite, SpriteMeta
 
@@ -46,7 +47,7 @@ _EPOCH = (1980, 1, 1, 0, 0, 0)
 # is far past any atlas document this editor produces (a few hundred sprites of
 # a megapixel each is tens of megabytes) and far short of a machine's RAM, so
 # the ceiling is only ever hit by a file that was not written by us. The
-# ``clay/serialize.py`` constant verbatim, read from module globals at call time
+# ``kernels/mesh/serialize.py`` constant verbatim, read from module globals at call time
 # for its reason too: a test lowers it rather than building a gigabyte.
 MAX_DECOMPRESSED_BYTES = 1 << 30
 
@@ -67,7 +68,7 @@ MAX_SOURCE_PIXELS = 16_000_000
 # gigabytes of RGBA before the loop that reads them ever finishes. No atlas
 # this app can pack ever holds more content than the largest atlas it can
 # produce -- ``kernels.sheet.MAX_ATLAS_PX`` (8192) squared -- which is the
-# same figure ``studio.pixelguard.MAX_DECODE_PIXELS`` is already set to and
+# same figure ``core.safeio.pixelguard.MAX_DECODE_PIXELS`` is already set to and
 # for the identical reason stated there. The number is written here rather
 # than imported, the same call :data:`MAX_SOURCE_PIXELS` above already makes
 # about ``service.validation.MAX_IMAGE_PIXELS``: this package's own import
@@ -76,6 +77,30 @@ MAX_SOURCE_PIXELS = 16_000_000
 # trade than one number written twice on purpose. Module-level so a test
 # lowers it rather than decoding anywhere near a document this size.
 MAX_DOCUMENT_PIXELS = 8192 * 8192
+
+# The 2026-10-14 audit, finding packwright-10: ``pack.json`` had no ceiling of
+# its own (its bound was the whole-archive gigabyte above), and ``json.loads``
+# expands a manifest into Python objects several times its size before any
+# source-count check runs -- a 16 MB manifest cost 86 MB of heap, so one at the
+# archive ceiling would cost about 5.5 GB on a task thread. A manifest for the
+# 4096-source maximum is one to two megabytes, so eight is far past any file this
+# editor writes. Read at call time so a test lowers it.
+MAX_MANIFEST_BYTES = 8 << 20
+
+# The slice list is the one part of a manifest no other ceiling counts: every
+# source may carry any number of them and each becomes a ``SliceSpec``. Asked of
+# the parsed lists before one is built. Counted over the whole document, which
+# also bounds each source, and well inside what :data:`MAX_MANIFEST_BYTES` can
+# hold, so it refuses only a manifest that was not written by us.
+MAX_SLICES_PER_DOCUMENT = 65536
+
+# The 2026-10-14 audit, finding packwright-08: the archive-wide gigabyte bounds
+# the *sum* of members once, but a manifest could name one member from many
+# entries and pay a full inflate for each (a 66 KB file made ``read_rpack``
+# inflate 6.7 GB). A member is now bounded by what a legal image can be -- the
+# per-image pixel ceiling at four bytes, plus the PNG's own filter bytes and
+# chunk overhead -- and each member may be named once.
+MAX_SOURCE_MEMBER_BYTES = MAX_SOURCE_PIXELS * 4 + (16 << 20)
 
 
 def _rect(rect: Any) -> dict[str, int]:
@@ -213,7 +238,7 @@ def read_rpack(data: bytes) -> PackDoc:
     # the manifest parse included. They used to sit in the gap between the open
     # and the ``with``, where a refusal -- the one thing they exist to do --
     # left the archive open with nothing to close it but the collector. The
-    # ``clay/serialize.read_rblk`` and ``rmap.read_rmap`` shape, third instance.
+    # ``kernels/mesh/serialize.read_rblk`` and ``rmap.read_rmap`` shape, third instance.
     with zf:
         # Before anything is read: the directory says what every member unpacks
         # to, and the cheapest place to refuse an archive that claims more than
@@ -227,10 +252,28 @@ def read_rpack(data: bytes) -> PackDoc:
             )
 
         try:
+            declared = int(zf.getinfo(MANIFEST).file_size)
+        except KeyError as exc:
+            raise ValueError("this is not a Realmspinner atlas document") from exc
+        if declared > MAX_MANIFEST_BYTES:
+            raise ValueError(
+                f"this atlas document's manifest is {declared} bytes; "
+                f"{MAX_MANIFEST_BYTES} is the most this build will read"
+            )
+        # ``BadZipFile``/``zlib.error`` (a damaged stream or a bad CRC) and
+        # ``RecursionError`` (a deeply nested manifest) as well: the 2026-10-14
+        # audit, finding packwright-01. Neither is a ``ValueError``, both
+        # callers frame only that, so a bit-rotted or hostile file reached the
+        # user as the generic log pointer with no file or reason named.
+        # ``kernels/mesh/serialize.py`` already catches the same shapes.
+        try:
             manifest = json.loads(zf.read(MANIFEST))
         except (
             zipfile.BadZipFile,
+            zlib.error,
+            EOFError,
             KeyError,
+            RecursionError,
             UnicodeDecodeError,
             json.JSONDecodeError,
         ) as exc:
@@ -278,6 +321,8 @@ def read_rpack(data: bytes) -> PackDoc:
         # and the decode it guards stay in one function, the way the per-image
         # ceiling already does.
         budget = [MAX_DOCUMENT_PIXELS]
+        slices_left = MAX_SLICES_PER_DOCUMENT
+        imaged: set[str] = set()
         for entry in entries:
             if not isinstance(entry, dict):
                 raise ValueError("this atlas document holds a malformed source")
@@ -290,12 +335,33 @@ def read_rpack(data: bytes) -> PackDoc:
                 raise ValueError(f"this atlas document holds {key!r} twice")
             seen.add(key)
             name = str(entry.get("image", ""))
+            if name in imaged:
+                # The 2026-10-14 audit, finding packwright-08: the writer emits
+                # ``sources/<index>.png`` uniquely, and a manifest naming one
+                # member from many entries pays a full inflate per entry.
+                raise ValueError(
+                    f"this atlas document names {name} for more than one source"
+                )
+            imaged.add(name)
             try:
-                raw = zf.read(name)
+                info = zf.getinfo(name)
             except KeyError as exc:
                 raise ValueError(
                     f"this atlas document names a source image the file does not "
                     f"carry ({name})"
+                ) from exc
+            if int(info.file_size) > MAX_SOURCE_MEMBER_BYTES:
+                raise ValueError(
+                    f"this atlas document's {name} is {int(info.file_size)} bytes; "
+                    f"no image this build will open is past {MAX_SOURCE_MEMBER_BYTES}"
+                )
+            try:
+                raw = zf.read(info)
+            except (zipfile.BadZipFile, zlib.error, EOFError) as exc:
+                # A stored member whose zip CRC is wrong, or a damaged deflate
+                # stream: the 2026-10-14 audit, finding packwright-01.
+                raise ValueError(
+                    f"this atlas document's {name} is damaged ({exc})"
                 ) from exc
             display = str(entry.get("name", key))
             override = str(entry.get("name_override", ""))
@@ -312,13 +378,18 @@ def read_rpack(data: bytes) -> PackDoc:
             # wrote. Control characters and the filesystem's length are bounded.
             try:
                 check_name(override)
-                if len(display) > MAX_DISPLAY_NAME_LEN or any(ch < " " for ch in display):
-                    raise ValueError(
-                        f"a sprite name is at most {MAX_DISPLAY_NAME_LEN} characters "
-                        "and cannot hold a control character"
-                    )
+                check_display_name(display)
             except ValueError as exc:
                 raise ValueError(f"this atlas document names {key!r} badly: {exc}") from exc
+            raw_slices = entry.get("slices")
+            if isinstance(raw_slices, list):
+                slices_left -= len(raw_slices)
+                if slices_left < 0:
+                    raise ValueError(
+                        f"this atlas document holds more than "
+                        f"{MAX_SLICES_PER_DOCUMENT} slices; that is the most "
+                        "this build will open"
+                    )
             sources.append(
                 Source(
                     uid=new_uid(),
@@ -424,7 +495,13 @@ def _pixels_from(raw: bytes, name: str, budget: list[int]) -> np.ndarray:
     from PIL import Image
 
     try:
-        image = Image.open(io.BytesIO(raw))
+        # ``formats=["PNG"]``: the 2026-10-14 audit, finding packwright-15. Any
+        # member named ``sources/N.png`` was decoded as whatever Pillow
+        # identified, so a BMP was accepted and an EPS member started Ghostscript
+        # on ``load`` -- a child outside the ``winjob`` kill-on-close job that
+        # the AST scan cannot see, because the ``Popen`` is inside Pillow. The
+        # writer only ever emits PNG.
+        image = Image.open(io.BytesIO(raw), formats=["PNG"])
     except (OSError, Image.DecompressionBombError) as exc:
         raise ValueError(
             f"this atlas document's {name} is not an image this build can read"

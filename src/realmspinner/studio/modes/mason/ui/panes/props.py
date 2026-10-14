@@ -24,6 +24,7 @@ package asks of a caller, restated in that module's own docstring), then the
 
 from __future__ import annotations
 
+import math
 import weakref
 from dataclasses import replace
 from typing import Any
@@ -33,7 +34,7 @@ from imgui_bundle import imgui
 
 from ......kernels.geom3d import gltf
 from ......kernels.geom3d import math3d as m3
-from ..... import controls, icons, tokens, widgets
+from ..... import controls, docmodes, icons, tokens, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
 from ... import mode as mason_mode
@@ -41,6 +42,30 @@ from ...engine import document as md
 from ...engine import gltfout
 from ...engine import nodes as nd
 from ...engine import scene as mscene
+
+#: The least gap the pane keeps between a spot's inner and outer cone (radians):
+#: ``set_props`` refuses an inner at or past the outer.
+_CONE_GAP = 0.01
+
+
+def _finite(ctx: Any, field: str, *values: Any) -> bool:
+    """Whether every typed ``value`` is a finite number; otherwise say which field
+    was refused (when there is a ``ctx`` to say it to) and write nothing.
+
+    The 2026-10-14 audit, finding mason-mode-09: since the engine's setters began
+    refusing non-finite values (the 2026-10-03 audit's mason-11), a typed
+    ``1e999`` -- imgui hands back +inf -- reached them from this pane through
+    ``max(0.0, x)``, which passes inf, and raised out of the draw: the pane guard
+    replaced Properties with its failure placeholder, and three of those in a row
+    tripped its breaker. The next frame shows the stored value again.
+    """
+    try:
+        ok = all(math.isfinite(float(v)) for v in values)
+    except (TypeError, ValueError):
+        ok = False
+    if not ok and ctx is not None:
+        docmodes.refuse(ctx, f"{field} must be a finite number -- the entry was ignored.")
+    return ok
 
 
 def draw(ctx: Any) -> None:
@@ -68,11 +93,11 @@ def _body(ctx: Any) -> None:
     imgui.begin_disabled(tab.saving)
     _identity(doc, node)
     imgui.dummy((0, sp(tokens.SP_2)))
-    _transform(doc, node)
+    _transform(doc, node, ctx=ctx)
     imgui.dummy((0, sp(tokens.SP_2)))
     _world_transform(doc, node)
     imgui.dummy((0, sp(tokens.SP_2)))
-    _kind_block(doc, node)
+    _kind_block(doc, node, ctx=ctx)
     imgui.dummy((0, sp(tokens.SP_2)))
     _properties(doc, node, state)
     imgui.end_disabled()
@@ -110,7 +135,7 @@ def _identity(doc: Any, node: Any) -> None:
     widgets.help_marker("Reaches the engine manifest: a static node skips runtime updates.")
 
 
-def _transform(doc: Any, node: Any) -> None:
+def _transform(doc: Any, node: Any, ctx: Any = None) -> None:
     widgets.field_label("local transform")
     was = tuple(v.copy() for v in node.trs())
     changed = False
@@ -124,7 +149,9 @@ def _transform(doc: Any, node: Any) -> None:
     controls.fold_undo(doc.history)
     widgets.help_marker("A quaternion, XYZW -- the gizmo is the way to set one by eye.")
     changed |= edited
-    if changed:
+    if changed and _finite(
+        ctx, "A position, scale or rotation component", *translation, *scale, *rotation
+    ):
         # Every keystroke passes through here: a half-typed component leaves a
         # non-unit quaternion that shears the node, so normalise before storing
         # (a zero quaternion is not a rotation -- keep the old one).
@@ -191,19 +218,19 @@ def _world_transform(doc: Any, node: Any) -> None:
         widgets.muted(f"reached through prefab '{placed.prefab}'")
 
 
-def _kind_block(doc: Any, node: Any) -> None:
+def _kind_block(doc: Any, node: Any, ctx: Any = None) -> None:
     kind = gltfout.kind_of(node)
     widgets.field_label(kind)
     if kind == "mesh":
         _mesh_block(doc, node)
     elif kind == "light":
-        _light_block(doc, node)
+        _light_block(doc, node, ctx=ctx)
     elif kind == "camera":
-        _camera_block(doc, node)
+        _camera_block(doc, node, ctx=ctx)
     elif kind == "prefab":
         _prefab_block(doc, node)
     elif kind == "terrain":
-        _terrain_block(doc)
+        _terrain_block(doc, ctx=ctx)
     else:
         widgets.muted("a group -- holds other nodes, nothing of its own")
 
@@ -224,11 +251,11 @@ def _mesh_block(doc: Any, node: Any) -> None:
         doc.set_props(node.uid, material=material)
 
 
-def _light_block(doc: Any, node: Any) -> None:
+def _light_block(doc: Any, node: Any, ctx: Any = None) -> None:
     widgets.muted(f"kind: {node.kind}")
     changed, colour = controls.color_edit3("colour##mlight", list(node.color))
     controls.fold_undo(doc.history)
-    if changed:
+    if changed and _finite(ctx, "The light colour", *colour):
         doc.set_props(node.uid, color=tuple(float(c) for c in colour))
     widgets.field_label("intensity")
     changed, intensity = controls.input_float("##mlightintensity", float(node.intensity), 0.1, 0.0)
@@ -239,7 +266,7 @@ def _light_block(doc: Any, node: Any) -> None:
     # undoing the whole gesture. Folded here as every other door does:
     # draw, fold, act.
     controls.fold_undo(doc.history)
-    if changed:
+    if changed and _finite(ctx, "The light intensity", intensity):
         doc.set_props(node.uid, intensity=max(0.0, intensity))
     if node.kind in ("point", "spot"):
         # The 2026-09-12 audit's docs-06: Chapter 17 says a selected light's
@@ -257,7 +284,7 @@ def _light_block(doc: Any, node: Any) -> None:
         widgets.help_marker("Distance the light reaches. 0 means no limit.")
         # mason-01: same unfolded door as intensity above.
         controls.fold_undo(doc.history)
-        if changed:
+        if changed and _finite(ctx, "The light range", light_range):
             doc.set_props(node.uid, range=max(0.0, light_range))
     if node.kind == "spot":
         widgets.field_label("inner cone (rad)")
@@ -266,33 +293,47 @@ def _light_block(doc: Any, node: Any) -> None:
         )
         # mason-01: same unfolded door as intensity above.
         controls.fold_undo(doc.history)
-        if changed:
-            doc.set_props(node.uid, inner_cone_angle=max(0.0, inner))
+        if changed and _finite(ctx, "The inner cone angle", inner):
+            # The 2026-10-14 audit's mason-engine-07: ``set_props`` now refuses
+            # a cone pair glTF forbids, so the pane keeps inner under outer.
+            ceiling = max(0.0, float(node.outer_cone_angle) - _CONE_GAP)
+            doc.set_props(node.uid, inner_cone_angle=min(max(0.0, inner), ceiling))
         widgets.field_label("outer cone (rad)")
         changed, outer = controls.input_float(
             "##mlightouter", float(node.outer_cone_angle), 0.05, 0.0
         )
         # mason-01: same unfolded door as intensity above.
         controls.fold_undo(doc.history)
-        if changed:
-            doc.set_props(node.uid, outer_cone_angle=max(0.0, outer))
+        if changed and _finite(ctx, "The outer cone angle", outer):
+            doc.set_props(
+                node.uid,
+                outer_cone_angle=min(
+                    max(outer, float(node.inner_cone_angle) + _CONE_GAP, _CONE_GAP), math.pi / 2
+                ),
+            )
 
 
-def _camera_block(doc: Any, node: Any) -> None:
+def _camera_block(doc: Any, node: Any, ctx: Any = None) -> None:
     widgets.field_label("vertical fov (rad)")
     changed, yfov = controls.input_float("##mcamfov", float(node.yfov), 0.05, 0.01)
     # mason-01: same unfolded door as the light block above.
     controls.fold_undo(doc.history)
-    if changed:
-        doc.set_props(node.uid, yfov=max(0.01, yfov))
+    if changed and _finite(ctx, "The field of view", yfov):
+        # Below pi, as glTF asks (the 2026-10-14 audit's mason-engine-07).
+        doc.set_props(node.uid, yfov=min(max(0.01, yfov), math.pi - 0.01))
     widgets.field_label("near / far")
     changed, near = controls.input_float("##mcamnear", float(node.znear), 0.01, 0.001)
     controls.fold_undo(doc.history)
-    if changed:
-        doc.set_props(node.uid, znear=max(0.001, near))
+    if changed and _finite(ctx, "The near plane", near):
+        # Kept under the far plane (when there is one): ``set_props`` refuses a
+        # near at or past it, and the field used to re-check nothing.
+        near = max(0.001, near)
+        if node.zfar > 0.0:
+            near = min(near, max(0.001, float(node.zfar) - 0.001))
+        doc.set_props(node.uid, znear=near)
     changed, far = controls.input_float("##mcamfar", float(node.zfar), 1.0, 0.01)
     controls.fold_undo(doc.history)
-    if changed:
+    if changed and _finite(ctx, "The far plane", far):
         doc.set_props(node.uid, zfar=max(node.znear + 0.01, far))
 
 
@@ -418,7 +459,7 @@ def _template_block(doc: Any, name: str, template: Any) -> None:
         doc.set_template_material(name, material)
 
 
-def _terrain_block(doc: Any) -> None:
+def _terrain_block(doc: Any, ctx: Any = None) -> None:
     """The ground's extent, which belongs to the ``Terrain`` rather than to its
     node -- so it is set through ``set_terrain_config`` and not ``set_props``.
 
@@ -442,7 +483,7 @@ def _terrain_block(doc: Any) -> None:
     # ``set_terrain_config`` is the undoable write and it fired once per
     # changed frame with no fold.
     controls.fold_undo(doc.history)
-    if changed_x or changed_z:
+    if (changed_x or changed_z) and _finite(ctx, "The ground size", size_x, size_z):
         # ``max`` and not a refusal: ``set_terrain_config`` raises on a
         # non-positive size (the 2026-09-23 audit's mason-03 made this true --
         # it used to validate nothing and this clamp was the only thing

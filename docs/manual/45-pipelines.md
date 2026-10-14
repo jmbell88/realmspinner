@@ -154,9 +154,12 @@ re-exports — but the objects are still in the scene, and a unit icosphere amon
 treble a computed bounding box and frame every rigged sprite sheet's subject at a third of its size.
 Every import in the worker is followed by a purge of those helpers.
 
-"Import clip" adds `clip_sample`, an operation that only samples: it imports a Mixamo or
-Rigify file and reads its armature's world-space bone rotations frame by frame, leaving the
-conversion onto a Realmspinner rig to pure host math afterward.
+The clip importer's back end adds `clip_sample`, an operation that only samples: it imports a Mixamo
+or Rigify file and reads its armature's world-space bone rotations frame by frame, leaving the
+conversion onto a Realmspinner rig to pure host math afterward. It is a back end with no control in
+front of it for now: it was reached from Poser's **Import clip**, and Poser is gone. The importer a
+user can reach today is Clay's **Import Animation**, which reads `.glb` only and never starts Blender
+(`kernels/mesh/animimport.py`).
 
 ## The pose contract
 

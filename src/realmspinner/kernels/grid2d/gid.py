@@ -29,14 +29,19 @@ FLIP_V = 0x40000000
 FLIP_D = 0x20000000
 
 # Tiled reserves a fourth bit (0x10000000) for hexagonal 120-degree rotation.
-# It is deliberately absent, and the reason survived this editor learning to
-# draw isometric maps: both projections it draws are *square-symmetry* lattices
-# whose cells are exactly the eight transforms above, and the bit belongs to
-# hexagonal grids, which :mod:`.tmx` still refuses at the door. Carrying a
-# constant for a case that cannot arrive is how it eventually gets
-# half-implemented -- so instead of a constant here, the doors probe for the
-# bit and refuse it *by name*: ``tmx._finish`` for Tiled files and
-# ``rmap._validate`` for hand-edited ``.rmap``s. It used to be caught only by luck: the mask
+# It is deliberately absent. The orthogonal, isometric, oblique and staggered
+# projections are *square-symmetry* lattices whose cells are exactly the eight
+# transforms above. The hexagonal projection loads as well
+# (``project.PROJECTIONS`` lists it, and ``tmx`` reads and writes its
+# ``hexsidelength``); what has no model here is the 120-degree rotation of a
+# hex tile, so only that *flag* is refused. The 2026-10-14 audit, finding
+# plotter-tiles-05, found this comment still saying hexagonal grids were
+# refused whole -- a false reason that would have misled whoever next decided
+# whether to model the bit. Carrying a constant for a transform nothing can
+# draw is how it eventually gets half-implemented -- so instead of a constant
+# here, the doors probe for the bit and refuse it *by name*: ``tmx._finish``
+# for Tiled files and ``rmap._validate`` for hand-edited ``.rmap``s. It used to
+# be caught only by luck: the mask
 # below spans bit 28, so a hand-edited file carrying the flag read as a tile id
 # 268435456 too large and was rejected as "a tile no tileset accounts for" --
 # the right outcome under the wrong sentence.

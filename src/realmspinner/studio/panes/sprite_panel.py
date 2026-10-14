@@ -31,6 +31,7 @@ from ...service import sprites as svc_sprites
 from ...service import validation
 from .. import asset_open, controls, dialogs, forms, theme, verbs, widgets
 from ..manual import render as manual_render
+from ..textures import PIXEL_MAX_SIDE
 from ..tokens import sp
 from . import model_gate, stamps
 
@@ -151,6 +152,31 @@ def _form(ctx: Any, job_id: str) -> dict[str, Any]:
     return form
 
 
+def size_ladder(options: dict[str, Any], sheet_type: str) -> list[int]:
+    """The cell sizes ``sheet_type`` can actually be drawn at, smallest first.
+
+    The selected type's own ``logical_sizes`` -- a six- or eight-frame action
+    does not fit one SDXL band at 48 or 64 px, so ``spritesynth.plan_sheet``
+    refuses it. The 2026-10-14 audit, finding create-panes-02: the combo offered
+    the global 32/48/64 for every type, against the manual's promise that only
+    drawable sizes are offered, and the form opens at 64, so choosing walk8 left
+    Generate greyed with a refusal until the user found this combo. An unknown
+    type falls back to the global ladder.
+    """
+    for entry in options.get("sheet_types") or []:
+        if entry.get("key") == sheet_type and entry.get("logical_sizes"):
+            return sorted(int(size) for size in entry["logical_sizes"])
+    return sorted(int(size) for size in options.get("logical_sizes") or ())
+
+
+def clamp_size(sizes: list[int], current: int) -> int:
+    """``current`` if it is on the ladder, else the largest rung below it, else the smallest."""
+    if not sizes or current in sizes:
+        return current
+    below = [size for size in sizes if size <= current]
+    return below[-1] if below else sizes[0]
+
+
 def _controls(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
     options = _options()
     types = options.get("sheet_types") or []
@@ -163,11 +189,15 @@ def _controls(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         form["sheet_type"],
         [(entry["key"], labels[entry["key"]]) for entry in types],
     )
+    sizes = size_ladder(options, str(form["sheet_type"]))
+    # Clamped on a type change (and on a form built before this ladder existed),
+    # so the form never holds a size its own type refuses.
+    form["logical_size"] = clamp_size(sizes, int(form["logical_size"]))
     _changed, logical_size = form_ui.combo(
         "logical_size",
         "Cell size",
         str(form["logical_size"]),
-        [(str(s), f"{s} px") for s in options.get("logical_sizes") or ()],
+        [(str(s), f"{s} px") for s in sizes],
     )
     form["logical_size"] = int(logical_size)
     _changed, colors = form_ui.combo(
@@ -439,7 +469,14 @@ def _candidate(
             # ``nearest`` for the reason ``inspector._pixel`` gives: this is a
             # pixel-art atlas of 32-64px cells and a bilinear filter would show
             # the user a blurred version of the thing they are judging.
-            texture = ctx.textures.get(f"{job_id}:sprite:{draft_id}:{letter}", path, nearest=True)
+            texture = ctx.textures.get(
+                f"{job_id}:sprite:{draft_id}:{letter}",
+                path,
+                nearest=True,
+                # Not the 256 px thumbnail default: it would shrink and smooth the
+                # atlas (the 2026-10-14 audit, finding create-panes-04).
+                max_side=PIXEL_MAX_SIDE,
+            )
         if texture is None:
             widgets.muted(f"{letter}: rendering...")
         else:

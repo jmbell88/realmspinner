@@ -249,7 +249,9 @@ explicit = true
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+# Matches requires-python: the 2026-10-14 audit, finding pipelines-26, found this still
+# at the abandoned 3.12 floor, so ruff's UP rules never proposed 3.13 spellings.
+target-version = "py313"
 # Vendored third-party source, kept byte-for-byte apart from four marked
 # modifications (see src/realmspinner/pipelines/birefnet/ATTRIBUTION.md). Linting it
 # would mean reformatting it, and a reformatted vendor copy is one nobody can

@@ -34,7 +34,6 @@ class _FakeViewer:
         self.model: Any = None
         self.pose_mode = False
         self.comparing = False
-        self.strips_cancelled = 0
         self.exited_compare = 0
         self.loaded_references: list[Path] = []
 
@@ -53,9 +52,6 @@ class _FakeViewer:
     def load_reference(self, path: Path) -> None:
         self.loaded_references.append(Path(path))
         self.reference = object()
-
-    def cancel_sheet_strip(self) -> None:
-        self.strips_cancelled += 1
 
     def exit_compare(self) -> None:
         self.exited_compare += 1
@@ -158,17 +154,6 @@ def test_clearing_the_mesh_drops_a_parse_still_in_flight(app):
     assert fake.viewer.pending is None
 
 
-def test_clearing_the_mesh_cancels_a_strip_in_flight(app):
-    """A strip renders off the mesh that is about to go."""
-    fake, ctx, _dir = app
-    _at_mesh(ctx)
-    fake.viewer.model = object()
-
-    fake._clear_viewport()
-
-    assert fake.viewer.strips_cancelled == 1
-
-
 def test_clearing_the_mesh_leaves_a_comparison_reconciled(app):
     fake, ctx, _dir = app
     _at_mesh(ctx)
@@ -238,74 +223,3 @@ def test_clearing_does_nothing_outside_a_viewport_mode(app):
     fake._clear_viewport()
 
     assert fake.viewer.has_model
-    assert fake.viewer.strips_cancelled == 0
-
-
-# --- the real Viewer: adopt_model against a strip in flight ------------------
-
-
-def _a_model() -> Any:
-    """A real ``gltf.Model``, built the way the Clay viewport builds one --
-    the same helper ``test_viewer_embed_textures.py`` uses, duplicated here
-    rather than imported since that file is a sibling test module, not a
-    library this one may depend on."""
-    from realmspinner.kernels.mesh import document as bd
-    from realmspinner.kernels.mesh import primitives as bp
-
-    doc = bd.ClayDoc()
-    doc.add_object(bd.Obj(uid=bd.new_uid(), name="Box", mesh=bp.box()))
-    return bd.to_model(doc)
-
-
-def test_adopting_a_different_model_mid_strip_cancels_the_strip_instead_of_finishing_it_blank(
-    gl, tmp_path
-):
-    """create-05, the 2026-09-14 audit: ``begin_sheet_strip`` holds a direct
-    reference to the ``GpuModel`` that was current when it started. Only the
-    explicit Clear path (``App._clear_viewport``, exercised above through the
-    fake) called ``cancel_sheet_strip()`` before dropping the mesh --
-    ``Viewer.adopt_model`` released and replaced ``self.gpu`` without it, and
-    ``adopt_model`` is also what the Library selection timer calls on every
-    ordinary job switch, not just on an explicit Clear. Selecting another job
-    mid-strip emptied the GpuModel the strip was drawing from out under it, so
-    the remaining cells came back blank while the pane still believed the
-    strip had finished normally.
-    """
-    from realmspinner.studio.viewer_embed import Viewer
-
-    viewer = Viewer(gl)
-    try:
-        viewer.adopt_model(_a_model(), tmp_path / "first.glb")
-        assert viewer.begin_sheet_strip([0.0, 90.0], elevation=0.0, flat=True)
-        assert viewer.stripping
-
-        viewer.adopt_model(_a_model(), tmp_path / "second.glb")
-
-        assert not viewer.stripping
-    finally:
-        viewer.release()
-
-
-def test_clearing_the_viewer_mid_strip_cancels_it_instead_of_finishing_it_blank(gl, tmp_path):
-    """create-04, the 2026-09-15 audit: create-05 (above) only taught
-    ``adopt_model`` to cancel a strip in flight before releasing the GpuModel
-    it draws from. ``Viewer.clear()`` released it too, with no such call --
-    and ``App._clear_viewport`` is not its only caller: ``poser_mode``,
-    ``review_panes``, ``inker_mode`` and two more ``main.py`` handlers call
-    ``clear()`` directly. Any of those firing mid-strip emptied the GpuModel
-    the paused strip still held a direct reference to, so the strip resumed
-    drawing its remaining cells blank instead of finishing or cancelling.
-    """
-    from realmspinner.studio.viewer_embed import Viewer
-
-    viewer = Viewer(gl)
-    try:
-        viewer.adopt_model(_a_model(), tmp_path / "first.glb")
-        assert viewer.begin_sheet_strip([0.0, 90.0], elevation=0.0, flat=True)
-        assert viewer.stripping
-
-        viewer.clear()
-
-        assert not viewer.stripping
-    finally:
-        viewer.release()

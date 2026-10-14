@@ -112,17 +112,29 @@ class PickOps:
 
         mesh = obj.mesh
         tris, tri_face = cached_triangulation(mesh)
-        positions = cached_positions_f8(mesh)
+        skinned = self._skinned_positions(doc, obj, index)
+        if skinned is not None:
+            # The 2026-10-14 audit, finding clay-view-02: in Pose mode a weighted mesh is drawn
+            # skinned, so the ray goes through the positions the eye sees. Topology is the rest
+            # mesh's, so ``tris`` and ``tri_face`` stand; the tree is the entry's own, built on
+            # the first ray of a pose (``cached_bvh`` is keyed on the mesh, which is the rest).
+            if not skinned.bvh_ready:
+                skinned.bvh = picking.build_bvh(skinned.positions, tris)
+                skinned.bvh_ready = True
+            positions, bvh = skinned.positions, skinned.bvh
+        else:
+            positions = cached_positions_f8(mesh)
+            # Positions and tree both come from the same frozen mesh, so
+            # they cannot disagree about the geometry -- which is the whole
+            # precondition the narrowed sweep rests on.
+            bvh = picking.cached_bvh(mesh, positions, tris)
         hit = picking.ray_object(
             origin,
             direction,
             self._world(doc, obj, index),
             positions,
             tris,
-            # Positions and tree both come from the same frozen mesh, so
-            # they cannot disagree about the geometry -- which is the whole
-            # precondition the narrowed sweep rests on.
-            bvh=picking.cached_bvh(mesh, positions, tris),
+            bvh=bvh,
         )
         if hit is None:
             return None

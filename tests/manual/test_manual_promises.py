@@ -215,11 +215,10 @@ def test_rig_stage_offers_no_measured_joints_control():
     """The 2026-09-07 audit, finding docs-03: chapter 08 sent a reader stuck
     in the A-pose trap to a "Measured joints" control in the Rig stage. No
     such control exists: create_rig takes no ``joints`` parameter,
-    stage_rig.py draws no control by that name, and every
-    ``joints="measured"`` site lives inside Troupe's character pipeline,
-    which sets it automatically before a rig job is ever created -- two
-    call sites there even explicitly *withhold* it. The chapter must not
-    send a reader hunting for a button that was never there.
+    stage_rig.py draws no control by that name, and the ``joints="measured"``
+    route itself is gone (the 2026-10-14 audit, finding poser-rig-02: the
+    character pipeline that set it left, and jointfit with it). The chapter
+    must not send a reader hunting for a button that was never there.
     """
     import inspect
 

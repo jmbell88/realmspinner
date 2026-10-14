@@ -39,7 +39,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .. import models, vram, winjob
+from .. import leases, models, vram, winjob
 
 log = logging.getLogger(__name__)
 
@@ -128,7 +128,16 @@ class Text2ImageClient:
         return self._model_dir
 
     def load(self, on_state: Callable[[str], None] | None = None) -> None:
-        with self._lock:
+        # The shared model lease is held across the exchange, as ``Text2Image``
+        # holds it in-process. The 2026-10-14 audit, finding service-queue-07:
+        # the shipped default runs the pipe in this child and this client took
+        # no lease, so ``leases.MODELS.maintain()`` saw no users and a Download
+        # could start while the child was mid-``from_pretrained``. ``load`` and
+        # ``generate`` run on the worker's ``to_thread``; ``unload`` and
+        # ``close`` deliberately do not take it -- they run on the loop thread,
+        # which must never park behind a maintainer that holds the lease for as
+        # long as a fetch lasts, and they free the model rather than read it.
+        with leases.MODELS.use(), self._lock:
             self._request({"op": "load"}, on_state=on_state)
 
     def generate(
@@ -202,7 +211,7 @@ class Text2ImageClient:
                     reference.save(path, format="PNG")
                     paths.append(str(path))
                 payload["reference_images"] = paths
-            with self._lock:
+            with leases.MODELS.use(), self._lock:
                 resp = self._request(
                     payload, on_state=on_state, on_step=on_step, cancel_event=cancel_event
                 )
@@ -291,6 +300,7 @@ class Text2ImageClient:
         # can still orphan it. It is also what puts the *real* interpreter in
         # the job, since the pid Popen returned is a trampoline under a uv venv
         # (dev/measurements/2026-08-22-trampoline-child-pids.md).
+        # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
         try:
             proc = subprocess.Popen(
                 argv,

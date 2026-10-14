@@ -26,7 +26,7 @@ def grid_tileset(layout: Layout, atlas: np.ndarray, *, name: str) -> Tileset:
 
     ``margin`` and ``spacing`` are both the pack's ``padding``, which is what
     :func:`~.layout.grid_layout` builds the geometry to satisfy;
-    :class:`~..grid2d.tileset.Tileset` validates the slicing on construction,
+    :class:`~realmspinner.kernels.grid2d.tileset.Tileset` validates the slicing on construction,
     so a layout that had drifted from that promise fails here rather than in
     Tiled.
     """

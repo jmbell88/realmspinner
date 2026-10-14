@@ -227,11 +227,13 @@ def _canvas(size=64):
 
 
 def test_the_default_axis_reflects_column_zero_onto_the_last_column():
-    """``(w - 1) / 2`` rather than ``w / 2``: the only placement where a
-    symmetric drawing is symmetric to the pixel, and the one the fixed formula
-    this replaced produced."""
-    assert brush.default_axis((16, 9)) == (7.5, 4.0)
-    assert brush._mirror((0.0, 3.0), (16, 9), "x") == [(0.0, 3.0), (15.0, 3.0)]
+    """``w / 2`` in continuous image coordinates, where pixel ``i`` spans
+    ``[i, i + 1)`` and a pointer over it arrives at ``i + 0.5``: the only
+    placement where a symmetric drawing is symmetric to the pixel. The old
+    ``(w - 1) / 2`` was index-space, so pixel 0 mirrored onto column 14 (the 2026-10-14
+    audit, finding inker-paint-01, fixed by F16; this test pinned the old number)."""
+    assert brush.default_axis((16, 9)) == (8.0, 4.5)
+    assert brush._mirror((0.5, 3.5), (16, 9), "x") == [(0.5, 3.5), (15.5, 3.5)]
 
 
 def test_a_moved_axis_reflects_about_the_axis_rather_than_the_centre():

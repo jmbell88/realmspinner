@@ -295,12 +295,26 @@ def not_interpreted(form: dict[str, Any]) -> tuple[str, ...]:
     (create-23) found an understood-but-dropped word vanished with nothing
     said, so manual 22's promise that what was not acted on is listed holds
     for every action as well as for a greataxe.
+
+    **Camera words and sheet words too**, as typed. A rigged mesh has no camera
+    and no facings, so "isometric view" resolved a ``camera_preset`` nothing
+    reads, and "sprite sheet" / "8 directions" were swallowed as noise with no
+    hint that the sheet is the other asset type -- the 2026-10-14 audit, finding
+    poser-characters-04, which reproduced ``a fire ogre, isometric view, 8
+    directions`` listing nothing. A camera word that lost the slot to an earlier
+    one did nothing as well, so every camera span is listed, applied or not.
     """
     resolution = resolution_of(form)
     out = list(resolution.unrecognised)
     for action in resolution.actions:
         if action not in out:
             out.append(action)
+    for span in resolution.spans:
+        said = span.kind == "camera" or (
+            span.kind == "noise" and resolve_mod.is_sheet_word(span.text)
+        )
+        if said and span.text not in out:
+            out.append(span.text)
     return tuple(out)
 
 
@@ -513,11 +527,13 @@ def recipe_kwargs(form: dict[str, Any], opts: dict[str, Any]) -> dict[str, Any]:
     Those were the character sheet's fields and the form no longer asks for
     them; the recipe fills them from its own defaults, which is what a
     character that ends at a rigged mesh needs (it carries them, unread).
+    **No seed either**: the build reads none, and the form's shared ``seed`` is
+    the SDXL arm's draw, not a character's (the 2026-10-14 audit, finding
+    poser-characters-01).
     """
     kwargs: dict[str, Any] = {
         "family": str(form.get("character_family") or ""),
         "appearance": body_of(form, opts),
-        "seed": max(0, _int(form.get("seed"), 0)),
     }
     theme = str(form.get("character_theme") or THEME_UNSET)
     if theme != THEME_UNSET:

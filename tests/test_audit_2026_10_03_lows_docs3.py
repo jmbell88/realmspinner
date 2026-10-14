@@ -11,12 +11,6 @@ import re
 import tomllib
 from pathlib import Path
 
-import pytest
-
-from realmspinner.characters.recipe import Recipe
-from realmspinner.service import characters as svc_characters
-from realmspinner.service.errors import Invalid
-
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "realmspinner"
 
@@ -59,41 +53,6 @@ def test_targets_comment_count_matches_the_muse_entries():
     assert word != "one" or len(entries) == 1
     assert word in _WORDS and _WORDS[word] == len(entries)
     assert "player" in source[said.start() : source.index('"muse-recipe"')]
-
-
-def test_characters_plan_files_a_missing_clip_under_animations_and_a_bad_layout_under_layout(
-    monkeypatch,
-):
-    """``_plan``'s docstring (and the ledger) said a ``KeyError`` falls into the
-    ``field="layout"`` branch. The code files it under ``animations``, the
-    control ``create_character`` names for an unknown clip, and only a
-    ``ValueError`` under ``layout``."""
-    import realmspinner.clips as clips
-    from realmspinner.kernels import charsheet
-
-    recipe = Recipe.from_dict({})
-    library = recipe.spec.clip_library
-
-    def missing(*_a, **_k):
-        raise KeyError("idle")
-
-    monkeypatch.setattr(clips, "expand_clips", missing)
-    with pytest.raises(Invalid) as err:
-        svc_characters._plan(recipe, library, recipe.logical_size)
-    assert err.value.field == "animations"
-
-    def unfit(*_a, **_k):
-        raise ValueError("does not fit")
-
-    monkeypatch.undo()
-    monkeypatch.setattr(charsheet, "plan", unfit)
-    with pytest.raises(Invalid) as err:
-        svc_characters._plan(recipe, library, recipe.logical_size)
-    assert err.value.field == "layout"
-
-    doc = svc_characters._plan.__doc__ or ""
-    assert "``KeyError``" in doc and "``field=\"animations\"``" in doc
-    assert 'falls\n    into the same ``field="layout"`` branch' not in doc
 
 
 def test_src_and_tests_cite_no_p65_entry_number():

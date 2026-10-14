@@ -123,7 +123,7 @@ Everything but the primary artifacts is derived lazily on first request and cach
 - **Windows 10/11, 64-bit, and an NVIDIA GPU with CUDA.** There is no macOS or Linux build and no CPU fallback — without a CUDA device the 3D path cannot run at all.
 - **16 GB VRAM** for 3D reconstruction: both stages run, one at a time (exclusive mode is auto-selected below ~24.5 GB), and the engine is charged 12 GiB at the default resolution (`vram.py`'s `TRELLIS_GIB`; measured ~6.5 GiB on the pinned engine). Resolution 1536 needs a 24 GB card. Tested on an RTX 5090 / 32 GB; a 4080/5080-class card or better is the comfortable range.
 - **32 GB system RAM.** More than the GPU figure suggests it should need: Windows charges trellis's ~16 GiB device allocation against *host* commit, so admission control refuses jobs at 96% commit on a 63.5 GB machine even with 24 GB physically free. 16 GB will fight you.
-- **~24 GB disk before the first asset** — 16.1 GB of TRELLIS.2 GGUF weights, 7.0 GB for SDXL 1.0 and 0.8 GB for the reconstruction engine itself — then roughly 35–50 MB per generated 3D job. There is no automatic age-out; pruning is manual.
+- **~24 GB disk before the first asset** — 16.5 GB of TRELLIS.2 GGUF weights, 7.0 GB for SDXL 1.0 and 0.8 GB for the reconstruction engine itself — then roughly 35–50 MB per generated 3D job. There is no automatic age-out; pruning is manual.
 - **A 1920×1080 display or larger at 100% scaling.** The window opens at 1600×950 (scaled by your DPI setting) and is clamped to the desktop, so it fits smaller panels, but below that the seven workspaces get cramped.
 - [uv](https://docs.astral.sh/uv/) and **Python 3.13** — `bpy` ships CPython 3.13 wheels only, and rigging is not optional enough to support a Python it can never run on. The floor was 3.12 until 2026-09-03, when the CI leg testing that claim was read for the first time and was not green. On 3.14 or later the rig extra installs nothing, `realmspinner doctor` reports rigging unavailable, and the app hides the rig controls; everything else works unchanged.
 
@@ -199,7 +199,7 @@ rather than as installed.
 For a headless box, a scripted setup, or if you would rather see the commands:
 
 ```powershell
-# TRELLIS.2 GGUF weights (16.1 GB) -> ~/.realmspinner/models/trellis2-gguf/
+# TRELLIS.2 GGUF weights (16.5 GB) -> ~/.realmspinner/models/trellis2-gguf/
 uvx hf download ilintar/trellis2-gguf --revision a57397bd3d351599d9729fc144b3f87c3f87d65b --include "*.gguf" --exclude "q4/*" --exclude "q8/*" `
   --local-dir $HOME/.realmspinner/models/trellis2-gguf
 
@@ -228,7 +228,7 @@ than a silent fetch.
 
 ### Optional: rigging
 
-Rigging (the `rig` extra) fits a template skeleton to a finished mesh and skins it with Blender's automatic weights, producing `rig.glb` alongside `model.glb` — on demand from the job's **rig** button, or queued automatically when the mesh finishes. Blender runs as a subprocess, never inside the app — `bpy` is process-global and can take the interpreter down on the kind of non-manifold geometry trellis sometimes produces; bone-heat failures fall back to envelope weights, recorded in `rig.json`. A rigged job gains the pose editor (forward-kinematic joint rotations, saved under names, each downloadable as a baked GLB) and sprite sheets; an unrigged prop still gets a rest-pose turnaround sheet. With the ViTPose weights present ([docs/MODELS.md](docs/MODELS.md)), humanoid joint placement reads the subject's actual landmarks off the reference image instead of assuming a T-pose.
+Rigging (the `rig` extra) fits a template skeleton to a finished mesh and skins it with Blender's automatic weights, producing `rig.glb` alongside `model.glb` — on demand from the job's **rig** button, or queued automatically when the mesh finishes. Blender runs as a subprocess, never inside the app — `bpy` is process-global and can take the interpreter down on the kind of non-manifold geometry trellis sometimes produces; bone-heat failures fall back to envelope weights, recorded in `rig.json`. A rigged job gains the pose editor (forward-kinematic joint rotations, saved under names, each downloadable as a baked GLB). With the ViTPose weights present ([docs/MODELS.md](docs/MODELS.md)), humanoid joint placement reads the subject's actual landmarks off the reference image instead of assuming a T-pose.
 
 ### Optional: native kernels
 
@@ -253,7 +253,7 @@ uv run realmspinner doctor   # checks dependencies, weights, and configuration
 
 There is no *engine* config file — every path, port, timeout and mode is a `REALMSPINNER_*` env var, and the full table lives in [docs/manual/41-configuration.md](docs/manual/41-configuration.md). Realmspinner's own UI preferences (theme, UI scale, pane layout, remembered form fields) are a separate thing and do persist, in `studio_settings.json` in the data directory; they are edited in the app rather than in a file. The main knobs: `REALMSPINNER_DATA_DIR` (where assets and the job store live), `REALMSPINNER_EXPORT_DIR`, `REALMSPINNER_T2I_ROOT`/`REALMSPINNER_T2I_MODEL` (image-model home and default), and `REALMSPINNER_VRAM_EXCLUSIVE`.
 
-On VRAM: the trellis server subprocess starts on the first 3D job and by default stays resident alongside the image model (12 GiB charged + ~7 GB on a 32 GB card); both are evicted after 10 minutes idle. `REALMSPINNER_VRAM_EXCLUSIVE=1` restores sequential VRAM use for text jobs (trellis stopped → image model loads, generates, unloads → trellis restarts) — automatic below ~24.5 GB, and needed explicitly for a resident FLUX. `REALMSPINNER_VRAM_BUDGET` and `REALMSPINNER_VRAM_TOTAL` override the admission-control budget and auto-detected card size directly, for the cases auto-detect gets wrong.
+On VRAM: the trellis server subprocess starts on the first 3D job and, on a card large enough for coexist mode (a 32 GB card), stays resident while an image stage runs beside it (12 GiB charged + ~7 GB). The image checkpoint is unloaded as each image stage ends, so only the engine is kept warm, and it is evicted after 10 minutes idle. `REALMSPINNER_VRAM_EXCLUSIVE=1` restores sequential VRAM use for text jobs (trellis stopped → image model loads, generates, unloads → trellis restarts) — automatic below ~24.5 GB, and needed explicitly for a resident FLUX. `REALMSPINNER_VRAM_BUDGET` and `REALMSPINNER_VRAM_TOTAL` override the admission-control budget and auto-detected card size directly, for the cases auto-detect gets wrong.
 
 ## Development
 
@@ -294,6 +294,7 @@ code — carry their own terms, collected in
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 **Model weights are not part of this project.** They are downloaded by you, from
-Hugging Face, and licensed by their publishers — two of them restrict commercial
-use of what you generate. The app shows each model's licence in the picker and
-at download; the full table is in the notices file above.
+Hugging Face, and licensed by their publishers — one of them (the optional
+Hybrid Demucs stem separator) restricts commercial use of what you generate.
+The app shows a licence line, in the picker and at download, for the models
+that declare one; the full table is in the notices file above.

@@ -80,8 +80,12 @@ GENERATE_W = 158.0
 #: place.
 CUSTOM_W = 76.0
 
-#: This bar's key in the focus ring. Its own, as ``create_brief``'s is: the ring
-#: is walked per pane and the bar and the recipe column are two panes.
+#: The focus ring's key, shared with the recipe column (``panes/recipe``) as
+#: ``create_brief``'s is with Create's settings pane. Two keys meant one Tab
+#: press moved two rings and sent keyboard focus to whichever pane drew last
+#: (the 2026-10-14 audit, finding shell-boot-01); with one key the bar and the
+#: column are a single ring, and ``focus.pump``/``focus.begin`` act once per
+#: frame for it.
 FOCUS_PANE = "muse-brief"
 
 #: The count control's values, and the top one is ``_jobs_music.MAX_COUNT``.
@@ -395,7 +399,7 @@ def _duration(ctx: Any, form: dict[str, Any]) -> None:
     imgui.begin_group()
     widgets.field_label("Length")
     imgui.push_item_width(sp(DURATION_W))
-    with focus.item(ctx.state, FOCUS_PANE, "duration") as focused:
+    with focus.item(ctx.state, FOCUS_PANE, "duration"):
         current = _current_duration_key(state, form)
         changed, picked = controls.segmented_choice(
             "muse-duration", _DURATION_OPTIONS, current, compact=True
@@ -403,20 +407,14 @@ def _duration(ctx: Any, form: dict[str, Any]) -> None:
         if changed:
             _pick_duration(state, form, picked)
             ctx.state.clear_field_error("duration")
-        # Hand-answered, as Create's count is: a row of radios is one control
-        # to the keyboard even though it is six items to imgui, Custom
-        # included now that _step walks keys rather than _DURATIONS itself.
-        # muse-23 (2026-10-03 audit). Not while a text field has the caret:
-        # ``focus_key`` only moves on Tab, so after Tab-then-click into the
-        # Custom seconds field the ring still reads "duration" and Left/Right
-        # (the caret's keys) also cycled the pills -- Right from Custom wrapped
-        # onto 30 s and rewrote the number being typed. ``want_text_input`` is
-        # last frame's answer, which is the right one: the field is drawn below.
-        if focused and not imgui.get_io().want_text_input:
-            stepped = _step(current, tuple(key for key, _ in _DURATION_OPTIONS))
-            if stepped is not None:
-                _pick_duration(state, form, stepped)
-                ctx.state.clear_field_error("duration")
+        # The keyboard stepping is :func:`step_ring`, driven from
+        # ``muse_mode.handle_key``. It used to be read here with
+        # ``imgui.is_key_pressed`` (muse-23, 2026-10-03: guarded off while a text
+        # field had the caret), but ``muse`` is in ``NAV_KEY_MODES``, so imgui is
+        # handed the arrows *only* while a text field has the caret -- the one
+        # time that guard refused them. The 2026-10-14 audit, finding
+        # muse-mode-09: the branch was dead, and the same read on the Takes pills
+        # (finding muse-mode-07) was live in exactly the wrong place.
         # Rung on the pills, before the optional custom field is drawn beside
         # them: ``_ring`` reads the *last* item's rect, and a refusal on
         # "duration" belongs on the control the number is chosen through even
@@ -473,7 +471,7 @@ def _count(ctx: Any, form: dict[str, Any]) -> None:
     imgui.begin_group()
     widgets.field_label("Takes")
     imgui.push_item_width(sp(COUNT_W))
-    with focus.item(ctx.state, FOCUS_PANE, "count") as focused:
+    with focus.item(ctx.state, FOCUS_PANE, "count"):
         current = str(form["count"])
         options = tuple(str(n) for n in _COUNTS)
         changed, picked = controls.segmented_choice(
@@ -485,32 +483,56 @@ def _count(ctx: Any, form: dict[str, Any]) -> None:
         if changed:
             form["count"] = int(picked)
             ctx.state.clear_field_error("count")
-        if focused:
-            stepped = _step(current, options)
-            if stepped is not None:
-                form["count"] = int(stepped)
-                ctx.state.clear_field_error("count")
+        # Stepped by :func:`step_ring`, not here -- see :func:`_duration`. Reading
+        # the arrows here cycled Takes 1/2/4 whenever Left/Right moved the caret in
+        # Tags or Lyrics with the ring left on "count", and the next Generate
+        # queued up to four GPU takes (the 2026-10-14 audit, finding muse-mode-07).
     imgui.pop_item_width()
     _ring(ctx, "count")
     imgui.end_group()
 
 
-def _step(current: str, keys: tuple[str, ...]) -> str | None:
-    """Left/Right through a segmented choice's keys. -> the newly picked key.
+def _step(current: str, keys: tuple[str, ...], direction: int) -> str:
+    """One step through a segmented choice's keys, wrapping. -> the newly picked key.
 
     Retargeted at the option *keys* rather than a numeric values tuple
     (2026-09-07): duration grew a Custom pill that is not a number, and the
     old ``values.index(int(...))`` shape had no way to land on it, which made
-    Custom the one pill Left/Right could never reach. ``_count`` walks the
-    same function over its own keys, so "a row of radios is one control to
-    the keyboard" keeps meaning the same thing for both.
+    Custom the one pill Left/Right could never reach. Takes walks the same
+    function over its own keys, so "a row of radios is one control to the
+    keyboard" keeps meaning the same thing for both.
     """
     here = keys.index(current) if current in keys else 0
-    if imgui.is_key_pressed(imgui.Key.left_arrow):
-        return keys[(here - 1) % len(keys)]
-    if imgui.is_key_pressed(imgui.Key.right_arrow):
-        return keys[(here + 1) % len(keys)]
-    return None
+    return keys[(here + (1 if direction > 0 else -1)) % len(keys)]
+
+
+def step_ring(ctx: Any, direction: int) -> bool:
+    """Left/Right (``direction`` -1/+1) on the Tab ring's Length or Takes. -> consumed.
+
+    Called from ``muse_mode.handle_key`` and nowhere else: that is the only place
+    a plain arrow press reaches in a mode that reserves the arrows. It answers
+    only when the ring is *on* Length or Takes **and that control is drawn this
+    frame** (``focus_order`` is the record of what is on screen -- Takes is
+    dropped when the bar is narrow), and leaves every other press to the
+    playhead's nudge. The 2026-10-14 audit, findings muse-mode-07 and
+    muse-mode-09, moved the stepping here from the draw.
+    """
+    pane = FOCUS_PANE
+    ring = (getattr(ctx.state, "focus_key", None) or {}).get(pane)
+    drawn = (getattr(ctx.state, "focus_order", None) or {}).get(pane) or ()
+    if ring not in ("duration", "count") or ring not in drawn:
+        return False
+    state = muse_mode.ensure(ctx)
+    form = state.form
+    if ring == "duration":
+        keys = tuple(key for key, _ in _DURATION_OPTIONS)
+        _pick_duration(state, form, _step(_current_duration_key(state, form), keys, direction))
+        ctx.state.clear_field_error("duration")
+    else:
+        keys = tuple(str(n) for n in _COUNTS)
+        form["count"] = int(_step(str(form["count"]), keys, direction))
+        ctx.state.clear_field_error("count")
+    return True
 
 
 def generate_label(takes: int | None) -> str:
@@ -554,18 +576,35 @@ def _generate(
             generate_label(takes),
             (sp(GENERATE_W) if width is None else float(width), sp(TAGS_H)),
             enabled=enabled and not blocked,
-            reason=_generate_reason(blocked),
+            reason=_generate_reason(blocked, not enabled),
             tooltip="Ctrl+Enter",
         )
         anchors.mark("muse/generate")
-        if focused and enabled and not blocked and _enter_pressed():
+        # Not while a text field has the caret (the 2026-10-14 audit, finding
+        # muse-mode-06): the ring only moves on Tab, so with it left on Generate
+        # an Enter typed into Tags or Lyrics was *also* this press and queued a
+        # GPU job on an unfinished brief. ``_duration`` was gated the same way
+        # by muse-23; ``want_text_input`` is last frame's answer, which is right.
+        if (
+            focused
+            and enabled
+            and not blocked
+            and not imgui.get_io().want_text_input
+            and _enter_pressed()
+        ):
             pressed = True
     if pressed:
         muse_mode.generate(ctx)
 
 
-def _generate_reason(blocked: bool) -> str:
-    """Why Generate is greyed for missing weights. -> "" once they are on disk.
+def _generate_reason(blocked: bool, busy: bool = False) -> str:
+    """Why Generate is greyed. -> "" when it is not.
+
+    Missing weights first, since that wait never ends by itself; then a submit
+    still in flight -- the shared ``"submit"`` key, which a long Sirens render
+    inside ``compose_from_sirens``'s task holds too. The 2026-10-14 audit,
+    finding muse-mode-10: that second case greyed the primary button with an
+    empty reason.
 
     **muse-07** (2026-09-05 audit): this sentence used to be a string literal
     chosen inline in the ternary passed to ``widgets.primary_button``, so
@@ -576,6 +615,8 @@ def _generate_reason(blocked: bool) -> str:
     """
     if blocked:
         return "The music model is not downloaded. See the Recipe panel."
+    if busy:
+        return "Still submitting the last request."
     return ""
 
 

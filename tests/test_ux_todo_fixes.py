@@ -636,6 +636,8 @@ def test_the_right_button_means_one_thing_in_both_viewports():
     # still means one thing, which is what this test is about.
     assert 'self._grab = "pan" if button == 2 else "orbit"' in source
     assert "KMOD_ALT" not in source
-    # And the menu is gated on pose mode, or it would appear over Create's
-    # inspector, where nobody is posing anything.
-    assert "button == 3 and self.pose_mode" in source
+    # This viewport has no right-button menu at all any more: it was gated on
+    # pose mode (so it would not appear over Create's inspector) and had no reader
+    # once Poser's joint menu left (the 2026-10-14 audit, finding create-viewer-03).
+    assert "button == 3 and self.pose_mode" not in source
+    assert "menu_request" not in source

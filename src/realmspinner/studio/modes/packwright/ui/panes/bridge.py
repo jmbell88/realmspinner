@@ -145,6 +145,14 @@ def _packed_why(tab: Any) -> str:
         return tab.pack_stale_why
     if tab.packing:
         return "Packing..."
+    if tab.layout is None and tab.pack_error:
+        # The 2026-10-14 audit, finding packwright-06: a pack that failed
+        # outright leaves ``layout`` and ``atlas`` None, and
+        # ``pack_stale_why`` is "" when there is no atlas to be stale -- so no
+        # branch here named it, and a document full of images read "Nothing is
+        # packed yet. Add images" while the real reason (the sprites do not fit
+        # in the max size) showed only in the Packed pane.
+        return tab.pack_error
     if tab.layout is not None and tab.pack_dirty:
         # Guarded on ``tab.layout is not None`` too: a document that has never
         # packed yet (or was just emptied back to no sources) is also

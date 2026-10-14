@@ -372,6 +372,10 @@ _GESTURE_SENTENCE = "Finish or cancel the drag first."
 #: a message there (the 2026-10-09 second audit's round-two repair).
 GROUP_HAS_NO_GEOMETRY = "A group has no geometry of its own; select its shapes."
 
+#: The same refusal for a selection of nothing but bones (the 2026-10-14 audit, finding
+#: clay-ops-tail-05: an Add Bone joint is an empty, and was told it was a group).
+BONE_HAS_NO_GEOMETRY = "A bone has no geometry of its own; select its shapes."
+
 
 def gesture_live(ctx: Any) -> bool:
     """Whether a live gesture is writing into the document right now: a 3-D
@@ -388,7 +392,9 @@ def gesture_live(ctx: Any) -> bool:
         return True
     clay = getattr(getattr(ctx, "state", None), "clay", None)
     uv_view = getattr(getattr(clay, "active", None), "uv_view", None)
-    return getattr(uv_view, "drag_mode", "") in ("rotate", "scale")
+    # "move" too, as ``mode._gesture_live``: a UV island held under the mouse is a gesture (the
+    # 2026-10-14 audit, finding clay-46).
+    return getattr(uv_view, "drag_mode", "") in ("rotate", "scale", "move")
 
 
 def run(ctx: Any, doc: Any, op: Op, *, during_gesture: bool = False, **params: Any) -> bool:
@@ -682,6 +688,14 @@ def run_mesh_op(
             # invalid result raised from ``set_mesh`` after the earlier objects
             # had been rewritten -- ``run`` answered False over a document that
             # had changed and carried a step.
+            #
+            # The skin is the third refusal ``set_mesh`` makes, and the 2026-10-14
+            # audit, finding clay-ops-tail-02, found it still taken in phase two: a
+            # plain object and a weighted one selected together, the plain one was
+            # rewritten and then ``set_mesh`` refused the weighted one, so ``run``
+            # answered False over a document that had changed and kept a step. Taken
+            # here it is this object's own refusal, toasted, and the others still run.
+            mesh = doc._with_skin_of(obj, mesh)
             doc._refuse_invalid(obj.name, mesh)
             doc._refuse_unstorable(obj.name, mesh)
         except OpError as error:
@@ -741,9 +755,14 @@ def _commit_built(ctx: Any, doc: Any, built: list[tuple[int, Any, Any, Any]]) ->
             )
             return False
         running += now - was
+    # Whether any write changed the document, not whether the loop ran: ``set_mesh``
+    # answers False for the mesh the object already had, and an op whose result is
+    # exactly that (Edge Slide at 0, the dialog's own default) used to answer True over
+    # no step -- the 2026-10-14 audit, finding clay-ops-tail-07.
+    changed = False
     for uid, _, mesh, sel in built:
-        doc.set_mesh(uid, mesh, select=sel)
-    return True
+        changed = doc.set_mesh(uid, mesh, select=sel) or changed
+    return changed
 
 
 def refuse_if_no_geometry(ctx: Any, doc: Any, uids: Iterable[int]) -> bool:
@@ -762,7 +781,7 @@ def refuse_if_no_geometry(ctx: Any, doc: Any, uids: Iterable[int]) -> bool:
     by_uid = doc._uid_map()
     objs = [by_uid[uid] for uid in uids if uid in by_uid]
     if objs and not any(len(obj.mesh.positions) for obj in objs):
-        toast(ctx, GROUP_HAS_NO_GEOMETRY)
+        toast(ctx, BONE_HAS_NO_GEOMETRY if all(obj.bone for obj in objs) else GROUP_HAS_NO_GEOMETRY)
         return True
     return False
 
@@ -1277,6 +1296,7 @@ def _boolean(kind: str) -> Callable[..., None]:
 
 def mirror(ctx: Any, doc: Any, axis: int, **_: Any) -> bool:
     from ....kernels.mesh import ops as clay_ops_geom
+    from ....kernels.mesh.elements import OpError
 
     mirrored: list[int] = []
 
@@ -1287,6 +1307,20 @@ def mirror(ctx: Any, doc: Any, axis: int, **_: Any) -> bool:
         # own "nothing to act on" objects are.
         if len(obj.mesh.positions) == 0:
             return
+        # The 2026-10-14 audit, finding clay-ops-tail-03: the reflected points kept
+        # their joints and weights, so the side the left bone drove was now on the
+        # right while the bones stayed put -- posing the left arm dragged the right
+        # one, with no word. Weights that name more than one bone cannot be carried
+        # across a reflection; one bone drives every point either way, so that case
+        # keeps working.
+        joints = obj.mesh.joints
+        if joints is not None and len(np.unique(joints[obj.mesh.weights > 0.0])) > 1:
+            raise OpError(
+                f"{obj.name!r} is weighted to more than one bone, and a mirror would leave "
+                "each point on the bone it had before, so the left side would still follow "
+                "the left bone from the right. Run Unbind Skin on it first (its weights are "
+                "lost), or mirror it before rigging it."
+            )
         doc.set_mesh(obj.uid, clay_ops_geom.mirror(obj, axis).mesh)
         mirrored.append(obj.uid)
 
@@ -1367,7 +1401,12 @@ def _mirror_copy(ctx: Any, doc: Any, axis: float = 0.0, offset: float = 0.0, **_
     made: list[Any] = []
     for uid in originals:
         source = by_uid[uid]
-        copy = clay_ops_geom.duplicate(source, fresh[uid], taken=taken)
+        # ``fresh`` is the whole original -> copy map, so a weighted mesh mirrored
+        # with its bones is bound to the mirrored bones (the 2026-10-14 audit,
+        # finding clay-mesh-core-02), as Duplicate's copy is.
+        copy = clay_ops_geom.rebind_skin(
+            clay_ops_geom.duplicate(source, fresh[uid], taken=taken), fresh
+        )
         taken.add(copy.name)
         world = doc._world_in(uid, by_uid)
         mirrored = clay_ops_geom.mirror_world(copy, int(axis), offset, world=world)
@@ -1644,8 +1683,14 @@ def _is_group(doc: Any, obj: Any) -> bool:
     its own, ``ClayDoc.group``'s own shape -- with at least one child to
     release. An empty with nothing under it, or an object that carries real
     geometry of its own, is not what Ungroup means to act on.
+
+    **A bone is never one.** The 2026-10-14 audit, finding clay-ops-tail-05: an Add
+    Bone chain's joints are empties with a child bone under them, which this took
+    for groups, so Ungroup was lit on a joint and deleted it (pruning its keys and
+    re-parenting the rest of the chain) in a verb the manual describes as dissolving
+    a group.
     """
-    return len(obj.mesh.positions) == 0 and bool(doc.children_of(obj.uid))
+    return not obj.bone and len(obj.mesh.positions) == 0 and bool(doc.children_of(obj.uid))
 
 
 def has_group_selected(doc: Any) -> bool:
@@ -1799,6 +1844,18 @@ def _apply_pose_as_rest(ctx: Any, doc: Any, **_: Any) -> bool:
     """Make the pose the rest pose, re-shaping every weighted mesh to match."""
     del ctx
     return doc.apply_pose_as_rest()
+
+
+POSE_OPS: tuple[str, ...] = ("insert-key", "delete-key", "reset-pose", "apply-pose-as-rest")
+"""The ops gated on Pose mode (``can_pose_selected`` and its two siblings), by name.
+
+The 2026-10-14 audit's clay-12: the agent has no tool that switches Pose mode on, and the
+playhead they key at is session state it cannot move either, so these four sat in ``clay_op``'s
+name enum and could only ever answer "Switch to Pose mode first.". The agent surface leaves them
+out of the enum and refuses them by name; the person at the keyboard keeps them. A hand tuple
+because ``Op`` carries no flag, so
+``tests/modes/clay/test_audit_2026_10_14_c7.py`` derives the same set from the gate's own refusal
+text and fails when a new Pose-mode op is registered without being named here."""
 
 
 def _group(ctx: Any, doc: Any, **_: Any) -> None:
@@ -2268,15 +2325,19 @@ def _simplify(ctx: Any, doc: Any, target: int = 100, **_: Any) -> bool:
         was = bm.face_count(obj.mesh)
         try:
             mesh = ops_simplify.simplify(obj.mesh, target)
+            now = bm.face_count(mesh)
+            short = short or now > target
+            if mesh is obj.mesh or not doc.set_mesh(obj.uid, mesh):
+                return False
         except OpError:
             # ``run_object_op`` toasts it; the flag only keeps the "nothing to
-            # do" sentence below from piling a second, untrue one on top.
+            # do" sentence below from piling a second, untrue one on top. The
+            # 2026-10-14 audit, finding clay-ops-tail-06: only the kernel's refusal
+            # set it, so ``set_mesh``'s (a weighted mesh whose point count would
+            # change) was toasted and then followed by "Nothing more can be merged",
+            # a second cause and a wrong one.
             refused = True
             raise
-        now = bm.face_count(mesh)
-        short = short or now > target
-        if mesh is obj.mesh or not doc.set_mesh(obj.uid, mesh):
-            return False
         before += was
         after += now
         changed += 1
@@ -2351,6 +2412,9 @@ def _smooth(ctx: Any, doc: Any, levels: int = 1, **_: Any) -> bool:
     for obj in shapes:
         try:
             mesh, _sel = ops_subdiv.catmull_clark(obj.mesh, empty(), levels=levels)
+            # The skin refusal beside the other two, as in :func:`run_mesh_op` (the
+            # 2026-10-14 audit, finding clay-ops-tail-02).
+            mesh = doc._with_skin_of(obj, mesh)
             doc._refuse_invalid(obj.name, mesh)
             doc._refuse_unstorable(obj.name, mesh)
         except OpError as error:
@@ -2929,7 +2993,7 @@ def _register_defaults() -> None:
             hint="Drops a weighted mesh's per-point weights, keeping its shape. It is bound "
             "rigidly to the bone above it instead, if it sits under one. This is also the "
             "way out of the edits a weighted mesh refuses (changing its points' number, "
-            "joining, separating).",
+            "joining, separating, mirroring a mesh weighted to more than one bone).",
         )
     )
     register(
@@ -3162,7 +3226,8 @@ def _register_defaults() -> None:
             hint="Slides the picked edges sideways along the faces either side of them, "
             "so a loop you have just cut can be moved to where the form wants it. "
             "Nothing but positions changes. Which way is negative depends on the "
-            "mesh's own numbering; try the other sign.",
+            "mesh's own numbering but is the same all along the loop; try the "
+            "other sign.",
             params=(Param("t", "slide (-1 to 1)", 0.0, 0.05, low=-0.99, high=0.99),),
         )
     )

@@ -217,7 +217,11 @@ def test_the_playhead_at_a_looping_clips_length_shows_its_last_key_not_its_first
     assert doc.animation().loop
     doc.set_rig_time(1.0)
     assert np.allclose(doc.pose_overrides()[hip]["rotation"], Q90, atol=1e-6)
+    # A parked playhead past the end holds the last key, so the frame about to be keyed is the
+    # one on screen (the 2026-10-14 audit, finding clay-rig-06, F11); only playback wraps.
     doc.set_rig_time(1.25)
+    assert np.allclose(doc.pose_overrides()[hip]["rotation"], Q90, atol=1e-6)
+    doc.playing = True
     wrapped = anim.pose(doc.animation(), 0.25)[hip]["rotation"]
     assert np.allclose(doc.pose_overrides()[hip]["rotation"], wrapped)
 

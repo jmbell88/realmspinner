@@ -21,8 +21,9 @@ becoming a Markdown implementation. What it will not do is guess -- a bullet
 before any heading belongs to no release and is dropped.
 
 Two concessions to the file being real Markdown, and both were bugs first. An
-*indented* line under a bullet continues it, because the file is hard-wrapped
-at 80 columns like everything else in this repository and treating a
+*indented* line under a bullet continues it, because a bullet may be wrapped
+over several lines (the file's bullets are single physical lines since 0.1.x,
+and older ones are wrapped; both must read the same) and treating a
 continuation as an ignorable line silently truncated every bullet at its first
 newline. And ``**emphasis**`` is stripped, because imgui draws one weight: the
 markers rendered literally, which is worse than losing the emphasis.
@@ -52,15 +53,15 @@ _BULLET = re.compile(r"^[-*]\s+(?P<text>.+)$")
 # any emphasis marker is consumed whole.
 _EMPHASIS = re.compile(
     r"(`[^`]*`)|\*\*(.+?)\*\*|(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)",
-    # ``re.S``, because a bullet is a *wrapped paragraph* and its bolded
-    # lead sentence routinely runs over the line. Without it ``.`` stopped
-    # at the newline, the opening ``**`` found no partner, and the markers
-    # went to the screen -- which is the exact failure this function's
-    # docstring says it exists to prevent. v0.0.41's third bullet shipped
-    # that way, drawn across Home's What's new card in every theme, and
-    # the screenshot pass is what found it. Whether a bullet happens to
-    # wrap is a property of the prose, so the flag is the fix rather than
-    # rewrapping CHANGELOG.md.
+    # ``re.S`` is defensive now. v0.0.41's third bullet shipped with its
+    # ``**`` markers on screen because the bolded lead ran over a line and
+    # ``.`` stopped at the newline; the real fix was joining the wrapped lines
+    # *before* stripping (``parse``'s ``flush``), after which this pattern is
+    # only ever handed single-line text -- a space where the newline was. The
+    # flag stays so a caller that hands :func:`_plain` raw multi-line text still
+    # cannot reproduce that failure; the 2026-10-14 audit (finding docs-A-B-15)
+    # found this comment still describing a newline the pattern can no longer
+    # see.
     re.S,
 )
 
@@ -152,9 +153,9 @@ def parse(text: str) -> list[Release]:
     def flush() -> None:
         # **Emphasis is stripped from the assembled bullet, not from each line
         # as it arrives.** Doing it per line is what this used to do, and it
-        # cannot work: the file is hard-wrapped at 80 columns, so a bolded lead
-        # sentence longer than one line puts its opening ``**`` on one line and
-        # its partner on the next, and neither half is a match on its own. The
+        # cannot work: a wrapped bullet's bolded lead sentence longer than one
+        # line puts its opening ``**`` on one line and its partner on the next,
+        # and neither half is a match on its own. The
         # markers then went to the screen, which is the exact failure
         # :func:`_plain` exists to prevent -- v0.0.41's third bullet shipped
         # that way and was drawn across Home's What's new card in every theme

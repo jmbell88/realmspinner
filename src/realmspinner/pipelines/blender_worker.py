@@ -223,6 +223,58 @@ def _restore_mesh(bpy: Any, mesh: Any, original: Any) -> None:
     bpy.data.meshes.remove(welded)
 
 
+def _restore_facing(bpy: Any, mesh: Any, original: Any) -> int:
+    """Flip the welded ``mesh``'s faces that face the other way from ``original``'s. -> count.
+
+    ``_weld`` runs ``normals_make_consistent`` so the heat solve sees one
+    agreed "outside", which is right for a reconstruction and wrong for a shell
+    the user *meant* inside-out: a room modelled with its walls facing in came
+    back from Weight with Blender facing out, every wall (the 2026-10-14 audit,
+    finding pipelines-children-04, 12 of 12 reproduced against real Blender).
+    The weld's contract is that it must not change what the user sees, so the
+    solve keeps the consistent mesh it was written against and the *export*
+    gets the original facing put back, face by face, by comparing each face's
+    normal with the pre-weld copy's.
+
+    Faces are matched by index when the weld removed none (the usual case:
+    ``remove_doubles`` merges points and keeps faces in order), and by nearest
+    face centre when it dissolved some. A datablock with no polygon collection
+    (the fake ``bpy`` the host-side rig tests use) has no facing to keep.
+    """
+    polygons = getattr(mesh.data, "polygons", None)
+    was = getattr(original, "polygons", None)
+    if polygons is None or was is None or len(polygons) == 0 or len(was) == 0:
+        return 0
+    import bmesh
+    import numpy as np
+
+    def read(collection: Any, attribute: str) -> Any:
+        flat = np.empty(len(collection) * 3, dtype=np.float32)
+        collection.foreach_get(attribute, flat)
+        return flat.reshape(-1, 3)
+
+    now_normals, was_normals = read(polygons, "normal"), read(was, "normal")
+    if len(polygons) == len(was):
+        match = np.arange(len(was))
+    else:
+        from scipy.spatial import cKDTree
+
+        _distance, match = cKDTree(read(was, "center")).query(read(polygons, "center"))
+    flip = np.nonzero((now_normals * was_normals[match]).sum(axis=1) < 0.0)[0]
+    if len(flip) == 0:
+        return 0
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(mesh.data)
+        bm.faces.ensure_lookup_table()
+        bmesh.ops.reverse_faces(bm, faces=[bm.faces[int(i)] for i in flip])
+        bm.to_mesh(mesh.data)
+    finally:
+        bm.free()
+    mesh.data.update()
+    return int(len(flip))
+
+
 def _skin(bpy: Any, mesh: Any, arm_obj: Any, *, weld: float = 0.0) -> tuple[str, str | None]:
     """Bind mesh to armature, preferring heat weights. -> (method, why not).
 
@@ -239,7 +291,11 @@ def _skin(bpy: Any, mesh: Any, arm_obj: Any, *, weld: float = 0.0) -> tuple[str,
     The failure is reported two different ways depending on Blender version (an
     operator RuntimeError, or a 'FINISHED' that quietly leaves every vertex
     group empty), so both are checked at every rung. Envelope weights are worse
-    but they always exist, and a mediocre rig beats a failed job.
+    but usually exist, and a mediocre rig beats a failed job -- *usually*: an
+    envelope bind reaches only the vertices a bone's radius covers, and one
+    that reaches none still returns here. ``op_rig`` checks for that (the
+    2026-10-14 audit, finding pipelines-children-02) because this function's
+    contract is the method and the reason, not a promise the weights exist.
 
     The *reason* is returned rather than only printed. Envelope is a degraded
     outcome, not a second success, and while the only trace of it was a line on
@@ -277,6 +333,14 @@ def _skin(bpy: Any, mesh: Any, arm_obj: Any, *, weld: float = 0.0) -> tuple[str,
             bind("ARMATURE_AUTO")
             if _has_weights(mesh):
                 if original is not None:
+                    # The welded mesh is what gets exported, and ``_weld``'s
+                    # ``normals_make_consistent`` may have turned faces the
+                    # user modelled inward (the 2026-10-14 audit, finding
+                    # pipelines-children-04). The solve has already read them;
+                    # what leaves this function has to face the way it came in.
+                    flipped = _restore_facing(bpy, mesh, original)
+                    if flipped:
+                        print(f"restored the facing of {flipped} welded face(s)", flush=True)
                     bpy.data.meshes.remove(original)
                 return method, None
             causes.append(f"{method}: produced no vertex weights")
@@ -688,63 +752,6 @@ def _evaluated_corners(bpy: Any, meshes: Sequence[Any]) -> list[tuple[float, flo
     return corners
 
 
-def _socket_world_point(
-    arm_obj: Any, socket: Mapping[str, Any]
-) -> tuple[tuple[float, float, float], float] | None:
-    """Where a named socket sits in the world, in the pose that is applied now.
-
-    -> ``(point, bone_length)``, because **both** of a socket's measurements are
-    in bone-length units and one bone lookup has to answer for both. ``offset``
-    is ``(along, lateral, up)`` in those units and so is ``reach``
-    (``characters.family.Socket``: "the radius, in the same units"), so a caller
-    that converts the offset here and the radius somewhere else is one rename
-    away from converting them against two different scales -- which is exactly
-    the defect the 2026-09-20 P28 sitting found, where ``_pose_union`` scaled
-    ``reach`` by the character's *height* instead and framed a 2.6 m ogre into a
-    25-unit window, rendering it 6 px tall in a 64 px cell.
-
-    The offset survives a re-fit onto a character of a different size -- the
-    same reasoning ``delta`` pose space is authored under. Blender puts a bone's
-    own +Y along the bone, +X lateral and +Z up, which is the order the offset is
-    written in.
-
-    An unknown bone costs the socket and never the sheet, the rule
-    ``_apply_pose`` and ``_apply_root_translation`` already follow: a socket
-    list authored against one template applied after a re-rig should lose the
-    attachment point, not 256 frames.
-    """
-    pbone = arm_obj.pose.bones.get(str(socket.get("bone") or ""))
-    if pbone is None:
-        print(f"socket names a bone this rig does not have: {socket.get('bone')!r}", flush=True)
-        return None
-    along, lateral, up = (list(socket.get("offset") or (0.0, 0.0, 0.0)) + [0.0, 0.0, 0.0])[:3]
-    length = float(pbone.bone.length)
-    local = (float(lateral) * length, float(along) * length, float(up) * length)
-    # pose-bone matrix is armature-object space; the object's own transform
-    # carries it the rest of the way.
-    return _transform(arm_obj.matrix_world, _transform(pbone.matrix, local)), length
-
-
-def _sphere_corners(
-    point: Sequence[float], radius: float
-) -> list[tuple[float, float, float]]:
-    """The eight corners of the box around a sphere of ``radius`` at ``point``.
-
-    A flame or a muzzle flash drawn at a socket has extent of its own, and
-    framing to the body alone would clip it. Cube corners rather than the six
-    axis extremes: over-covering a sphere by its diagonal frames a little wide,
-    which is the safe direction, where under-covering it clips.
-    """
-    x, y, z = (float(point[0]), float(point[1]), float(point[2]))
-    r = float(radius)
-    return [
-        (x + sx * r, y + sy * r, z + sz * r)
-        for sx in (-1.0, 1.0)
-        for sy in (-1.0, 1.0)
-        for sz in (-1.0, 1.0)
-    ]
-
-
 def _union_framing(
     rest_lo: Sequence[float],
     rest_hi: Sequence[float],
@@ -802,29 +809,6 @@ def _view_forward(yaw_deg: float, elevation_deg: float) -> tuple[float, float, f
         fx * math.cos(yaw) - fy * math.sin(yaw),
         fx * math.sin(yaw) + fy * math.cos(yaw),
         fz,
-    )
-
-
-def _view_depth(
-    centre: Sequence[float],
-    point: Sequence[float],
-    *,
-    yaw_deg: float,
-    elevation_deg: float,
-    distance: float,
-) -> float:
-    """How far ``point`` is from the camera, measured along the view direction.
-
-    Not the straight-line distance: an orthographic camera has no eye point to
-    measure from, and what an overlay compositor needs is the ordering along
-    the view axis. ``_aim_camera`` puts the camera at ``centre - forward *
-    distance``, so this is ``dot(point - centre, forward) + distance`` -- a
-    positive number that grows away from the viewer, which is what makes
-    ``behind`` a plain ``>``.
-    """
-    forward = _view_forward(yaw_deg, elevation_deg)
-    return float(distance) + sum(
-        (float(point[i]) - float(centre[i])) * forward[i] for i in range(3)
     )
 
 
@@ -958,17 +942,13 @@ def _pose_union(
     bpy: Any,
     armature: Any,
     cells: Sequence[Mapping[str, Any]],
-    sockets: Sequence[Mapping[str, Any]],
     metrics_out: dict[str, Any] | None = None,
-) -> tuple[
-    list[tuple[float, float, float]],
-    dict[Any, dict[str, tuple[float, float, float]]],
-    dict[Any, tuple[float, float, float]],
-]:
+) -> list[tuple[float, float, float]]:
     """Walk every distinct pose the sheet contains and measure what it reaches.
 
-    Returns the union's corners, each pose's socket world points, and each
-    pose's own body centre (what ``behind`` is measured against below).
+    Returns the union's corners. (Socket points and per-pose body centres went
+    with the character sheet that asked for them: the 2026-10-14 audit, finding
+    poser-rig-04.)
 
     Keyed on ``(pose, frame)`` -- the render loop's own cache key, reused
     deliberately: measuring a key the loop would not pose would frame for a
@@ -995,8 +975,6 @@ def _pose_union(
         except Exception as exc:  # noqa: BLE001 - a number must not cost the sheet
             print(f"deformation metrics unavailable: {exc}", flush=True)
     corners: list[tuple[float, float, float]] = []
-    socket_points: dict[Any, dict[str, tuple[float, float, float]]] = {}
-    body_centres: dict[Any, tuple[float, float, float]] = {}
     seen: set[Any] = set()
     for cell in cells:
         key = (cell.get("pose"), cell.get("frame", 0))
@@ -1022,32 +1000,10 @@ def _pose_union(
         if not mine:
             raise RuntimeError("nothing to render: the scene has no mesh")
         corners.extend(mine)
-        body_centres[key] = tuple(  # type: ignore[assignment]
-            (min(c[i] for c in mine) + max(c[i] for c in mine)) / 2.0 for i in range(3)
-        )
-        if sockets and armature is not None:
-            points: dict[str, tuple[float, float, float]] = {}
-            for socket in sockets:
-                found = _socket_world_point(armature, socket)
-                if found is None:
-                    continue
-                point, bone_length = found
-                points[str(socket.get("name") or socket.get("bone"))] = point
-                # **Bone lengths, not character heights** -- see
-                # ``_socket_world_point``. ``reach`` shares ``offset``'s unit by
-                # ``characters.family.Socket``'s own definition, and the shipped
-                # humanoid asks for 3.0 at each hand: read as heights that is a
-                # 7.8 m sphere on a 2.6 m ogre, and the union below dutifully
-                # framed for it. Found 2026-09-20 by the P28 sitting, which
-                # could not judge a 64 px character that rendered 6 px tall.
-                reach = float(socket.get("reach") or 0.0) * bone_length
-                if reach > 0.0:
-                    corners.extend(_sphere_corners(point, reach))
-            socket_points[key] = points
     if armature is not None:
         _reset_pose(armature)
         bpy.context.view_layer.update()
-    return corners, socket_points, body_centres
+    return corners
 
 
 def _setup_render(bpy: Any, size: int, *, taa_samples: int | None = None) -> None:
@@ -1241,7 +1197,7 @@ def _rig_bones(
     informed placement and never the rig.
 
     A *custom* skeleton (``spec["skeleton"] == "custom"``, from ``service.rig.
-    edit_skeleton``) gets the same treatment as ``template_bones``, for the
+    rig_with_skeleton``) gets the same treatment as ``template_bones``, for the
     same reason: it was already checked host-side by ``skeleton.
     validate_skeleton`` before this job was queued, but the spec crossed a
     pipe as plain JSON to get here, and re-trusting a structure this process
@@ -1355,46 +1311,11 @@ def op_rig(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
 
     progress(0.25, "Fitting skeleton")
     lo, hi = _world_bounds(mesh)
-    # The 2026-09-16 audit: captured *before* the measured-joints branch below
-    # can rebind ``spec`` with its own measured ``bones`` -- ``adjusted`` must
-    # mean "the caller supplied bones", per dev/INVARIANTS.md ("adjusted
-    # still means only 'the user moved these'"), and reading it off the
-    # post-mutation ``spec`` further down could no longer tell that apart
-    # from "op_rig's own measured-joints branch just populated spec['bones']".
+    # ``adjusted`` means "the caller supplied bones" (dev/INVARIANTS.md:
+    # "adjusted still means only 'the user moved these'"). The joint-measuring
+    # branch that once filled ``spec['bones']`` itself is gone (the 2026-10-14
+    # audit, finding poser-rig-02), so nothing but the caller ever sets it.
     caller_supplied_bones = bool(spec.get("bones"))
-    if spec.get("joints") == "measured" and not spec.get("bones"):
-        # Measured off the geometry rather than scaled to its box. Done here
-        # and not on the host because this is the only process that can read a
-        # GLB's vertices; it lands in ``spec["bones"]``, so from ``_rig_bones``
-        # onward it is indistinguishable from a user's own joint correction --
-        # which is exactly what it is, taken automatically.
-        from . import jointfit
-
-        verts = [mesh.matrix_world @ v.co for v in mesh.data.vertices]
-        try:
-            measured = jointfit.payload([tuple(v) for v in verts])
-            # validate_joints raises ValueError too -- e.g. a non-humanoid
-            # template's bone set not matching what jointfit measured -- and
-            # the 2026-09-07 audit (poser-04) found it living *after* this
-            # try's except, so that ValueError reached ``main`` unguarded and
-            # crashed the worker instead of falling back. It belongs in the
-            # same try as the measurement it validates: both failures mean
-            # the same thing, "costs the measurement, never the rig".
-            validated = skeleton.validate_joints(measured, template)
-        except ValueError as exc:
-            # Costs the measurement, never the rig: the bbox fit is still a
-            # rig, and a mesh this cannot read is exactly the mesh whose
-            # measurements would be worth least.
-            print(f"joint measurement failed, using the template fit: {exc}", flush=True)
-        else:
-            spec = {**spec, "bones": validated}
-            # The 2026-09-16 audit: without this, ``_rig_bones``'s
-            # caller-supplied branch falls through to ``spec.get("fit") or
-            # {"method": "manual"}`` -- tagging an automatic geometric
-            # measurement with the same "manual" label a real user
-            # hand-correction gets. Tag it before ``_rig_bones`` ever sees
-            # this spec.
-            spec.setdefault("fit", {"method": "jointfit"})
     bones, fit = _rig_bones(spec, lo, hi)
     # Identity, not equality: a spec that asked for a custom skeleton but
     # failed re-verification (``_rig_bones``) returns a *fresh* list from
@@ -1406,6 +1327,19 @@ def op_rig(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
 
     progress(0.40, "Computing weights")
     weighting, weighting_reason = _skin(bpy, mesh, arm_obj, weld=weld_distance(lo, hi))
+    if weighting == "envelope" and not _has_weights(mesh):
+        # The 2026-10-14 audit, finding pipelines-children-02: when bone-heat
+        # fails both attempts the envelope bind is the floor, but it only
+        # weights what a bone's radius reaches. On a mesh it reached nowhere
+        # this used to export bone nodes with no skin and report ``ok: True,
+        # weighting: "envelope"`` -- a finished rig job that deforms nothing,
+        # described in the manual as "cruder around joints, not broken".
+        raise RuntimeError(
+            "Blender could not weight this mesh to the skeleton: even the "
+            "envelope fallback reached none of its points "
+            f"({weighting_reason}). Move the bones inside the shape, or add "
+            "bones near the parts that have none."
+        )
 
     progress(0.85, "Exporting rig")
     _export(bpy, Path(spec["out_glb"]))
@@ -1556,32 +1490,6 @@ def op_animate(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "clips": baked, "unknown": unknown}
 
 
-def op_armature(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
-    """Export one template's armature over the canonical unit box, meshless.
-
-    The Poser preview: no source mesh, no skinning, just the skeleton fitted to
-    ``poselib.UNIT_LO``/``UNIT_HI`` -- where ``fit_template``'s ``place()`` is
-    the identity on the normalized landmarks, so the exported armature is
-    exactly one character-height tall and a root translation authored against
-    it is in character-height units literally.
-
-    ``_build_armature`` and ``_export`` are the same calls ``op_rig`` makes, on
-    purpose: the preview's bone frames and a real bake's must be the same
-    frames, and sharing the code path is what makes that divergence-proof.
-    """
-    template = templates.get_template(spec["template"])
-
-    progress(0.10, "Building armature")
-    _reset_scene(bpy)
-    bones = skeleton.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
-    _build_armature(bpy, bones)
-
-    progress(0.60, "Exporting armature")
-    _export(bpy, Path(spec["out_glb"]))
-    progress(1.0, "Armature complete")
-    return {"ok": True, "template": template.key, "bones": len(bones)}
-
-
 def _clip_sample_matches(
     name: str, strips: Sequence[re.Pattern[str]], candidates: set[str]
 ) -> bool:
@@ -1626,8 +1534,8 @@ def op_clip_sample(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     that word is reserved for triangle-budget re-optimisation in this
     codebase. This op is Blender SAMPLES: it reads a Mixamo/Rigify file's
     bone-space poses into plain numbers and reports the Realmspinner template's own
-    rest frames alongside them, built the same way :func:`op_armature` builds
-    its preview. The math that converts one onto the other is a later, pure
+    rest frames alongside them, fitted over the canonical unit box the way a
+    template is fitted for any rig. The math that converts one onto the other is a later, pure
     step (``cliptransfer.py``) that never touches bpy.
 
     Every anticipated failure -- an ASCII FBX, a file with no bone naming any
@@ -1758,7 +1666,7 @@ def op_clip_sample(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
 
     progress(0.92, "Building target rest frames")
     template = templates.get_template(spec["template"])
-    _reset_scene(bpy)  # the source armature is gone from here on -- see op_armature
+    _reset_scene(bpy)  # the source armature is gone from here on
     target_bones_fitted = skeleton.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI)
     target_arm = _build_armature(bpy, target_bones_fitted)
     target_bones: dict[str, Any] = {}
@@ -1808,7 +1716,6 @@ def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     size = int(spec["frame_size"])
     elevation = float(spec["elevation"])
     cells = spec["cells"]
-    sockets = [dict(s) for s in (spec.get("sockets") or [])]
 
     progress(0.05, "Loading model")
     _reset_scene(bpy)
@@ -1817,19 +1724,15 @@ def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
     armature = next((o for o in bpy.context.scene.objects if o.type == "ARMATURE"), None)
 
     lo, hi = _scene_bounds(bpy)
-    # ``spec.get("margin")`` has two writers and only one of them invents a
-    # number. the character-sheet validation retry chose one, re-rendering a sheet
-    # whose first attempt clipped at a wider margin; a *subset* re-render passed
-    # back the ``frame_margin`` its base sidecar recorded, because cells landing
-    # beside existing ones have to be framed exactly as those were or the
-    # character changes size inside rectangles that must not change.
-    # Every other caller omits the key and gets ``sheet.FRAME_MARGIN`` -- the
-    # same figure ``studio.viewer.sheet`` frames the in-app preview with, which
-    # is why it is that constant and not a literal here.
-    margin = float(spec.get("margin") or sheet.FRAME_MARGIN)
+    # The one margin: ``sheet.FRAME_MARGIN``, the figure ``kernels/sheet.py``
+    # defines for every sheet frame, which is why it is that constant and not a
+    # literal here. The spec used to carry an override
+    # for the character sheet's reframe retry; both writers left with that
+    # pipeline (the 2026-10-14 audit, finding poser-rig-04).
+    margin = float(sheet.FRAME_MARGIN)
     progress(0.07, "Measuring poses")
     metrics: dict[str, Any] | None = {} if spec.get("deform_metrics") else None
-    union, socket_points, body_centres = _pose_union(bpy, armature, cells, sockets, metrics)
+    union = _pose_union(bpy, armature, cells, metrics)
     if not union:
         # An empty cell list -- nothing to pose, so the union is the rest box.
         union = [(x, y, z) for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
@@ -1864,7 +1767,6 @@ def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
 
     posed: Any = "__rest__"
     rendered = []
-    projected: dict[int, dict[str, dict[str, Any]]] = {}
     for i, cell in enumerate(cells):
         # Cells arrive grouped by row, so this re-poses once per row rather than
         # once per frame -- eight times less work on an eight-yaw sheet. A
@@ -1883,38 +1785,7 @@ def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
                 # never leaks into the next pose's cells.
                 _apply_root_translation(armature, cell.get("root_bone"), cell["root_offset"])
             posed = key
-        # Read twice below -- here to aim, and again at the socket depth
-        # ordering -- which is exactly why a ``front_yaw`` offset (see
-        # ``_q_rig``) is added into this per-cell value on the
-        # host rather than carried as a separate spec key: a spec key would
-        # have to be threaded to both reads and re-derived here, where adding
-        # it once, upstream, means this worker keeps needing to know only one
-        # angle per cell, exactly as it always has.
         _aim_camera(cam, centre, float(cell["yaw"]), elevation, distance)
-        if sockets:
-            # Per cell, because a socket is attached to a bone and both the
-            # pose and the yaw move it. Projected through the same ``_project``
-            # the pivot goes through, so a socket and the feet are in one
-            # coordinate system -- pixels within the rendered frame, which the
-            # host converts to cell pixels with ``charsheet.point_in_cell``.
-            yaw = float(cell["yaw"])
-            body = body_centres.get(key)
-            here: dict[str, dict[str, Any]] = {}
-            for name, point in (socket_points.get(key) or {}).items():
-                px, py = _project(bpy, cam, point, size)
-                depth = _view_depth(
-                    centre, point, yaw_deg=yaw, elevation_deg=elevation, distance=distance
-                )
-                behind = body is not None and depth > _view_depth(
-                    centre, body, yaw_deg=yaw, elevation_deg=elevation, distance=distance
-                )
-                here[name] = {
-                    "x": float(px),
-                    "y": float(py),
-                    "depth": float(depth),
-                    "behind": bool(behind),
-                }
-            projected[int(cell["index"])] = here
         out = frames_dir / f"{cell['index']:04d}.png"
         bpy.context.scene.render.filepath = str(out)
         bpy.ops.render.render(write_still=True)
@@ -1940,12 +1811,6 @@ def op_sheet(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
             },
         },
     }
-    if sockets:
-        # Only when they were asked for, so every sheet rendered before sockets
-        # existed comes back with the dict it always came back with. The keys
-        # are cell indices and arrive at the host as JSON object keys, i.e.
-        # strings -- the result travels through ``result.json``.
-        result["sockets"] = projected
     if metrics is not None:
         result["deform_metrics"] = metrics
     return result
@@ -2458,6 +2323,7 @@ def op_project(bpy: Any, spec: dict[str, Any]) -> dict[str, Any]:
                 # correct for it and is why this is a tuple rather than a flip.
                 #
                 # See dev/measurements/2026-08-20-retexture-weight-colorspace.md.
+                # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
                 image.colorspace_settings.name = "Non-Color"
             node = tree.nodes.new("ShaderNodeTexImage")
             node.image = image
@@ -2515,6 +2381,7 @@ def _bake_image(bpy: Any, name: str, size: int, *, data: bool) -> Any:
         # Roughness and normals are data, not colour: left on the sRGB
         # default the exporter would bend a straight ramp
         # (dev/measurements/2026-08-20-retexture-weight-colorspace.md).
+        # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
         image.colorspace_settings.name = "Non-Color"
     return image
 
@@ -3018,7 +2885,6 @@ OPS = {
     "rig": op_rig,
     "pose": op_pose,
     "animate": op_animate,
-    "armature": op_armature,
     "clip_sample": op_clip_sample,
     "sheet": op_sheet,
     "fbx": op_fbx,

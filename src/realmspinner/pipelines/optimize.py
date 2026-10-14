@@ -77,6 +77,7 @@ CUSTOM_MIN = 5_000
 # at all.) 250k therefore sits just under the landing point, where a custom
 # budget is always a genuine reduction of something that exists.
 # dev/measurements/2026-09-03-trellis-detail-sweep.md has the evidence.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 CUSTOM_MAX = 250_000
 
 DEFAULT_TIMEOUT = 300.0
@@ -123,6 +124,7 @@ def run(
     material assignment or a PBR texture raises :class:`OptimizeError` just
     like a non-zero exit does, and ``dest`` is left untouched either way (see
     the module docstring and dev/measurements/2026-09-23-default-mesh-budget.md).
+    (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     """
     if target_triangles is None:
         # No budget asked for, so nothing here needs to know the count: this is
@@ -198,12 +200,11 @@ def run(
         achieved = _triangles(tmp)
         if achieved <= 0:
             raise OptimizeError("gltfpack produced a mesh with no triangles")
-        # dev/measurements/2026-09-23-default-mesh-budget.md: the per-tier
-        # corpus qualification this used to wait on never finished, so every
-        # pass now checks itself instead of trusting a sample run on other
-        # meshes. Before the replace, not after -- a losing verdict must leave
-        # `dest` exactly as it was; the `finally` below still unlinks `tmp`
-        # either way, which is what makes "unlink and raise" free here.
+        # dev/measurements/2026-09-23-default-mesh-budget.md [lost; re-measure to change]: the
+        # per-tier corpus qualification this used to wait on never finished, so every pass now
+        # checks itself instead of trusting a sample run on other meshes. Before the replace, not
+        # after -- a losing verdict must leave `dest` exactly as it was; the `finally` below still
+        # unlinks `tmp` either way, which is what makes "unlink and raise" free here.
         verdict = tiercheck.compare(tiercheck.survey(source), tiercheck.survey(tmp))
         if not verdict.ok:
             raise OptimizeError(

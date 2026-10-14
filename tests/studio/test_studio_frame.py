@@ -739,7 +739,7 @@ def test_paint_still_sees_both_edges():
     import inspect
 
     from realmspinner.studio import main
-    from realmspinner.studio.modes.inker import mode as inker_mode
+    from realmspinner.studio.modes.inker import keys as inker_keys
 
     source = inspect.getsource(main.App._shortcut)
     head, _, tail = source.partition("inker_mode.handle_key")
@@ -749,7 +749,9 @@ def test_paint_still_sees_both_edges():
         index > gate
         for index in _positions(head, "event.type != pygame.KEYDOWN")
     ), "a press-only guard above the work-mode gate would swallow paint's release"
-    assert "K_SPACE" in inspect.getsource(inker_mode.handle_key)
+    # ``mode.handle_key`` delegates since the 2026-10-14 audit (finding F30): the body
+    # that reads the Space edge is ``keys._handle_key``.
+    assert "K_SPACE" in inspect.getsource(inker_keys._handle_key)
 
 
 def _positions(text: str, needle: str) -> list[int]:

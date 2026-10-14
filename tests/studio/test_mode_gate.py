@@ -71,7 +71,7 @@ def test_create_is_gated_when_only_the_runtime_engine_row_is_missing():
     that row alone."""
     ctx = SimpleNamespace(
         model_rows=[
-            {"row_key": "engine:trellis_gguf", "present": True, "size_gib": 16.1},
+            {"row_key": "engine:trellis_gguf", "present": True, "size_gib": 15.34},
             {"row_key": "engine:trellis_runtime", "present": False, "size_gib": 0.68},
             {"row_key": "base:sdxl_cfg", "present": True, "size_gib": 6.5},
         ],

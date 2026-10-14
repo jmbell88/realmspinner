@@ -1,9 +1,9 @@
 """Bone connection lines: the skeleton drawn between the joint markers.
 
-On a meshless armature -- the Poser preview -- the markers alone are a cloud of
-dots with nothing to say which joint hangs off which; these are the lines that
-make it read as a skeleton. Same mechanism as the gizmo rings and the markers:
-a coloured vertex array through the one "solid" program, described as
+The markers alone are a cloud of dots with nothing to say which joint hangs
+off which; these are the lines that make it read as a skeleton. Same
+mechanism as the gizmo rings and the markers: a coloured vertex array through
+the one "solid" program, described as
 ``DrawItem``s so the renderer needs no change at all.
 
 ``bone_segments`` is the pure half: which pairs to connect, derived from the
@@ -25,13 +25,6 @@ from .render import DrawItem
 # Quieter than a marker on purpose: the skeleton is context, the joints are
 # the controls.
 IDLE = 0x55517E
-
-# An onion-skin ghost: the key before or after the one being edited. Quieter
-# again than IDLE, and drawn at a fraction of its alpha, because a ghost that
-# competes with the live skeleton makes the thing you are actually posing
-# harder to read rather than easier.
-GHOST = 0x3A3856
-GHOST_ALPHA = 0.55
 
 
 def bone_segments(model: Any, bones: list[str]) -> list[tuple[str, str]]:
@@ -57,32 +50,6 @@ def bone_segments(model: Any, bones: list[str]) -> list[tuple[str, str]]:
         parent_name = model.nodes[parent].name
         if parent_name in bound:
             pairs.append((parent_name, bone))
-    return pairs
-
-
-def draft_segments(draft: list[dict[str, Any]]) -> list[tuple[str, str]]:
-    """``(parent bone, bone)`` name pairs for a skeleton-mode draft.
-
-    Same shape and purpose as :func:`bone_segments`, over ``pose.PoseEditor``'s
-    draft bone list instead of a glTF node graph -- a draft bone has no node,
-    so there is nothing here to walk. A leaf bone (no children in the draft)
-    also gets a ``(name, f"{name}@tail")`` segment, since that is the only
-    place its own extent is drawn at all: a non-leaf bone's tail is drawn as
-    its first child's head instead, the same rule
-    ``pose.PoseEditor.corrected_bones`` applies in joints mode, so those two
-    positions coincide and a second segment there would only retrace the
-    first. Both name-pair shapes are keys :meth:`pose.PoseEditor.handles`
-    already carries, which is what lets this be drawn through the same
-    ``BoneLines.draws`` a rigged model uses, unchanged.
-    """
-    children: set[str] = {b["parent"] for b in draft if b.get("parent")}
-    pairs: list[tuple[str, str]] = []
-    for bone in draft:
-        name = bone["name"]
-        if bone.get("parent") is not None:
-            pairs.append((bone["parent"], name))
-        if name not in children:
-            pairs.append((name, f"{name}@tail"))
     return pairs
 
 
@@ -117,10 +84,11 @@ class BoneLines:
         lands exactly on them.
         """
         placement = m3.identity() if placement is None else placement
-        # An onion-skin ghost is this same skeleton in a quieter colour, so the
-        # override is a parameter rather than a second class: the geometry, the
-        # pairs and the upload are identical and only the paint differs. A ghost
-        # passes ``selected=None`` too, since a ghost has no selection to show.
+        # Clay's pose view draws the skeleton as two BoneLines, one whose colour
+        # is the idle tone and one the accent, and dims them with ``alpha`` outside
+        # Pose mode, so the paint is a parameter rather than a second class: the
+        # geometry, the pairs and the upload are identical and only the colour
+        # differs.
         base = IDLE if colour is None else colour
         idle: list[tuple[Any, Any]] = []
         active: list[tuple[Any, Any]] = []

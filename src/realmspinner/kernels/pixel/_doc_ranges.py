@@ -325,6 +325,7 @@ class RangeOps:
                     charged.add(id(copy))
                     pinned.add(id(copy))
             index = at + offset
+            self._inherit_frame_tables(source, frame, cels)
             self._put_frame(index, frame, fresh)
             edits.append(
                 FrameAddEdit(

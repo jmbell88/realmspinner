@@ -53,13 +53,6 @@ def test_a_one_shot_lands_exactly_on_its_last_key():
     assert out[-1]["bones"]["hips"] == pytest.approx(keys[-1]["bones"]["hips"])
 
 
-def test_the_old_two_key_call_is_the_new_one_with_a_single_segment():
-    a, b = _pose("a"), _pose("b", 0.4)
-    assert sheetlib.interpolate(a, b, 6) == sheetlib.interpolate_clip(
-        [a, b], [6, 6], closed=True
-    )[:6]
-
-
 def test_root_translation_is_interpolated_rather_than_refused():
     """Gap 1's other half: a bob is root translation, and it used to be a
     refusal by name."""
@@ -200,7 +193,7 @@ def test_a_clip_that_does_not_fill_the_table_is_refused_by_name():
 def test_an_animation_the_table_does_not_have_is_refused():
     records = _records()
     records["cartwheel"] = []
-    with pytest.raises(ValueError, match="not Troupe animations"):
+    with pytest.raises(ValueError, match="not sprite-sheet animations"):
         cs.plan(records)
 
 
@@ -372,7 +365,7 @@ def test_a_resolved_v2_snapshot_round_trips_without_changing_cell_identity():
     assert len(cs.frame_table(second)) == 192
 
 
-def test_v2_warns_above_legacy_size_but_refuses_only_above_the_512_cap():
+def test_v2_refuses_only_above_the_512_cap():
     large = cs.resolve_layout(
         {
             "version": 2,
@@ -380,7 +373,6 @@ def test_v2_warns_above_legacy_size_but_refuses_only_above_the_512_cap():
         }
     )
     assert large.cell_count == cs.MAX_CELLS == 512
-    assert large.cell_count > cs.WARN_CELLS
     with pytest.raises(ValueError, match="at most 512 cells"):
         cs.resolve_layout(
             {
@@ -673,25 +665,17 @@ def test_the_block_goes_into_a_sidecar_unchanged():
 # --- the handoff into Inker --------------------------------------------------
 
 
-def test_a_rendered_sheet_opens_in_inker_with_its_tags_and_timing():
-    """Gap 4's other end: the sidecar's ``animation`` block goes straight into
-    a document, so a character arrives in the editor already tagged per
-    direction and already playing at the speed it was rendered for."""
-    import numpy as np
-
+def test_a_rendered_sheets_animation_block_reads_back_as_tags_and_timing():
+    """Gap 4's other end, as far as it still goes: the sidecar's ``animation``
+    block reads into per-direction tags and per-frame timing. The door that built
+    a whole Inker document from it (``sheetin.document_from_sheet``) was deleted
+    with the sheet pipeline (the 2026-10-14 audit, finding inker-80), so this
+    asserts the two halves that remain, ``span_tags`` and the block's own frames."""
     from realmspinner.kernels.pixel import sheetin
 
-    layout = cs.plan(_records(), frame_size=16)
     block = cs.animation_block()
-    atlas = np.zeros((layout.height, layout.width, 4), dtype=np.uint8)
-    doc = sheetin.document_from_sheet(
-        atlas, [c.as_dict(16) for c in layout.cells], block
-    )
-    assert len(doc.anim.frames) == 256
-    # No DirectionalLayout: these cells are not the four named directions of a
-    # fixed grid, and the tags carry the directions instead.
-    assert doc.anim.layout is None
-    tags = {t.name: t for t in doc.anim.tags}
+    assert len(block["frames"]) == 256
+    tags = {t.name: t for t in sheetin.span_tags(block["tags"])}
     assert tags["walk_left"].loop is True
     assert (tags["walk_left"].start, tags["walk_left"].end) == (
         cs.spans()[10][2],
@@ -701,8 +685,8 @@ def test_a_rendered_sheet_opens_in_inker_with_its_tags_and_timing():
     idle_ms = next(a[3] for a in cs.ANIMATIONS if a[0] == "idle")
     run_start = next(s[2] for s in cs.spans() if s[0] == "run")
     run_ms = next(a[3] for a in cs.ANIMATIONS if a[0] == "run")
-    assert doc.anim.frames[0].duration_ms == idle_ms
-    assert doc.anim.frames[run_start].duration_ms == run_ms
+    assert block["frames"][0]["duration_ms"] == idle_ms
+    assert block["frames"][run_start]["duration_ms"] == run_ms
 
 
 def test_the_general_tag_builder_still_produces_the_walk_sheet_tags():
@@ -781,32 +765,3 @@ def test_a_delta_clip_reaches_the_worker_as_a_cell_that_says_so():
     source = Path(q_rig.__file__).read_text(encoding="utf-8")
     assert '{"pose_space": space}' in source
     assert 'for p in poses if p.get("space")' in source
-
-
-# --- the pivot's unit --------------------------------------------------------
-
-
-def test_a_pivot_projected_at_the_render_size_lands_inside_the_cell():
-    """The sidecar's pivot is cell-relative, and Troupe renders at 512 while
-    packing at the logical size -- so the projected number has to be converted
-    or it names a point far outside the cell it belongs to."""
-    # Centre-bottom of the render, which is where a grounded subject's origin
-    # projects: it must come back as centre-bottom of the *cell*.
-    half = cs.RENDER_SIZE / 2.0
-    assert cs.pivot_in_cell((half, float(cs.RENDER_SIZE)), 32) == (16.0, 32.0)
-    assert cs.pivot_in_cell((half, float(cs.RENDER_SIZE)), 64) == (32.0, 64.0)
-
-
-def test_every_supported_size_keeps_the_pivot_within_its_cell():
-    """The failure in its own terms: unconverted, a 32px cell recorded a pivot
-    near (256, 470) -- sixteen cells below the sprite."""
-    for size in cs.SIZES:
-        x, y = cs.pivot_in_cell((256.0, 470.0), size)
-        assert 0.0 <= x <= size, size
-        assert 0.0 <= y <= size, size
-
-
-def test_no_pivot_stays_no_pivot():
-    """``sidecar`` falls back to centre-bottom when there is none, so None has
-    to survive the conversion rather than becoming (0, 0)."""
-    assert cs.pivot_in_cell(None, 32) is None

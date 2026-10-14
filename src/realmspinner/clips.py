@@ -1,10 +1,14 @@
-"""The shipped clip library joined to Troupe's frame table.
+"""The shipped clip library, resolved to frames: the expansion a frame table
+wants and the tracks an exported animation carries.
 
-Two functions -- one for the sheet's grid, one for an exported animation
-track -- in a module of its own, for the reason ``vectors.py`` is a module
+The character sheet and Poser that first needed the frame-table half are gone
+(``retired.py``); ``expand_clips`` survives only as the layout expansion the
+clip-library door's default-set check uses, and ``animation_tracks`` is what the
+``animated.glb`` bake reads. They live in a
+module of their own, for the reason ``vectors.py`` is a module
 of its own: **the worker may not import ``service``**, and the door may not
 reimplement the worker. Both need to turn "the humanoid template's clips" into
-"the expanded pose records the resolved frame table wants", and if either one
+"the pose records a consumer wants", and if either one
 owned it the other would have to grow a second copy that could disagree about
 what a walk is. This module is that one expansion, importable by both.
 
@@ -19,7 +23,7 @@ used to be a real layering objection): ``kernels.rig`` is the rig's own
 geometry and storage, one layer down from "what a walk looks like when
 rendered", and moving this module's two functions into it would mean the
 rig kernel importing the sheet/charsheet kernels for a job that is really
-about Troupe's frame table, not the rig. Staying a separate module -- the
+about a frame table, not the rig. Staying a separate module -- the
 same shape ``vectors.py`` already has beside ``queue.py`` -- keeps that
 layer boundary a fact about the directory, not a convention two callers
 have to remember.
@@ -44,10 +48,10 @@ def expand_clips(
     template_key: str,
     layout: charsheet.LayoutSpec | Mapping[str, Any] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """``animation name -> expanded pose records``, for every Troupe animation.
+    """``animation name -> expanded pose records``, for every animation in the layout.
 
     A missing clip raises ``KeyError``, which is the honest answer: the library
-    ships with the package, so a Troupe animation with no clip is a broken
+    ships with the package, so a layout animation with no clip is a broken
     build and not a user mistake. A library that expands to the wrong number of
     frames raises ``ValueError`` out of ``check_frame_counts`` -- named here
     rather than left to the renderer, because a seven-frame walk laid into an
@@ -103,7 +107,7 @@ ANIMATION_FPS = 100
 
 
 def _timing_of(library: Mapping[str, Any]) -> dict[str, charsheet.ClipTiming]:
-    """``clip_timing``'s and :func:`shipped_clip_timing`'s shared arithmetic.
+    """``clip_timing``'s arithmetic.
 
     Frame count is not stored on the clip -- it is what the clip's own
     ``segments`` (plus one more sample for a one-shot, which lands on its last
@@ -125,21 +129,9 @@ def clip_timing(template_key: str) -> dict[str, charsheet.ClipTiming]:
     ``resolve_layout``'s ``timing`` door: the service layer builds this once
     per rig and passes it down, so a layout can name any clip the library
     defines instead of one of :data:`charsheet.ANIMATIONS`' five. User-first,
-    like :func:`~realmspinner.cliplib.clip_library` itself -- see
-    :func:`shipped_clip_timing` for the agent-facing library that never moves
-    under a hand edit.
+    like :func:`~realmspinner.cliplib.clip_library` itself.
     """
     return _timing_of(cliplib.clip_library(template_key))
-
-
-def shipped_clip_timing(template_key: str) -> dict[str, charsheet.ClipTiming]:
-    """:func:`clip_timing`'s shape, off the *shipped* library only.
-
-    ``cliplib.shipped_clip_library``'s reason applied to timing: the agent
-    catalogue's movement/frame-bound vocabulary must not move the moment a
-    user edits their own copy of a template's clips.
-    """
-    return _timing_of(cliplib.shipped_clip_library(template_key))
 
 
 def loop_names(template_key: str) -> tuple[str, ...]:
@@ -174,7 +166,7 @@ def animation_tracks(template_key: str) -> list[dict[str, Any]]:
     :func:`expand_clips`: that one resamples each clip to the frame count the
     sheet's layout asks for, because a sprite sheet has a grid to fill. An
     exported animation has no grid, so this uses the clip's **own** segment
-    lengths -- the animation carries the author's timing rather than Troupe's.
+    lengths -- the animation carries the author's timing rather than a layout's.
 
     Timing comes from the clip library's own ``closed``/``duration_ms``
     fields now -- their one home, since the vocabulary opened past
@@ -182,6 +174,7 @@ def animation_tracks(template_key: str) -> list[dict[str, Any]]:
     ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``). A
     second copy would be one edit from disagreeing about how fast a walk
     cycle is.
+    (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 
     Blender does no interpolation: it receives resolved frames, which is the
     same host/worker split ``fit_template`` establishes and what keeps the
@@ -306,7 +299,7 @@ def animate_spec(
         "op": "animate",
         "rig_glb": str(job_dir / "rig.glb"),
         "out_glb": str(out_glb),
-        # Named per job for ``armature_spec``'s reason: ``run_worker`` unlinks
+        # Named per job, as every spec's ``result_path`` is: ``run_worker`` unlinks
         # and then watches this path, so two bakes sharing one name would let
         # each eat the other's answer.
         "result_path": str(result_dir / ".animate_result.json"),

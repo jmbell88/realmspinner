@@ -1,8 +1,10 @@
-"""Tranche 3's service doors: a dry-run recipe, an in-flight rig guard, a paged
-asset listing and one job-status door for any link in the chain.
+"""Tranche 3's service doors that survive: a dry-run recipe and an in-flight rig guard.
 
-The follow-up sheet and the cropped sheet preview that used to sit beside them
-left with the character sheets (``retired.py``): the chain ends at a rigged mesh.
+The follow-up sheet and the cropped sheet preview left with the character sheets
+(``retired.py``): the chain ends at a rigged mesh. The paged asset listing, the
+one-door job status and the reroll left with the character agent surface (the
+2026-10-14 audit, finding poser-characters-07); ``test_audit_2026_10_14_c1_character_doors.py``
+pins that they are gone.
 """
 
 from __future__ import annotations
@@ -44,11 +46,6 @@ def _mesh(svc, *, family: str = "ogre", rigged: bool = False, name: str = "") ->
 def _rig_row(svc, mesh_id: str, *, status: str = "queued", template="humanoid") -> str:
     params = {"source_job": mesh_id, "template": template, "auto": True}
     return svc.store.create("rig", "a hooded ranger", params, stage="model", status=status)
-
-
-def _touch_created_at(svc, job_id: str, value: float) -> None:
-    svc.store._conn.execute("UPDATE jobs SET created_at = ? WHERE id = ?", (value, job_id))
-    svc.store._conn.commit()
 
 
 # --- recipe_from_prompt --------------------------------------------------------
@@ -139,7 +136,9 @@ def test_recipe_from_prompt_mints_no_row_and_starts_no_process(svc, monkeypatch)
     after = svc.store.list(1000)
     assert before == after
     assert result["recipe"]["family"] == "ogre"
-    assert result["cells"] > 0
+    # No sheet is laid out, so there is no cell count to report (the 2026-10-14 audit,
+    # finding poser-jobs-02).
+    assert "cells" not in result
     assert result["estimate_minutes"] > 0
 
 
@@ -240,79 +239,19 @@ def test_two_concurrent_create_rig_calls_for_one_mesh_mint_only_one_rig_row(
     assert errors[0].field == "job_id"
 
 
-# --- list_character_assets -----------------------------------------------------
-
-
-def test_list_character_assets_filters_and_pages_by_cursor(svc):
-    ids = [_mesh(svc, name=f"char-{i}") for i in range(3)]
-    for i, job_id in enumerate(ids):
-        _touch_created_at(svc, job_id, 100.0 + i)
-
-    job_dir = svc.job_dir(ids[-1])
-    (job_dir / "rig.glb").write_bytes(b"fake-rig")
-    (job_dir / "rig.json").write_text(json.dumps({"template": "humanoid"}), encoding="utf-8")
-
-    with pytest.raises(Invalid) as excinfo:
-        svc_characters.list_character_assets(svc, filter="bogus")
-    assert excinfo.value.field == "filter"
-
-    page1 = svc_characters.list_character_assets(svc, limit=1)
-    assert [a["job_id"] for a in page1["assets"]] == [ids[-1]]  # newest first
-    assert page1["next_cursor"]
-
-    page2 = svc_characters.list_character_assets(svc, limit=2, cursor=page1["next_cursor"])
-    seen = [a["job_id"] for a in page1["assets"]] + [a["job_id"] for a in page2["assets"]]
-    assert seen == list(reversed(ids))
-    assert page2["next_cursor"] is None
-
-    rigged_only = svc_characters.list_character_assets(svc, filter="rigged")
-    assert [a["job_id"] for a in rigged_only["assets"]] == [ids[-1]]
-
-    riggable_only = svc_characters.list_character_assets(svc, filter="riggable")
-    assert {a["job_id"] for a in riggable_only["assets"]} == set(ids[:-1])
-
-
-# --- character_job ---------------------------------------------------------
-
-
-def test_character_job_on_a_mesh_names_its_newest_rig_row(svc):
-    """A character's mesh is stored with ``kind == "image"``, not ``"rig"`` --
-    and an agent is told to poll the mesh id, not the rig id
-    ``create_character`` also hands back. The mesh's report names the rig row
-    minted for it, and the rig row names itself."""
-    mesh_id = _mesh(svc)
-    older = _rig_row(svc, mesh_id, status="error")
-    newer = _rig_row(svc, mesh_id, status="done")
-    _touch_created_at(svc, older, 100.0)
-    _touch_created_at(svc, newer, 200.0)
-
-    result = svc_characters.character_job(svc, mesh_id)
-    assert result["kind"] == "image"
-    assert result["rig_job_id"] == newer
-
-    rig_result = svc_characters.character_job(svc, older)
-    assert rig_result["kind"] == "rig"
-    assert rig_result["rig_job_id"] == older
-    assert rig_result["source_job"] == mesh_id
-
-
-def test_character_job_on_an_unrigged_mesh_names_no_rig(svc):
-    mesh_id = _mesh(svc)
-    result = svc_characters.character_job(svc, mesh_id)
-    assert result["rig_job_id"] is None
-    assert result["rigged"] is False
-    assert "follow_up_sheet_job" not in result and "sheets" not in result
-
-
 # --- shipped_clip_names --------------------------------------------------------
 
 
 def test_shipped_clip_names_ignore_a_user_edited_library(svc):
     from realmspinner import poselib
+    from realmspinner.service import clips as svc_clips
 
     shipped = cliplib.shipped_clip_names("humanoid")
     assert "walk" in shipped
 
+    # The user clip directory is armed by the ``service.clips`` doors, not by service
+    # construction (the 2026-10-14 audit, finding poser-poses-02), so a door is called first.
+    svc_clips.library(svc, "humanoid")
     user_dir = poselib.clip_dir(svc.config)
     user_dir.mkdir(parents=True, exist_ok=True)
     edited = user_dir / "humanoid.json"

@@ -51,8 +51,9 @@ recognise a glyph to know what pressing it would do.
 the library moves through its grid with all four, Review steps between units with Left and Right,
 Muse auditions
 the selected take with Space and moves between takes with Up and Down, Sirens moves its pattern
-caret with all four arrows (Space plays and Page Up and Page Down move a bar), and Inker and
-Plotter pan while Space is held. In those seven the arrows do that and nothing else — they do not
+caret with all four arrows (Space plays and Page Up and Page Down move a bar), Clay's Pose mode
+plays and steps its timeline with Space, Home, End, Left and Right, and Inker and Plotter pan while
+Space is held. In those eight the arrows do that and nothing else — they do not
 also step the ring, which would be two things answering one key. Tab is never taken over in this way,
 which is what keeps traversal available everywhere.
 
@@ -93,17 +94,18 @@ the other is a grid.
 
 | Keys | Action |
 | --- | --- |
-| Up / Down | Move through the Resume rows / up and down a row of cards |
+| Up / Down | Step to the previous / next Resume card, in reading order / up and down a row of cards |
 | Left / Right | Move one card (the Library only) |
 | Enter | Open the highlighted row — a Library asset opens at the stage that made it |
 
-Home's Resume list is one column and **wraps** at both ends: it is a short ring rather than a list,
-so pressing Up at the top is not a dead key. The Library is a grid, so Up and Down move by a whole
-row and Left and Right by one card, over the same filtered, sorted list the cards are drawn from —
-and it is **clamped** rather than wrapped, because that list is the newest N of many and one press
-at the top landing on the oldest asset the window happens to hold is a jump the other arrow will not
-undo. Create draws no library list, so Up and Down do nothing there: pick an asset by clicking it in
-the History pane.
+Home's Resume is a grid of thumbnails, but Up and Down step through its cards one at a time in reading
+order, left to right and then on to the next row, and **wrap** at both ends: it is a short ring rather
+than a list, so pressing Up at the first card is not a dead key. The Library is a grid, so Up and Down
+move by a whole row and Left and Right by one card, over the same filtered, sorted list the cards are
+drawn from — and it is **clamped** rather than wrapped, because that list is the newest N of many and
+one press at the top landing on the oldest asset the window happens to hold is a jump the other arrow
+will not undo. Create draws no library list, so Up and Down do nothing there: pick an asset by clicking
+it in the History pane.
 
 ## Create
 
@@ -222,7 +224,7 @@ one loop at a time, so a keypress about a picture can never be filed as a verdic
 | Numpad 1 / 3 / 7 | Look along front / right / top, with no `Ctrl` — numpad 5 toggles orthographic and numpad `.` frames the selection |
 | Shift+drag / Ctrl+drag | Box-select, adding to / removing from the selection (element modes, under any tool) |
 | Alt+drag | Orbit, whatever mode you are in |
-| Esc | Cancel a drag; otherwise step back: the picks, then element mode (the shape stays selected), then the selection |
+| Esc | Cancel a drag; otherwise step back: an open Inspector page (Colours, Unwrap or Model), then the picks, then element mode (the shape stays selected), then the selection |
 
 **The mouse.** Left-drag in empty space orbits, in every mode and under every tool, and `Alt`+left-drag
 always orbits whatever mode you are in, even over the model. Middle-drag pans (`Shift`+middle-drag does
@@ -288,13 +290,13 @@ clears the selection when there was nothing armed.
 | `N` | Smudge |
 | `H` | Shading |
 | `L` | Line |
-| `F` or `Shift+L` | Curve (Enter or a double-click finishes it, Esc abandons it) |
+| `F` or `Shift+L` | Curve (Enter or a double-click finishes it, Esc abandons it). While a selection exists `F` is **Fill selection** instead, so use `Shift+L` then |
 | `U` | Rect |
 | `J` or `Shift+U` | Ellipse |
 | `P` | Polyline (finished the same way as the curve) |
 | `O` or `Shift+D` | Polygon (also closes if you click back on its first point) |
 | `M` | Marquee select |
-| `S` or `Shift+M` | Ellipse select |
+| `S` or `Shift+M` | Ellipse select. While a selection exists `S` is **Stroke selection...** instead, so use `Shift+M` then |
 | `Q` | Lasso |
 | `D` | Poly lasso (Enter or a double-click closes it, Esc abandons it) |
 | `W` | Wand |
@@ -404,7 +406,7 @@ applies the transform and does not also start the clip. See
 | `R` | Rectangular select |
 | `W` | Wand |
 | `I` | Pick the tile under the cursor |
-| `S` | Objects (on an object layer, `R` `I` `E` `P` `L` `T` `X` insert a shape) |
+| `S` | Objects (on an object layer, `R` `I` `E` `P` `L` `T` `X` `C` insert a shape) |
 | `1` - `9` | Recall a numbered stamp |
 | Ctrl+Shift+1 - 9 | Store the stamp in hand in that slot |
 | Right-drag | Capture a block off the map, without leaving the tool |

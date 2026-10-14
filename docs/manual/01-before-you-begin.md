@@ -24,8 +24,8 @@ chapters instead walk one path through it and explain what you are looking at as
   unavailable there; that theory was tested for the first time on 2026-09-03 and was not true, so
   the floor now matches what rigging actually needs. On 3.14 or later the rig extra installs
   nothing at all, quietly. The app then hides its rig controls and
-  `realmspinner doctor` reports rigging unavailable; everything else works unchanged. If posing and
-  character sheets are why you are here, use 3.13.
+  `realmspinner doctor` reports rigging unavailable; everything else works unchanged. If rigging a
+  model and weighting it in Clay are why you are here, use 3.13.
 - **About 24 GB of disk for the engine and its weights**, plus room for what you make.
 
 A machine that misses some of this still runs a useful amount of the app. There is a table of
@@ -33,15 +33,16 @@ exactly how much further down.
 
 ## Getting the app
 
-Today Realmspinner runs from a source checkout:
+Realmspinner runs from a source checkout, and the rest of this chapter assumes one:
 
 ```powershell
 uv sync --extra studio --extra text2image --extra rig --extra music
 ```
 
 The four extras are separable and each buys a different capability — `studio` is the window and its
-renderer, `text2image` is text-to-3D, `rig` is rigging, posing and character sheets, `music` is Muse's
-ACE-Step generation. A bare `uv sync` prunes all four, so pass them.
+renderer, `text2image` is text-to-3D, `rig` is rigging (skeleton fitting, and the Blender
+weights Clay's **Weight with Blender** asks for), `music` is Muse's ACE-Step generation. A bare `uv sync` prunes all
+four, so pass them.
 [Python dependencies](40-installation.md#python-dependencies) explains what skipping each one costs.
 
 One thing that is not a Python package: the reconstruction engine is a native binary. In a source
@@ -55,11 +56,12 @@ Models** like a model, and it downloads and unpacks itself. It stopped being par
 because at 838 MB it was more than half of everything a first-time user downloaded, in an app whose
 drawing, tile-map, atlas and tracker workspaces never start it.
 
-A Windows installer lives in the repository and produces the same layout — Realmspinner requires a
-*checkout-shaped* root either way, which is why nothing in it needs an installed-only code path. It
-has been built and installed, and the app launched from its Start Menu shortcut, but only ever on
-the machine it was written on: it has not yet been seen on a computer that is not that one. So the
-checkout above is still the path to trust.
+A Windows installer is attached to each release on the repository's GitHub page and produces the
+same layout — Realmspinner requires a *checkout-shaped* root either way, which is why nothing in it
+needs an installed-only code path. It has been run on a clean machine as well as the one it was
+written on, and `INSTALL.md` walks through it for someone who has no developer
+tools. Everything below holds for either route; the checkout is simply the one with the commands in
+it.
 
 ## The first launch
 
@@ -85,7 +87,8 @@ starts the guided tour instead of touching downloads at all.
 The other button depends on what is missing, and **the order is deliberate**. If a dependency pack
 is absent it reads **Install the Image generation pack** and takes you to Settings → Packs;
 otherwise it reads **Download models** and takes you to Settings → Models with the rows already
-ticked. Packs come first because a pack is the *code* and the models are what that code reads —
+ticked. When there is nothing left to fetch at all it reads **Continue** and simply closes the
+panel. Packs come first because a pack is the *code* and the models are what that code reads —
 downloading 24 GB of weights onto a machine with no image-generation pack buys you nothing at all,
 and that is an expensive way to find out.
 
@@ -128,8 +131,8 @@ Quite a lot, which is worth knowing if you are reading this while 24 GB arrives.
 | The Library, and every form in Create | |
 
 The pattern is that the *editors* are yours immediately and the *generators* are what the weights
-buy. With no NVIDIA card at all, everything in the left column still works, and so does the half of
-the character-sheet pipeline that starts from a model you already have.
+buy. With no NVIDIA card at all, everything in the left column still works, and so does rigging a model
+you already have: weighting it against its bones in Clay needs Blender, not a card.
 
 Every generator refuses at the door rather than half-running: press Generate with a model missing
 and you get a sentence naming the model and an offer to install it, not a failed job that wastes

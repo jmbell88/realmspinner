@@ -27,10 +27,11 @@ all *is* refused, because "imported nothing" reported as success is worse.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 __all__ = [
     "JASC_HEADER",
+    "MAX_PALETTE_CHARS",
     "MAX_PALETTE_ROWS",
     "dumps",
     "dumps_for",
@@ -61,6 +62,35 @@ HEADER = "GIMP Palette"
 #: pixel, 256 entries -- and still refuses long before the amplification does.
 MAX_PALETTE_ROWS = 1 << 16
 
+#: The longest palette text, in characters, that any reader here will be handed
+#: by a container. 65536 rows of even a generously named ``.gpl`` come to a few
+#: MB; 8 MiB is past any palette a real editor wrote and a hard stop on the
+#: member of newlines the 2026-10-14 audit (finding inker-codecs-05) opened:
+#: 40 MB of them compress to a few KB inside an ``.ora``. ``ora`` checks it
+#: against the member's declared size *before* decoding.
+MAX_PALETTE_CHARS = 8 * 1024 * 1024
+
+#: Where ``str.splitlines`` splits, as the complement of one non-empty line.
+_LINE_RE = re.compile(r"[^\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]+")
+
+
+def _lines(text: str) -> Iterator[str]:
+    """The stripped, non-blank lines of ``text``, one at a time.
+
+    Splits where ``str.splitlines`` does but never builds the list. The
+    2026-10-14 audit, finding inker-codecs-05: every reader here ran
+    ``text.splitlines()`` before the row ceiling was consulted, and blank
+    lines are not rows, so a palette of newlines made one string per line (a
+    40 MB member peaked at 387 MiB on open) and never tripped
+    :data:`MAX_PALETTE_ROWS`. Every reader skipped a blank line anyway, so
+    leaving them out changes nothing but the cost.
+    """
+    for match in _LINE_RE.finditer(text):
+        line = match.group().strip()
+        if line:
+            yield line
+
+
 #: The two lines every JASC ``.pal`` starts with: the magic and a version. The
 #: version has been ``0100`` since Paint Shop Pro shipped it and no reader in
 #: the wild checks it, so it is written verbatim and not parsed.
@@ -80,9 +110,8 @@ def parse(text: str) -> list[RGBA]:
     ``palette.gpl`` this large is not a palette a real editor wrote.
     """
     out: list[RGBA] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or stripped == HEADER:
+    for stripped in _lines(text):
+        if stripped.startswith("#") or stripped == HEADER:
             continue
         head = stripped.split(None, 3)
         if len(head) < 3:
@@ -161,12 +190,12 @@ def parse_jasc(text: str) -> list[RGBA]:
     # A UTF-8 BOM survives ``errors="replace"`` decoding as U+FEFF, which is
     # not whitespace to ``strip`` -- left in place it hides the magic line and
     # a legitimate file is refused as "not a JASC palette".
-    lines = [line.strip() for line in text.lstrip("﻿").splitlines()]
-    if not lines or lines[0].strip().upper() != JASC_HEADER:
+    lines = _lines(text.lstrip("﻿"))
+    if next(lines, "").upper() != JASC_HEADER:
         raise ValueError("not a JASC palette file")
     out: list[RGBA] = []
-    for line in lines[1:]:
-        if not line or line.startswith(";"):
+    for line in lines:
+        if line.startswith(";"):
             continue
         parts = line.split()
         if len(parts) < 3:
@@ -242,9 +271,8 @@ def parse_hex(text: str) -> list[RGBA]:
     cannot read is a file it has misunderstood.
     """
     out: list[RGBA] = []
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or _is_comment(line):
+    for line in _lines(text):
+        if _is_comment(line):
             continue
         match = _HEX_RE.match(line)
         if match is None:
@@ -281,9 +309,8 @@ def parse_txt(text: str) -> list[RGBA]:
     writers emit -- is opaque, as it is everywhere else.
     """
     out: list[RGBA] = []
-    for raw in text.lstrip("﻿").splitlines():
-        line = raw.strip()
-        if not line or _is_comment(line):
+    for line in _lines(text.lstrip("﻿")):
+        if _is_comment(line):
             continue
         wide = _ARGB_RE.match(line)
         if wide is not None:
@@ -341,9 +368,8 @@ def _hex_column(text: str) -> str:
     nothing to gain from it.
     """
     seen = ""
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or _is_comment(line):
+    for line in _lines(text):
+        if _is_comment(line):
             continue
         if _ARGB_RE.match(line) is not None:
             return "txt"

@@ -33,6 +33,7 @@ from typing import Any
 
 from imgui_bundle import imgui
 
+from ......kernels.pixel._doc_tiles import MAX_TILE_CELLS
 from ..... import controls, icons, theme, tokens, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
@@ -136,7 +137,10 @@ def _verbs(ctx: Any, state: Any, tab: Any) -> None:
     busy = tab.busy
     tilemap = doc.active_tilemap_uid() is not None
     if widgets.disabled_button(
-        f"{icons.PLUS} Add a tilemap layer",
+        # "New tilemap layer", as the Inker chapter quotes it: the 2026-10-14
+        # audit (finding inker-panes-09) found the pane saying "Add a" while the
+        # manual sent the reader looking for "New".
+        f"{icons.PLUS} New tilemap layer",
         not busy and bool(doc.tilesets),
         (width, 0),
         reason=(
@@ -178,17 +182,40 @@ def can_convert(state: Any, tab: Any) -> bool:
     return tab.doc.active_tilemap_uid() is None and bool(len(tab.doc.stack))
 
 
-def convert_gate(state: Any, tab: Any) -> tuple[bool, str]:
+# ``MAX_TILE_CELLS`` is the kernel's, imported above: the popup greys Convert
+# with a sentence and the op refuses the same grid, so no door skips the ceiling
+# (the 2026-10-14 audit, finding inker-panes-03).
+
+
+def grid_cells(tab: Any, tile_w: int, tile_h: int) -> int:
+    """How many cells a canvas of this tab's size cuts into at this tile size."""
+    width, height = tab.doc.size
+    return -(-int(width) // max(1, int(tile_w))) * -(-int(height) // max(1, int(tile_h)))
+
+
+def convert_gate(
+    state: Any, tab: Any, tile_w: int | None = None, tile_h: int | None = None
+) -> tuple[bool, str]:
     """``(enabled, reason)`` for the size popup's Convert button.
 
     The popup can stay open across a save starting or a transform beginning, so
     the button re-asks every frame; a bare ``begin_disabled(tab.busy)`` dimmed
-    it with no sentence and did not know about the transform at all.
+    it with no sentence and did not know about the transform at all. With a
+    tile size it also refuses a grid past :data:`MAX_TILE_CELLS`, by name.
     """
     if tab is None or tab.busy:
         return (False, BUSY_WHY)
     if getattr(state, "transforming", False):
         return (False, TRANSFORM_WHY)
+    if tile_w is not None and tile_h is not None:
+        cells = grid_cells(tab, tile_w, tile_h)
+        if cells > MAX_TILE_CELLS:
+            return (
+                False,
+                f"{tile_w} x {tile_h} tiles would cut this canvas into {cells:,} "
+                f"cells; a conversion takes at most {MAX_TILE_CELLS:,}. "
+                "Make the tiles bigger.",
+            )
     return (True, "")
 
 
@@ -237,7 +264,7 @@ def _tile_size_popup(ctx: Any, state: Any, tab: Any) -> None:
         "costs no tile at all."
     )
     imgui.dummy((0, sp(tokens.SP_1)))
-    enabled, reason = convert_gate(state, tab)
+    enabled, reason = convert_gate(state, tab, tile_w, tile_h)
     if widgets.disabled_button("Convert", enabled, (sp(180), 0), reason=reason):
         inker_mode.convert_to_tilemap(ctx, tab, max(1, tile_w), max(1, tile_h))
         imgui.close_current_popup()

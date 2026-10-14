@@ -74,12 +74,12 @@ MATTE_SOURCES = {
 }
 
 # Every gltfpack tier, not "raw" alone: dev/measurements/
-# 2026-09-23-default-mesh-budget.md retired the per-tier corpus qualification
-# that used to hold this list to one entry (0 of 20 subjects ever passed it,
-# dev/measurements/2026-08-13-tier-qualification.md) in favour of a check on
-# every job instead of a sample of three -- tiercheck.compare now guards every
-# gltfpack pass (pipelines/optimize.run), so a tier that silently ships a
-# worse mesh is refused there rather than merely kept off this form.
+# 2026-09-23-default-mesh-budget.md [lost; re-measure to change] retired the per-tier corpus
+# qualification that used to hold this list to one entry (0 of 20 subjects ever passed it,
+# dev/measurements/2026-08-13-tier-qualification.md) in favour of a check on every job instead of a
+# sample of three -- tiercheck.compare now guards every gltfpack pass (pipelines/optimize.run), so a
+# tier that silently ships a worse mesh is refused there rather than merely kept off this form.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 #
 # Derived from retarget_panel.TIERS rather than restated, the same argument
 # ``tier_label`` itself makes: ``optimize.PROFILES`` is the one authority on
@@ -600,14 +600,13 @@ def _apply_budget_choice(form: dict[str, Any], choice: str) -> None:
 def _budget(ctx: Any, form: dict[str, Any], findings_doc: Any = LOAD_FINDINGS) -> None:
     """The mesh budget: a game-ready remesh, a gltfpack tier, Raw, or Custom.
 
-    dev/measurements/2026-09-23-default-mesh-budget.md retired the corpus
-    qualification that used to make the gltfpack half of this a dead
-    single-entry combo -- ``tiercheck.compare`` (``pipelines.optimize.run``)
-    guards every pass instead of a three-subject sample. The same document
-    adds the Game-ready rungs: every generated mesh lands at ~270k-300k
-    triangles (trellis-server's own quadric simplify, no second pass), which
-    is a source mesh rather than a game asset, and a whole-character remesh
-    to 5,000 triangles is now the default rather than an option nobody sees.
+    dev/measurements/2026-09-23-default-mesh-budget.md [lost; re-measure to change] retired the
+    corpus qualification that used to make the gltfpack half of this a dead single-entry combo --
+    ``tiercheck.compare`` (``pipelines.optimize.run``) guards every pass instead of a three-subject
+    sample. The same document adds the Game-ready rungs: every generated mesh lands at ~270k-300k
+    triangles (trellis-server's own quadric simplify, no second pass), which is a source mesh rather
+    than a game asset, and a whole-character remesh to 5,000 triangles is now the default rather
+    than an option nobody sees.
 
     What is still conditional is each family's *binary*: without gltfpack
     there is no second pass for tiercheck to guard, and without Blender there

@@ -40,9 +40,11 @@ a tune in Sirens*, which goes from an empty song to an exported WAV; *Making a s
 shorter Sirens tour for a blip rather than a tune; and *Building a wall torch*, which builds a
 low-poly torch in Clay from an empty model and ends with it saved and exported to the Library. Every
 one of them needs no GPU and no downloaded weights except *Generating a track in Muse*, which is
-deliberate: a tour a fresh install cannot finish is worse than none, and Muse says so at the door
-rather than after a click that would refuse. Both Sirens tours add a second half of that rule — no
-step of either one waits on hearing anything, so a machine with no sound device can finish them too.
+deliberate: Muse says so at the door rather than after a click that would refuse. *Around the
+app* is walked as far as opening Create; on a fresh install, before the engine and the image model
+are downloaded, Create is shut and the tour stops there with a note saying what is missing. Both
+Sirens tours add a second half of that rule — no step of either one waits on hearing anything, so a
+machine with no sound device can finish them too.
 
 **The tour points and waits. It never clicks anything for you.** A step highlights one control,
 says what it is for, and either advances on **Next** or shows **Waiting for you.** until you have
@@ -79,8 +81,7 @@ The version this build is running is printed beside the title, and again under *
 ## Starting something
 
 One **New…** button, and a menu behind it with the eight things this app can begin from nothing: a
-2D image, a 3D model, a drawing, a Clay model, a scene, a tile map, a sprite atlas, a song and a
-character. It used to
+2D image, a 3D model, a drawing, a Clay model, a scene, a tile map, a sprite atlas and a song. It used to
 be six equally loud buttons in a 3-across grid, which is a menu insisting that all of them matter the same amount —
 above the thing most people came back for.
 
@@ -135,11 +136,12 @@ work; a picture is what *you* remember about it.
 
 That list is genuinely one list. Inker, Clay, Plotter and Packwright each used to keep their own
 recent-files history, which meant "the six things you were working on" could not be answered at all:
-four separate lists carry an order within themselves and none between them. They are now one
-history with a timestamp per entry, and your generated assets are folded in beside them from the
-library — an asset row opens where its artifacts are: Create's Reference stage for a reference or
-a tile, its Mesh stage for anything else, and the stage or workspace that holds the product for a
-rig, a sheet, a character sheet or a track. Work made in a Create workspace appears here too, as it
+four separate lists carry an order within themselves and none between them. They are now one history
+with a timestamp per entry, and your generated assets are folded in beside them from the library — an
+asset row opens where its artifacts are: Create's Reference stage for a reference or a tile, its Mesh
+stage for anything else, and the stage or workspace that holds the product for a rig, a sprite sheet or
+a track. (A row of a kind that has since been removed, such as an old character sheet, opens the Library
+on its own card instead, with a note saying so.) Work made in a Create workspace appears here too, as it
 does in the Library.
 
 Up and Down move between the cells and Enter opens the highlighted one — the ring wraps at both ends,

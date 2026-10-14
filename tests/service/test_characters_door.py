@@ -150,10 +150,10 @@ def test_a_character_recipe_naming_any_clip_of_its_library_still_builds(svc, ble
 def test_the_rig_row_carries_the_exact_joints_and_never_measures_them(svc, blender):
     """A family states its skeleton exactly; measuring would guess it again.
 
-    ``joints="measured"`` reads joint positions off a *reference image*, which
-    this character never had -- there is no reference, only a recipe. Passing
-    ``bones`` withholds that flag, and the pin is here because this is the one
-    door that always has an exact answer.
+    Measuring would read joint positions off a *reference image*, which this
+    character never had -- there is no reference, only a recipe. Passing
+    ``bones`` is what keeps the rig from guessing, and the pin is here because
+    this is the one door that always has an exact answer.
     """
     made = svc_characters.create_character(svc, _recipe("human"))
     params = svc.store.get(made["rig"])["params"]
@@ -169,30 +169,16 @@ def test_the_rig_row_carries_the_exact_joints_and_never_measures_them(svc, blend
     assert any(abs(v) > 1e-6 for b in bones for v in list(b["head"]) + list(b["tail"]))
 
 
-def test_a_character_refuses_a_rerun_and_reroll_character_is_the_door_instead(svc, blender):
+def test_a_character_refuses_a_rerun(svc, blender):
     """``rerun_job`` has nothing to re-run: ``built`` says so.
 
-    The compensation is :func:`reroll_character`, and it is a door that copies
-    ``params`` -- which puts it under
-    ``test_rerun_regressions::test_every_door_that_copies_params_rerolls_the_seeds``.
-    A reroll that reproduced the recipe's seed would look like it ran, take the
-    time, and hand back a byte-identical character.
+    The ``reroll_character`` door that used to be the compensation left with the
+    character agent surface (the 2026-10-14 audit, finding poser-characters-07),
+    so a built character has no Try again at all.
     """
     made = svc_characters.create_character(svc, _recipe("human", seed=4242))
     with pytest.raises(Invalid, match="built"):
         svc_jobs.rerun_job(svc, made["id"], mode="reroll")
-
-    again = svc_characters.reroll_character(svc, made["id"])
-    assert again["id"] != made["id"]
-    before = svc.store.get(made["id"])["params"]
-    after = svc.store.get(again["id"])["params"]
-    assert before["character"]["recipe"]["seed"] == 4242
-    assert after["character"]["recipe"]["seed"] != 4242, "the recipe seed came through unchanged"
-    assert after["mesh_seed"] != before["mesh_seed"], "the mesh seed came through unchanged"
-    # Same character, different roll: everything else in the recipe survives.
-    assert {k: v for k, v in after["character"]["recipe"].items() if k != "seed"} == {
-        k: v for k, v in before["character"]["recipe"].items() if k != "seed"
-    }
 
 
 def test_the_character_block_rides_the_model_row_and_is_nested(svc, blender):
@@ -414,9 +400,8 @@ def test_character_options_answers_for_every_archetype_and_species(svc):
     assert {a["key"] for a in options["archetypes"]} == set(family_mod.archetypes())
     assert len(options["families"]) == len(family_mod.families())
     assert set(options["channels"]) == set(family_mod.families())
-    assert options["default_recipe"]["family"]
-    # The sheet ladders left with the sheets: no ``troupe`` block rides along.
-    assert "troupe" not in options
+    # ``default_recipe`` is read by nothing (the 2026-10-14 audit, finding poser-jobs-03).
+    assert "default_recipe" not in options
 
 
 def test_a_finished_character_offers_clay_before_and_after_it_is_rigged(svc):

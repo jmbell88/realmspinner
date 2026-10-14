@@ -73,32 +73,6 @@ def encode(message: dict[str, Any]) -> bytes:
     return (json.dumps(message, separators=(",", ":")) + "\n").encode("utf-8")
 
 
-def decode(line: bytes) -> dict[str, Any]:
-    """The inverse of `encode`. Raises `ValueError` on anything unusable.
-
-    Two refusals live here rather than in the caller: an oversize frame (see
-    `MAX_FRAME`) and a frame that parses but is not a JSON *object* -- a bare
-    `42` or `"hi"` is valid JSON and invalid JSON-RPC, and letting it through
-    would hand a caller a `.get` call on a list or a string.
-    """
-    if len(line) > MAX_FRAME:
-        raise ValueError(f"frame of {len(line)} bytes exceeds MAX_FRAME ({MAX_FRAME})")
-    try:
-        message = json.loads(line.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
-        # The 2026-09-14 audit (agents-02) found a deeply nested JSON frame,
-        # well under MAX_FRAME, raising RecursionError out of json.loads
-        # rather than the ValueError this function's own docstring promises
-        # "on anything unusable" -- json's C scanner recurses one Python
-        # frame per nesting level, so a payload with no other defect still
-        # blows the interpreter's recursion limit. Folded in here so every
-        # caller (bridge_dispatch included) inherits the fix once.
-        raise ValueError(f"malformed JSON: {exc}") from exc
-    if not isinstance(message, dict):
-        raise ValueError(f"expected a JSON object, got {type(message).__name__}")
-    return message
-
-
 # ---------------------------------------------------------------------------
 # Bridge-side, dual-era dispatch.
 #
@@ -283,15 +257,19 @@ class BridgeEra:
         :data:`MAX_TASK_CLOCKS`."""
 
     def note_task_created(self, task_id: str) -> str:
-        """Record *task_id* as minted now (if not already known) and return
-        its `createdAt`. Idempotent -- a task id seen twice (should never
-        happen; `call_tool_task` mints a fresh one per call) keeps its first
-        timestamp rather than overwriting it."""
-        if task_id not in self._task_created_at:
-            if len(self._task_created_at) >= MAX_TASK_CLOCKS:
-                oldest = next(iter(self._task_created_at))
-                del self._task_created_at[oldest]
-            self._task_created_at[task_id] = _iso_now()
+        """Record *task_id* as minted now and return its `createdAt`.
+
+        A task id seen again is a **new** task: this object outlives every
+        Realmspinner reconnect while Realmspinner's own operation ids restart at
+        `op-1` on each connection, so the 2026-10-14 audit (finding
+        agents-protocol-03) reproduced a task minted 1.2 s later being
+        reported with the earlier task's `createdAt`. The clock is overwritten
+        (and the id moved to the newest end of the eviction order)."""
+        self._task_created_at.pop(task_id, None)
+        if len(self._task_created_at) >= MAX_TASK_CLOCKS:
+            oldest = next(iter(self._task_created_at))
+            del self._task_created_at[oldest]
+        self._task_created_at[task_id] = _iso_now()
         return self._task_created_at[task_id]
 
     def task_created_at(self, task_id: str) -> str:
@@ -862,7 +840,15 @@ def _dispatch_one(
                 if has_id
                 else None
             )
-        if state.era is None:
+        # The 2026-10-14 audit (finding agents-protocol-04): this latched
+        # "modern" on any `server/discover`, yet the reply advertises the
+        # legacy revisions too, so the `initialize(2025-06-18)` a client then
+        # picked from that very list was refused "already locked to the
+        # modern era" -- the same class as the 2026-10-03 incident below,
+        # left open for discover. Only a discover that itself carries a
+        # version this server will serve in the modern era decides it; a
+        # bare one leaves the first versioned request, or `initialize`, to.
+        if state.era is None and _meta_version(params) in MODERN:
             state.era = "modern"
         result = discover_result(
             instructions=instructions,
@@ -872,7 +858,7 @@ def _dispatch_one(
             # own docstring for the incident. Decided from this request's
             # own declaration alone, same as every other per-request
             # capability check in this dispatcher.
-            tasks=state.era == "modern" and _client_declares_tasks(params),
+            tasks=_client_declares_tasks(params),
         )
         return _result_bytes(msg_id, result) if has_id else None
 
@@ -1207,12 +1193,16 @@ def bridge_dispatch(
         # also what json.loads raises for an integer literal over 4300 digits
         # (the 2026-10-03 audit, agents-02): one ~4 KB line escaped this guard
         # and ended the whole bridge process.
-        # The 2026-09-14 audit (agents-02): this dispatcher's own parse is a
-        # second site with the same gap `decode()` had -- a deeply nested
-        # JSON frame well under MAX_FRAME raises RecursionError, which
-        # escaped uncaught here and out of bridge.py's run loop, killing
-        # `realmspinner mcp` entirely instead of answering a JSON-RPC parse
-        # error like any other malformed frame.
+        # The 2026-09-14 audit (agents-02): a deeply nested JSON frame well
+        # under MAX_FRAME raises RecursionError, which escaped uncaught here
+        # and out of bridge.py's run loop, killing `realmspinner mcp`
+        # entirely instead of answering a JSON-RPC parse error like any other
+        # malformed frame. This is the only parse of an MCP frame in the
+        # package: the 2026-10-14 audit (finding agents-protocol-08) found a
+        # separate `decode()` with the same hardening and no caller, whose
+        # comment said this site inherited its fix -- it did not, and it was
+        # removed rather than kept as a second copy to drift. The frame-size
+        # bound lives in `bridge.main`'s `readline(MAX_FRAME + 1)`.
         return _error_bytes(None, -32700, f"parse error: {exc}") + b"\n"
 
     if isinstance(parsed, list):

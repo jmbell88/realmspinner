@@ -3,7 +3,7 @@
 ``settings_2d`` is "everything that composes the SDXL prompt, and Generate", and
 a character composes none of it: no checkpoint, no LoRA, no negative prompt, no
 conditioning image, no history of prompts that were sent to a text encoder. Put
-here rather than as a sixth branch inside that 2600-line module because the two
+here rather than as a sixth branch inside that ~1,700-line module because the two
 have nothing in common except the column they are drawn in and the button they
 are refused by -- ``_plan_footer`` stays shared, and ``settings_2d.draw`` calls
 :func:`draw_block` instead of the Recipe section. ``_reset_row`` was the other
@@ -56,9 +56,14 @@ TOAST_SLOT = "character_toast"
 
 
 def draw_block(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
-    """The whole Character column, inside ``settings_2d``'s form and child: one card."""
-    from . import settings_2d
+    """The whole Character column, inside ``settings_2d``'s form and child: one card.
 
+    **No Seed row.** A character's build reads no seed (its only reader was the
+    flame effect, which nothing draws any more), so Seed, Reroll and Lock seed
+    were three controls whose only outcome was that nothing changed: two ogres
+    built on seeds 1 and 999999 are byte-identical -- the 2026-10-14 audit,
+    finding poser-characters-01.
+    """
     character_engine.sync_from_prompt(form)
     opts = character_engine.options(ctx)
     # One card, like every group in the column: the (?) lands on its header row,
@@ -69,7 +74,6 @@ def draw_block(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
         _family(ctx, form, form_ui, opts)
         _theme(ctx, form, form_ui, opts)
         _appearance(ctx, form, form_ui, opts)
-        settings_2d.seed_row(ctx, form, form_ui)
         _name(ctx, form, form_ui)
         _unrecognised(form)
         _footer(ctx, form)

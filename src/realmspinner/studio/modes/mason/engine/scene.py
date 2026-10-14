@@ -230,6 +230,13 @@ VisitFn = Callable[
     None,
 ]
 
+#: What ``unexpanded`` is called with when :func:`walk` meets a visible
+#: :class:`~.nodes.PrefabNode` it could not expand: the instance, its path, its
+#: owner uid and why -- ``"missing"`` (no template of that name),
+#: ``"cycle"`` (the name is already being expanded on this path) or
+#: ``"depth"`` (nested past :data:`~.nodes.MAX_DEPTH`).
+UnexpandedFn = Callable[[Node, tuple[int, ...], int, str], None]
+
 #: One node's fully-inherited state, threaded through a single tree segment:
 #: (world, visible, locked, static, material). Not exported -- an internal
 #: shape, not part of this module's contract.
@@ -247,6 +254,7 @@ def walk(
     enter: VisitFn | None = None,
     max_items: int | None = None,
     roots: Sequence[Node] | None = None,
+    unexpanded: UnexpandedFn | None = None,
 ) -> None:
     """The single traversal every other function in this module is built on.
 
@@ -284,6 +292,15 @@ def walk(
     anyway would put something in the file that the viewport does not draw,
     which is the one disagreement between them this module exists to prevent.
 
+    ``unexpanded`` is the 2026-10-14 audit's mason-engine-10: an instance whose
+    template is missing, cyclic or nested too deep yields nothing, and until
+    now nothing said so -- the exporters reported a dangling library ref but
+    silently dropped N placed prefab instances, so Chapter 28's "the exporters
+    name what they dropped" did not hold for them. It is called once per such
+    *visible* instance (a hidden one is skipped by the walk before it gets
+    here, like everything else hidden), with ``(node, path, owner, reason)``,
+    and is not counted against ``max_items``: it is a report, not an item.
+
     ``max_items`` is the 2026-09-13 audit's mason-03: :func:`resolve` used to
     be the only place this ceiling was enforced, so ``resolved_for`` (a
     Properties panel and the gizmo, every frame) and ``gltfout.scene_model``'s
@@ -302,8 +319,11 @@ def walk(
     """
     # Read off the module global at call time rather than bound as the
     # parameter default: a caller (or a test) that adjusts ``MAX_PLACED`` at
-    # runtime must see it take effect on the very next walk, the same way
-    # ``resolve``'s own default always has.
+    # runtime must see it take effect on the very next walk. (``resolve``'s own
+    # default used to be bound at import, so this comment was false of it until
+    # the 2026-10-14 audit's mason-engine-12: with the global at 5, ``walk``
+    # refused 20 nodes and ``resolve(doc)`` did not. ``resolve`` now defaults to
+    # ``None`` and reads the global here, at call time, as well.)
     ceiling = MAX_PLACED if max_items is None else max_items
     # The 2026-09-26 audit's mason-engine-06: ``visit`` and ``enter`` each used
     # to get their own ``_bounded`` wrapper, and each built its own private
@@ -329,6 +349,7 @@ def walk(
         prefab_chain=frozenset(),
         prefab_depth=0,
         enter=counted_enter,
+        unexpanded=unexpanded,
     )
 
 
@@ -376,6 +397,7 @@ def _walk_segment(
     prefab_chain: frozenset[str],
     prefab_depth: int,
     enter: VisitFn | None = None,
+    unexpanded: UnexpandedFn | None = None,
 ) -> None:
     """One ``nodes.walk`` over one contiguous object graph -- the scene's own
     roots, or one expanded prefab instance's template roots -- carrying the
@@ -461,7 +483,16 @@ def _walk_segment(
                     prefab_chain=prefab_chain | {node.template},
                     prefab_depth=prefab_depth + 1,
                     enter=enter,
+                    unexpanded=unexpanded,
                 )
+            elif unexpanded is not None:
+                if template is None:
+                    reason = "missing"
+                elif node.template in prefab_chain:
+                    reason = "cycle"
+                else:
+                    reason = "depth"
+                unexpanded(node, path, this_owner, reason)
             # A missing template, a name already on this path (a prefab
             # cycle), or a chain nested past MAX_DEPTH each yield nothing for
             # this branch -- quietly, the same "the corrupt part costs
@@ -508,6 +539,19 @@ def resolved_count(doc: MasonDoc, roots: Sequence[Node]) -> int:
     say -- must still bound this the same way it bounds every other caller),
     so a runaway count raises the same refusal :func:`resolve` always has
     rather than counting to the end.
+
+    **The basis is every node, hidden or not** (the 2026-10-14 audit's
+    mason-engine-02). This used to count visible items only, while every read
+    that passes ``include_hidden=True`` (``resolved_for`` behind the
+    Properties pane and the gizmo, ``world_bounds``, scene stats, Align and
+    Drop) walks the hidden ones too, so five instances of a template holding
+    forty hidden leaves were accepted against a ceiling of 100 and then made
+    those reads raise; and instances hidden, more placed, then Show all, put
+    160 items against 100 with no check on the visibility door. Counting the
+    superset closes both without a check on ``set_visibility``: a hide or a
+    show never changes it, and the visible basis can only be smaller. It also
+    bounds the enumeration cost, since ``_walk_segment`` walks a hidden
+    subtree once per instance whether or not it draws it.
     """
     count = 0
 
@@ -518,7 +562,7 @@ def resolved_count(doc: MasonDoc, roots: Sequence[Node]) -> int:
     walk(
         doc,
         visit,
-        include_hidden=False,
+        include_hidden=True,
         expand_prefabs=True,
         roots=list(roots),
         max_items=MAX_PLACED,
@@ -527,7 +571,11 @@ def resolved_count(doc: MasonDoc, roots: Sequence[Node]) -> int:
 
 
 def resolve(
-    doc: MasonDoc, *, include_hidden: bool = False, max_items: int = MAX_PLACED
+    doc: MasonDoc,
+    *,
+    include_hidden: bool = False,
+    max_items: int | None = None,
+    unexpanded: UnexpandedFn | None = None,
 ) -> list[Placed]:
     """Every *drawable* node, with its inherited state, groups left out.
 
@@ -558,8 +606,11 @@ def resolve(
     budget, say) was refused at the *lower*, module number instead, with a
     sentence naming the number it never asked for. Forwarded here so this
     function's own parameter is the one that governs.
+
+    ``unexpanded`` is forwarded to :func:`walk` untouched -- see its docstring.
     """
     out: list[Placed] = []
+    max_items = MAX_PLACED if max_items is None else max_items
 
     def visit(
         node: Node,
@@ -588,7 +639,14 @@ def resolve(
             )
         )
 
-    walk(doc, visit, include_hidden=include_hidden, expand_prefabs=True, max_items=max_items)
+    walk(
+        doc,
+        visit,
+        include_hidden=include_hidden,
+        expand_prefabs=True,
+        max_items=max_items,
+        unexpanded=unexpanded,
+    )
     return out
 
 

@@ -7,8 +7,8 @@ reason -- ``settings`` is already taken.
 
 The model list answers "does it know about the model I downloaded", which used
 to require reading the log -- and now also downloads it. It was read-only by
-design for as long as the app had no way to fetch anything; the app still has
-none, and that is the point of how the button works: it plans the fetch here
+design for as long as the app had no way to fetch anything. It has one now, and
+the way it works is the point of how the button works: it plans the fetch here
 (``realmspinner.fetch``, pure) and hands it to a child process
 (``pipelines/fetch_worker``) that sets ``HF_HUB_OFFLINE=0`` in its own
 environment and dies. Nothing in this process ever becomes online-capable, and
@@ -163,7 +163,7 @@ SEARCH_INDEX: tuple[SearchRow, ...] = (
     SearchRow(
         "advanced",
         "Allow AI agents to drive Realmspinner",
-        "Let a Model Context Protocol client build in Clay and make characters for you.",
+        "Let a Model Context Protocol client build and edit models in Clay.",
     ),
     SearchRow(
         "advanced", "Effective configuration", "Every setting this process actually runs on.",
@@ -771,7 +771,7 @@ def _layouts(ctx: Any) -> None:
 
 
 def _agents(ctx: Any) -> None:
-    """Whether a program on this machine may build in Clay and make characters for you.
+    """Whether a program on this machine may build and edit models in Clay.
 
     Off on a fresh install, matching `docs/manual/42-app-settings.md`'s own
     claim: nothing listens until this switches on. Toggling it takes effect
@@ -792,8 +792,9 @@ def _agents(ctx: Any) -> None:
             help_text=(
                 "Lets a program that speaks the Model Context Protocol -- "
                 "Claude Code, Codex, anything with an MCP client already "
-                "running on this machine -- build in Clay and make characters "
-                "for you. Realmspinner runs exactly one pinned model, Familiar, on "
+                "running on this machine -- build and edit models in a Clay "
+                "tab of its own. Realmspinner runs exactly "
+                "one pinned model, Familiar, on "
                 "loopback, and still makes no network egress; an agent that "
                 "is already running connects inward to Realmspinner itself, never "
                 "to Familiar and never the other way round."
@@ -1180,9 +1181,11 @@ def _layout(ctx: Any) -> None:
         ctx.toast("Pane sizes reset.")
     imgui.same_line()
     if controls.button("Reset collapsed sections"):
-        # The map, not the individual keys: every section falls back to its own
-        # default-open when it finds nothing stored.
-        ctx.settings.set("panels_open", {})
+        # The map and the session: imgui remembers each section's open state until
+        # the app closes, so emptying the map alone re-opened nothing and the next
+        # frame wrote the collapsed state straight back (the 2026-10-14 audit,
+        # finding shell-widgets-01).
+        widgets.reset_sections(ctx.settings)
         ctx.toast("Section states reset.")
     # No sidebar-width combo here (shell-03): since the proportional shell
     # ``layout.measure`` takes each side column as a fixed 300 dp,
@@ -1297,6 +1300,25 @@ def _evidence_storage(ctx: Any) -> None:
         )
 
 
+def _trashed_rows(ctx: Any) -> list[dict[str, Any]]:
+    """The trashed rows the jobs cache holds, as ``library.measure_trash``'s stamp.
+
+    The argument to ``measure_trash`` is only the stamp that decides *when* to
+    walk the disk again (the ids of the trash it is looking at). This pane used
+    to hand it ``[]``, so the stamp was ``()`` for the whole session and the
+    figure was measured once and never again: the 2026-10-14 audit, finding
+    shell-review-settings-05, saw "3 assets" shown over a trash that held 40.
+    The cache's window already carries the trashed rows (``deleted_at``) and
+    is replaced after every delete, restore, purge and empty-trash lands
+    (``shell.tasks`` invalidates it), so its trashed ids move exactly when the
+    trash does -- sorted, so a reorder alone does not re-walk the disk.
+    """
+    rows = [
+        job for job in (getattr(ctx.cache, "jobs", None) or []) if job.get("deleted_at")
+    ]
+    return sorted(rows, key=lambda job: str(job.get("id")))
+
+
 def _storage(ctx: Any) -> None:
     """What the library is holding on disk, and the two ways to hold less.
 
@@ -1334,11 +1356,7 @@ def _storage(ctx: Any) -> None:
     # Models is the registry's *declared* size, so on a full install the
     # largest thing on the disk was the one thing this pane never mentioned.
     _model_storage(ctx)
-    # An empty page rather than the loaded one: this pane has no list of
-    # trashed jobs to hand over, and the argument is only the stamp that
-    # decides *when* to walk the disk again -- so Settings asks under its own
-    # stamp and the library goes on asking under the page it is showing.
-    summary = library.trash_summary(library.measure_trash(ctx, []))
+    summary = library.trash_summary(library.measure_trash(ctx, _trashed_rows(ctx)))
     widgets.muted(f"In the trash: {summary}" if summary else "Measuring the trash...")
     # And what the two buttons below carried out of the library rather than
     # deleting. It sits under them because that is what it is about.
@@ -2117,8 +2135,11 @@ def _remove_control(ctx: Any, row: dict[str, Any], busy: bool) -> None:
 
 
 def _confirm_removal(ctx: Any, row: dict[str, Any]) -> None:
-    """Ask first. The consequence sentence differs for a base model, because
-    that is the one removal that can stop generation working entirely."""
+    """Ask first. The consequence sentence differs for a base model and for an
+    engine row, because those are the removals that stop a whole pipeline
+    working -- the 2026-10-14 audit, finding shell-review-settings-12, found
+    only ``base`` named, though removing ``engine:trellis_runtime`` or
+    ``engine:trellis_gguf`` stops Make 3D just as surely."""
     row_key = str(row["row_key"])
     label = str(row.get("label") or row_key)
     freed = float(row.get("freed_gib") or 0.0)
@@ -2127,6 +2148,11 @@ def _confirm_removal(ctx: Any, row: dict[str, Any]) -> None:
         message += (
             "\n\nGeneration will refuse to run until a base model is "
             "reinstalled. You can download it again from this pane."
+        )
+    elif row.get("kind") == "engine":
+        message += (
+            "\n\nMake 3D will refuse to run until the engine is downloaded "
+            "again. You can download it again from this pane."
         )
     dialogs.ask_delete(
         ctx,
@@ -2489,7 +2515,7 @@ def pack_size_note(row: dict[str, Any]) -> str:
 
 
 def pack_unlocks(row: dict[str, Any]) -> str:
-    """"Unlocks Poser", in rail order. Empty when it gates no mode.
+    """"Unlocks Muse", in rail order. Empty when it gates no mode.
 
     The mode *labels*, not the keys the registry stores: ``packs.Pack.modes``
     is deliberately strings so that ``realmspinner.packs`` imports no ``studio``,
@@ -2569,7 +2595,7 @@ def _packs(ctx: Any) -> None:
             str(next((r["label"] for r in rows if r["key"] == key), key)) for key in restore
         )
         widgets.text_colored(theme.WARN, f"{icons.CIRCLE} Removed by the last upgrade: {labels}")
-        if widgets.disabled_button(
+        if not _restore_progress(ctx, restore) and widgets.disabled_button(
             f"{icons.DOWNLOAD} Restore packs##pack-restore",
             not busy,
             reason="Another pack is being installed.",
@@ -2584,6 +2610,31 @@ def _packs(ctx: Any) -> None:
         "stays offline. Everything a pack needs comes from the same places "
         "the build got it, checked against the digests this build pins."
     )
+
+
+def _restore_progress(ctx: Any, restore: list[str]) -> bool:
+    """Draw the running restore's bar and Cancel. -> whether one is running.
+
+    ``_restore_packs`` submits one task under ``pack:<a,b>``, and ``_pack_row``
+    only watches ``pack:<one key>`` -- so with two or more packs to restore the
+    rows showed greyed Install buttons and nothing else for a multi-GB install:
+    the 2026-10-14 audit, finding shell-review-settings-07. (A single-pack
+    restore only worked because the joined key happened to equal the row's.)
+    """
+    task_key = app_ctx.pack_key(",".join(restore))
+    if not ctx.tasks.is_busy(task_key):
+        return False
+    found = ctx.progress(task_key)
+    percent = float(found.get("percent") or 0.0) if found else 0.0
+    phase = str(found.get("phase") or "") if found else ""
+    widgets.progress_bar(percent)
+    if found and found.get("label"):
+        widgets.muted(str(found["label"]))
+    if pack_cancellable(phase):
+        _cancel_pack(ctx)
+    else:
+        widgets.muted("Installing -- this cannot be interrupted safely.")
+    return True
 
 
 def _pack_row(ctx: Any, row: dict[str, Any], busy: bool) -> None:

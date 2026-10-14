@@ -575,6 +575,32 @@ def defaults_for(op: Op) -> dict[str, float]:
     return {param.name: param.default for param in op.params}
 
 
+def share_clipboard(state: Any, tab: Any) -> None:
+    """Make every tab copy to, and paste from, one pixel clipboard.
+
+    ``Document.clipboard`` is one object per document and Copy never writes the
+    OS clipboard, so a Copy in one tab then Ctrl+V in another said "There is
+    nothing on the clipboard." -- or, worse, pasted an old screenshot off the OS
+    clipboard in place of what was just copied. The 2026-10-14 audit, finding
+    inker-mode-02: ``copy_merged``'s own hint promises it "moves a part of the
+    picture between documents", and ``state.cel_clip`` already holds the cel
+    clipboard app-level for the same reason.
+
+    The app clipboard is held on the state as ``pixel_clip`` and handed to each
+    tab's document the first time an op runs against it: the first tab's own
+    clipboard becomes the shared one, so nothing already copied is lost. The
+    document stays headless -- it still just has a ``clipboard``.
+    """
+    doc = getattr(tab, "doc", None)
+    if doc is None or not hasattr(doc, "clipboard"):
+        return
+    shared = getattr(state, "pixel_clip", None)
+    if shared is None:
+        state.pixel_clip = doc.clipboard
+    elif doc.clipboard is not shared:
+        doc.clipboard = shared
+
+
 def run(ctx: Any, op: Op, **params: Any) -> bool:
     """Invoke an op against the active tab. -> whether it ran.
 
@@ -592,6 +618,7 @@ def run(ctx: Any, op: Op, **params: Any) -> bool:
     if state is None:
         return False
     tab = state.active
+    share_clipboard(state, tab)
     if not op.enabled(state, tab):
         said = reason_for(op, state, tab)
         if said:
@@ -622,8 +649,31 @@ def run(ctx: Any, op: Op, **params: Any) -> bool:
 # exactly the class of defect this module exists to remove.
 
 BUSY = "The document is busy -- a save, an export or playback is still running."
+#: ``export.TRANSFORM_WHY``'s sentence -- the bridge's export doors already
+#: said it. Spelled out here rather than imported because this module imports
+#: its siblings only inside a ``run`` (the module docstring); a test pins the
+#: two equal.
+TRANSFORM_WHY = "Finish or cancel the free transform first."
 NO_DOC = "Nothing is open."
 NO_SELECTION = "Nothing is selected."
+
+
+def busy_why(state: Any, tab: Any) -> str:
+    """Why :func:`ready` is false, in the sentence that is true.
+
+    The 2026-10-14 audit, finding inker-mode-10: ``ready`` is false for two
+    causes -- the tab is busy (a save, an export, playback) or a free transform
+    is open -- and every reason built on it said :data:`BUSY`. With only a
+    transform open (nothing saving, nothing playing), File > Export PNG, Save,
+    New layer and Flip all named "a save, an export or playback" while the
+    bridge's export doors on the same tab said :data:`TRANSFORM_WHY`: two
+    surfaces answering one refusal, which ``export.door_state``'s docstring
+    says must not happen. A real busy tab wins when both are true, as it does
+    in ``door_state``: it is the one that outlasts the user's next keypress.
+    """
+    if getattr(tab, "busy", False):
+        return BUSY
+    return TRANSFORM_WHY if getattr(state, "transforming", False) else BUSY
 
 
 def has_doc(state: Any, tab: Any) -> bool:
@@ -674,7 +724,7 @@ def when_ready(
         # playback that could not possibly be running.
         if tab is None:
             return NO_DOC
-        return reason if ready(state, tab) else BUSY
+        return reason if ready(state, tab) else busy_why(state, tab)
 
     return enabled, why
 
@@ -697,6 +747,9 @@ def _no_doc_first(text: str | Callable[[Any, Any], str]) -> Callable[[Any, Any],
     def _reason(state: Any, tab: Any) -> str:
         if tab is None:
             return NO_DOC
+        if text is BUSY:
+            # ``busy_why``: the row is greyed by ``ready``, which has two causes.
+            return busy_why(state, tab)
         return text(state, tab) if callable(text) else text
 
     return _reason
@@ -726,7 +779,7 @@ def _busy_first(text: str | Callable[[Any, Any], str]) -> Callable[[Any, Any], s
         # a bare tab or state (the manual's own revert example) has never been
         # made to carry the busy flags.
         if getattr(tab, "busy", False) or getattr(state, "transforming", False):
-            return BUSY
+            return busy_why(state, tab)
         return text(state, tab) if callable(text) else text
 
     return _reason
@@ -1381,7 +1434,7 @@ def _filter_not_on_tilemap(state: Any, tab: Any) -> bool:
 
 def _filter_reason(state: Any, tab: Any) -> str:
     if not ready(state, tab):
-        return BUSY
+        return busy_why(state, tab)
     return "A tilemap layer's pixels come from its tileset -- convert it to a raster layer first."
 
 
@@ -1411,7 +1464,13 @@ register(
 def _paste(ctx: Any, tab: Any, *, as_layer: bool) -> Any:
     from . import mode as inker_mode
 
-    inker_mode.paste_from_os(ctx, tab)
+    if inker_mode.paste_from_os(ctx, tab) is False:
+        # The 2026-10-14 audit, finding inker-mode-11: an OS clipboard image
+        # was refused (and said so). Pasting on would float whatever an earlier
+        # in-app Copy left behind, straight after a toast that said the paste
+        # was refused. ``None`` -- no image there at all -- is the case that
+        # falls through to the in-app clipboard.
+        return False
     if as_layer:
         result = tab.doc.paste_as_layer()
         if result is False:
@@ -1608,7 +1667,7 @@ def _toggle_matte_reason(state: Any, tab: Any) -> str:
     if tab is None:
         return NO_DOC
     if not ready(state, tab):
-        return BUSY
+        return busy_why(state, tab)
     return "A document with a background layer has no transparency to flatten."
 
 
@@ -1726,7 +1785,7 @@ def _can_nineslice_fit(state: Any, tab: Any) -> bool:
 
 def _nineslice_fit_reason(state: Any, tab: Any) -> str:
     if not ready(state, tab):
-        return BUSY
+        return busy_why(state, tab)
     if _nineslice_selected(state, tab) is None:
         return "Select a slice in the tools panel first."
     return (
@@ -1775,7 +1834,7 @@ def _has_nineslice(state: Any, tab: Any) -> bool:
 
 def _nineslice_export_reason(state: Any, tab: Any) -> str:
     if not ready(state, tab):
-        return BUSY
+        return busy_why(state, tab)
     return (
         "No slice has a nine-slice centre yet -- turn one on for a slice, or "
         "run Auto-fit, first."
@@ -1970,12 +2029,12 @@ def _to_background_reason(state: Any, tab: Any) -> str:
     # used to answer BUSY for *every* fall-through, and the document facts above
     # it were said even when the tab was merely busy.
     if not ready(state, tab):
-        return BUSY
+        return busy_why(state, tab)
     if tab.doc.has_background:
         return "The bottom layer is already the background."
     if len(tab.doc.stack) and tab.doc.write_locked(tab.doc.stack[0]):
         return "The bottom layer is locked -- unlock it first."
-    return BUSY
+    return busy_why(state, tab)
 
 
 register(
@@ -2085,7 +2144,7 @@ def _play_reason(state: Any, tab: Any) -> str:
         return NO_DOC
     if not animated(state, tab):
         return NOT_ANIMATED
-    return BUSY
+    return busy_why(state, tab)
 
 
 register(
@@ -2694,8 +2753,8 @@ register(
         reason=lambda state, tab: (
             NO_DOC
             if tab is None
-            else BUSY
-            if tab.busy
+            else busy_why(state, tab)
+            if not ready(state, tab)
             else "This document is not tiled -- there is no wrap seam to move."
         ),
     )

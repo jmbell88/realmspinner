@@ -55,7 +55,7 @@ __all__ = [
 #: reverse); ``tests/modes/clay/test_rig_caps.py`` pins the two equal. Blender truncates a
 #: name at 63 bytes and renames a duplicate, so the name a rig record holds must already be
 #: one it would keep.
-BONE_NAME_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,63}$")
+BONE_NAME_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,63}\Z")
 
 MAX_BONES = 64
 MAX_SKIN_INFLUENCES = 4

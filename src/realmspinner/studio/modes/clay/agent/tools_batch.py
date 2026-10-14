@@ -26,9 +26,12 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
+
 from .....kernels.geom3d import math3d as m3
 from .....kernels.mesh import measure as clay_measure
 from .....kernels.mesh import ops as clay_geom_ops
+from .....kernels.mesh.elements import OpError
 from .....service import files as svc_files
 from .....service import validation as svc_validation
 from .....service.errors import NotFound
@@ -216,6 +219,18 @@ def _resolve_batch_ref(doc: Any, value: Any, field: str) -> tuple[Any, dict | No
     return value, None
 
 
+def _checkpoint_in_batch_refusal() -> dict:
+    """The refusal for ``clay_checkpoint`` named inside a batch or program -- see
+    :func:`_resolve_and_call` for why it cannot be honoured."""
+    return fail(
+        "clay_checkpoint cannot run inside a batch or program. Set a "
+        "checkpoint before or after the batch, not inside it: a checkpoint "
+        "inside a batch cannot be restored once the batch folds into one step.",
+        field="calls",
+        recovery="fix_arguments",
+    )
+
+
 def _resolve_and_call(
     ctx: Any, session: Session, doc: Any, name: str, arguments: dict
 ) -> dict:
@@ -233,16 +248,12 @@ def _resolve_and_call(
     pushed since its mark into one compound, so a serial minted mid-run is
     buried and ``clay_restore`` always answered "no longer reachable" with no
     divergent edit having happened -- a success that could never be honoured.
-    The catalogue (and the frozen Familiar card) still list the tool as
-    batchable, so the honest fix is a runtime refusal that says where to put it."""
+    The tool left the published enum (and the frozen Familiar card) on 2026-10-14, the audit's
+    clay-agent-tools-04, so :func:`_h_batch` now refuses it up front with the same sentence and
+    nothing compiled from a program emits it; this stays as the backstop for a caller that
+    reaches the fold some other way."""
     if name == "clay_checkpoint":
-        return fail(
-            "clay_checkpoint cannot run inside a batch or program. Set a "
-            "checkpoint before or after the batch, not inside it: a checkpoint "
-            "inside a batch cannot be restored once the batch folds into one step.",
-            field="calls",
-            recovery="fix_arguments",
-        )
+        return _checkpoint_in_batch_refusal()
     resolved: dict[str, Any] = {}
     for key, value in (arguments or {}).items():
         resolved[key], ref_failure = _resolve_batch_ref(doc, value, key)
@@ -438,6 +449,10 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
         # set, and a list or object name is unhashable, which raised a bare
         # ``TypeError`` that only ``call()``'s "failed unexpectedly" backstop
         # caught, naming no field.
+        if name == "clay_checkpoint":
+            # Excluded since the 2026-10-14 audit's clay-agent-tools-04, but the one exclusion a
+            # model has a reason to try: say where the call belongs, not just that it is refused.
+            return _checkpoint_in_batch_refusal()
         if not isinstance(name, str) or name not in allowed:
             return fail(f"{name!r} is not a batchable tool.", field="calls")
         arguments = entry.get("arguments")
@@ -691,6 +706,21 @@ class _ConditionAccess:
             raise agent_program.ConditionError(f"no object with uid {uid}.") from None
 
 
+def _place_in_parent(doc: Any, uid: int, world: Any, ref: Any) -> tuple[Any, dict | None]:
+    """*world*, a world matrix for *uid*, as ``(translation, rotation, scale)`` local to its
+    parent -- or a refusal when the parent cannot take it (a singular or non-finite parent
+    transform)."""
+    try:
+        placed = doc.local_from_world(int(uid), world)
+    except (OpError, ValueError, np.linalg.LinAlgError) as error:
+        return None, fail(f"{ref!r} cannot be placed under its parent: {error}", field="uid")
+    if not all(np.isfinite(np.asarray(v, dtype="f8")).all() for v in placed):
+        return None, fail(
+            f"{ref!r} cannot be placed under its parent: the result is not finite.", field="uid"
+        )
+    return placed, None
+
+
 def _run_live_transform(ctx: Any, session: Session, doc: Any, kind: str, arguments: dict) -> dict:
     """Run one compiled ``move``/``turn``/``scale_by`` entry: resolve its
     already-validated target, read that object's *current* transform,
@@ -711,20 +741,39 @@ def _run_live_transform(ctx: Any, session: Session, doc: Any, kind: str, argumen
 
     if kind == "move":
         delta = arguments["by"]
-        translation = [float(obj.translation[i]) + delta[i] for i in range(3)]
+        if obj.parent is None:
+            translation = [float(obj.translation[i]) + delta[i] for i in range(3)]
+        else:
+            # The 2026-10-14 audit, finding clay-agent-tools-03: ``by`` is documented as a world
+            # delta, and adding it to the LOCAL translation moved a child of a rotated or scaled
+            # parent along the parent's axes (a parent turned 90 about Z sent a [0, 1, 0] move
+            # to world [-1, 0, 0]). Composed through the world matrix instead.
+            world = doc.world_matrix(obj.uid).copy()
+            world[:3, 3] += np.asarray(delta, dtype="f8")
+            placed, failure = _place_in_parent(doc, obj.uid, world, uid)
+            if failure:
+                return failure
+            translation = [float(v) for v in placed[0]]
         return call(ctx, session, "clay_transform", {"uid": uid, "translation": translation})
 
     if kind == "turn":
-        # Composed in world space, the same frame ``by`` already implies for
-        # move (a plain vector add, not one rotated into the object's own
-        # axes first) and factor already implies for scale_by (a plain
-        # multiply) -- so all three read the same way to an agent: "add this
-        # delta to what is already there," never "in this object's own,
-        # possibly already-turned, frame." ``quat_mul(a, b)`` applies ``b``
-        # first, so the delta quaternion goes on the *left* to apply after
-        # the object's current orientation.
+        # World space, so ``by`` reads the same as ``move``'s: a rotation about the world axes,
+        # in place about the object's own origin. ``quat_mul(a, b)`` applies ``b`` first, so the
+        # delta quaternion goes on the *left* to apply after the object's current orientation.
+        # An unparented object's local rotation is its world rotation, and that path keeps its
+        # own arithmetic untouched; a parented one turns its world basis and is re-expressed in
+        # its parent's frame (the 2026-10-14 audit, finding clay-agent-tools-03, as for ``move``).
         delta_deg = arguments["by"]
-        new_quat = m3.quat_mul(_quat_from_euler_xyz(delta_deg), obj.rotation)
+        delta_q = _quat_from_euler_xyz(delta_deg)
+        if obj.parent is None:
+            new_quat = m3.quat_mul(delta_q, obj.rotation)
+        else:
+            world = doc.world_matrix(obj.uid).copy()
+            world[:3, :3] = m3.quat_to_mat4(delta_q)[:3, :3] @ world[:3, :3]
+            placed, failure = _place_in_parent(doc, obj.uid, world, uid)
+            if failure:
+                return failure
+            new_quat = placed[1]
         rotation = list(_euler_xyz_from_quat(new_quat))
         return call(ctx, session, "clay_transform", {"uid": uid, "rotation": rotation})
 

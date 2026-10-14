@@ -56,7 +56,7 @@ about them. They address by uid, like every other edit in this package.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -225,8 +225,14 @@ def spans(
     no gaps, so its extent *is* its membership. :func:`check` is where that is
     asserted; a malformed tree costs a wrong picture here, never a hang.
 
-    Sorted by ``(lo, -hi)``, which puts a container before everything it
-    contains and is what :func:`top_level` walks.
+    Sorted by ``(lo, -hi, depth)``, which puts a container before everything it
+    contains and is what :func:`top_level` walks. The depth is the tie-break
+    for two groups with *identical* extents -- a folder whose every layer is
+    grouped again -- which the 2026-10-14 audit (finding inker-document-01)
+    found listed inner-first, so :func:`top_level` accepted the inner one and
+    dropped the outer, and entering the inner one accepted the outer, until
+    ``RecursionError``. Outer first, by ancestry depth, is the only order in
+    which "a span that nothing before it contains" means what it says.
     """
     bounds: dict[int, tuple[int, int]] = {}
     for index, uid in enumerate(order):
@@ -248,7 +254,7 @@ def spans(
         )
         for guid, (lo, hi) in bounds.items()
     ]
-    out.sort(key=lambda span: (span.lo, -span.hi))
+    out.sort(key=lambda span: (span.lo, -span.hi, len(ancestry(group_of, span.guid))))
     return out
 
 
@@ -273,7 +279,10 @@ def _carry(
 
 
 def top_level(
-    spans_in: Iterable[Span], lo: int, hi: int, exclude: int | None = None
+    spans_in: Iterable[Span],
+    lo: int,
+    hi: int,
+    exclude: int | Collection[int] | None = None,
 ) -> list[Span]:
     """The spans within ``[lo, hi)`` that no other span in the list contains.
 
@@ -283,6 +292,13 @@ def top_level(
     span back forever. Naming the group being entered is what makes the walk
     terminate, and it is exact -- a nested group with the same bounds as its
     parent is a different uid and still comes back.
+
+    It may also be a collection: the groups *entered so far*, outermost to
+    innermost. A group with the same bounds as the one being entered is
+    contained in it only if it is below it, but an **enclosing** group with
+    those bounds is in the list too and, excluding the innermost alone, would
+    be accepted again -- the second half of the 2026-10-14 audit's finding
+    inker-document-01, a recursion that no ordering of :func:`spans` can stop.
 
     One level of the bracket sequence, which is what a compositing pass needs:
     the spans it blends itself, with everything nested inside left for the
@@ -299,8 +315,11 @@ def top_level(
     """
     out: list[Span] = []
     end = lo
+    skip: Collection[int] = (
+        () if exclude is None else (exclude,) if isinstance(exclude, int) else exclude
+    )
     for span in spans_in:
-        if span.guid == exclude:
+        if span.guid in skip:
             continue
         if span.lo < lo or span.hi > hi or span.lo < end:
             continue

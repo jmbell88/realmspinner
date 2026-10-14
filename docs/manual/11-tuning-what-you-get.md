@@ -119,7 +119,7 @@ depth-tests each texel so colour cannot smear through an overhang onto a surface
 sight to it. Turning it off was measured as smearing colour into essentially every hidden region;
 with it on, almost none.
 
-Re-texturing invalidates only the exports that carry the skin. Your rig, poses and sheets survive.
+Re-texturing invalidates only the exports that carry the skin. Your rig and poses survive.
 
 ## One thing to watch out for
 

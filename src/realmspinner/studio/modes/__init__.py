@@ -222,22 +222,30 @@ WORKSPACE_MODES = frozenset(
 # the pattern caret, Space starts and stops playback, and Page Up/Down move a
 # bar -- so every key imgui would use to walk a focus ring is a key the grid
 # has already spoken for.
+# Clay joins them for Pose mode only (the 2026-10-14 audit, finding shell-chrome-01):
+# ``clay.mode._pose_key`` binds Space and Home/End/Left/Right to the timeline, and
+# until Clay was named here Space stopping a clip also pressed the focused Play
+# button and Left/Right stepped the focus ring as well as the playhead.
 #
 # **Membership is "may reserve".** A mode that binds the keys only while a
 # particular surface of its own is up (Poser did, with a character sheet on
-# screen) is named in :data:`NAV_KEY_SURFACES` below; :func:`reserves_nav_keys` is
-# what the frame loop asks, and this set stays the list of modes it may say yes for.
+# screen; Clay does, in Pose mode) is named in :data:`NAV_KEY_SURFACES` below;
+# :func:`reserves_nav_keys` is what the frame loop asks, and this set stays the
+# list of modes it may say yes for.
 NAV_KEY_MODES = frozenset(
-    {"home", "library", "review", "inker", "plotter", "muse", "sirens"}
+    {"home", "library", "review", "inker", "clay", "plotter", "muse", "sirens"}
 )
 
 #: Modes in :data:`NAV_KEY_MODES` that reserve the keys only while a surface of
 #: theirs is up: ``mode -> (attribute of the app state holding the mode's own
 #: state, boolean field on it)``. Read by ``getattr`` rather than by importing
-#: the mode, because this module is data and the shell reads it. Empty since
-#: Poser (the one row it ever had) was removed; the mechanism stays because the
-#: next mode with a conditional surface needs exactly this and not a new rule.
-NAV_KEY_SURFACES: dict[str, tuple[str, str]] = {}
+#: the mode, because this module is data and the shell reads it. The field may be
+#: a dotted path: Clay's is ``active.doc.pose_mode`` (the active tab's document is
+#: in Pose mode), which lives two objects down from ``ClayState`` and is read
+#: here rather than mirrored onto it, so there is no second flag to drift.
+NAV_KEY_SURFACES: dict[str, tuple[str, str]] = {
+    "clay": ("clay", "active.doc.pose_mode"),
+}
 
 
 def reserves_nav_keys(mode: str, state: object) -> bool:
@@ -250,7 +258,10 @@ def reserves_nav_keys(mode: str, state: object) -> bool:
     if surface is None:
         return True
     holder, flag = surface
-    return bool(getattr(getattr(state, holder, None), flag, False))
+    value: object = getattr(state, holder, None)
+    for part in flag.split("."):
+        value = getattr(value, part, None)
+    return bool(value)
 
 
 KEYS = tuple(key for key, _label, _icon, _purpose in MODES)

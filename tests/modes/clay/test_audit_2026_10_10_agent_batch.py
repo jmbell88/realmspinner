@@ -61,19 +61,19 @@ def test_a_clay_checkpoint_inside_a_batch_is_refused_and_says_where_to_put_it() 
             "rollback_on_error": True,
         },
     )
-    payload = _payload(result)
+    # The 2026-10-14 audit's clay-agent-tools-04: refused up front, before anything runs, so
+    # there is no ``stopped_at``/``rolled_back`` -- the batch never started.
     assert result["isError"] is True
-    assert payload["stopped_at"] == 1
-    assert payload["rolled_back"] is True
-    refusal = payload["results"][1]
-    assert refusal["isError"] is True
-    assert "before or after the batch" in _text(refusal)
-    assert refusal["structuredContent"]["field"] == "calls"
-    assert refusal["structuredContent"]["recovery"] == "fix_arguments"
-    # Nothing was named, so there is no checkpoint to find "gone" later.
-    doc = clay_mode.ensure(ctx).get(session.tab_uid).doc
-    assert "after_a" not in doc.checkpoints
-    assert len(doc.objects) == 0
+    assert "before or after the batch" in _text(result)
+    assert result["structuredContent"]["field"] == "calls"
+    assert result["structuredContent"]["recovery"] == "fix_arguments"
+    assert "stopped_at" not in result["structuredContent"]
+    # Nothing ran and nothing was named, so there is no checkpoint to find "gone" later.
+    # (the refusal came before the batch minted a document, so there is not even a tab)
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+    assert tab is None or (
+        "after_a" not in tab.doc.checkpoints and len(tab.doc.objects) == 0
+    )
 
 
 def test_a_checkpoint_set_around_a_batch_is_still_restorable() -> None:

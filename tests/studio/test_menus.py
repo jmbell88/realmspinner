@@ -266,20 +266,31 @@ def test_the_generate_command_does_not_spawn_a_stray_menu_root_outside_create():
     no ``_COMMAND_PATHS`` entry, so ``_command_specs``' contextual branch
     caught it in every other mode that branch reaches and spawned a stray
     one-item disabled menu root named after that mode."""
-    from realmspinner.studio import menus
+    from realmspinner.studio import menus, modes
+    from realmspinner.studio.modes.inker import state as inker_state
 
-    modes_outside_create = (
-        "clay", "mason", "poser", "troupe", "plotter", "packwright", "muse", "sirens", "review",
-    )
-    for mode in modes_outside_create:
-        rows = menus.specs(_ctx(mode), evaluate=False)
+    # Every mode but Create, from ``modes.KEYS`` rather than a hand list: the
+    # list this replaces named the retired "poser" and "troupe" and left out
+    # home, library, inker and settings (the 2026-10-14
+    # audit, finding shell-chrome-10), so a stray root there passed unseen.
+    # Inker owns contextual roots of its own (Layer, Frame, ...), so the stray
+    # test is about *command* rows opening a root, which is what ``generate``
+    # did.
+    for mode in (key for key in modes.KEYS if key != "create"):
+        ctx = _ctx(mode)
+        ctx.state.inker = inker_state.InkerState()  # ``_inker_specs`` ensures it in Inker
+        rows = menus.specs(ctx, evaluate=False)
         row = next((r for r in rows if r.identity == "command:generate"), None)
         assert row is not None, f"generate is missing from the menu bar in {mode}"
         assert row.path == ("File",)
-        assert not any(r.path[0] not in menus.ROOTS for r in rows), (
-            f"a stray menu root should not exist in {mode}, got paths "
-            f"{sorted({r.path for r in rows if r.path[0] not in menus.ROOTS})}"
+        stray = sorted(
+            {
+                r.path
+                for r in rows
+                if r.identity.startswith("command:") and r.path[0] not in menus.ROOTS
+            }
         )
+        assert not stray, f"a stray menu root should not exist in {mode}, got paths {stray}"
 
 
 def _row(path):

@@ -336,6 +336,27 @@ def prefabbable(doc: Any) -> bool:
     return node is not None and not isinstance(node, (nd.TerrainNode, nd.PrefabNode))
 
 
+def _end_rename(state: Any) -> None:
+    """Nothing is being renamed, and the next rename asks for focus afresh."""
+    state.renaming = 0
+    vars(state).pop("_rename_focused", None)
+
+
+def _first_rename_frame(state: Any, uid: int) -> bool:
+    """Whether this is the first frame the rename field for ``uid`` is drawn.
+
+    The 2026-10-14 audit, finding mason-mode-10 (Clay's clay-37, not carried
+    over): the field swapped in for a double-clicked or menu-chosen row was never
+    given keyboard focus, so ``is_item_deactivated`` -- the only thing that ended
+    the rename -- could not fire for a field that was never entered. The caller
+    asks imgui for focus on the one frame this is true.
+    """
+    if vars(state).get("_rename_focused") == uid:
+        return False
+    vars(state)["_rename_focused"] = uid
+    return True
+
+
 def _row(
     ctx: Any,
     state: Any,
@@ -369,11 +390,16 @@ def _row(
     width = imgui.get_content_region_avail().x - sp(28) - imgui.get_style().item_spacing.x
     if state.renaming == node.uid:
         imgui.set_next_item_width(width)
+        if _first_rename_frame(state, node.uid):
+            imgui.set_keyboard_focus_here()
         name = widgets.input_text("##masonrename", node.name, max_length=120, commit=True)
-        if name != node.name:
+        # Escape drops what was typed and ends the rename, as Clay's does; it is
+        # read before the commit so a revert is never written as an edit.
+        escaped = bool(imgui.is_key_pressed(imgui.Key.escape))
+        if not escaped and name != node.name:
             doc.set_props(node.uid, name=name)
-        if imgui.is_item_deactivated():
-            state.renaming = 0
+        if escaped or imgui.is_item_deactivated():
+            _end_rename(state)
     else:
         label = node.name or f"{kind} {node.uid}"
         hidden = not node.visible

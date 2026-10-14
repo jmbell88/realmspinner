@@ -31,6 +31,7 @@ answer False to two thirds of itself.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import functools
 import logging
 from typing import TYPE_CHECKING, Any
@@ -70,6 +71,32 @@ _UPSTREAM_TASK = {
     "loop": "repaint",
     "audio2audio": "text2music",
 }
+
+
+#: Half of one latent frame, in seconds: the 8x-downsampled 512-sample hop the
+#: sampler counts in is 4096 samples at 44.1 kHz.
+_HALF_LATENT_FRAME_SECONDS = 512 * 8 / 44100 / 2
+
+
+def _sampler_duration(params: dict[str, Any]) -> float:
+    """The ``audio_duration`` the sampler is sent for this row, in seconds.
+
+    The recorded ``duration`` for everything but a retake. A retake has no
+    source audio, so the sampler sizes its latent from the duration alone --
+    ``frame_length = int(duration * 44100 / 512 / 8)`` -- and the door records
+    the parent as ``n / 44100``. For a parent of ``f * 4096`` samples that
+    division then multiplication lands a hair under ``f`` for about 7% of
+    lengths, ``int()`` floors it, and the retake came back one latent frame
+    (about 93 ms) short of its parent: "variation 0" of a loop-aligned take
+    drifted its bar and loop point, and each further retake shrank it again (the
+    2026-10-14 audit, finding muse-jobs-05). Half a frame is added so the floor
+    lands on the nearest whole frame instead; the stored ``duration`` is left
+    alone, because it is what the library shows and what a later derive measures.
+    """
+    seconds = float(params.get("duration", 60.0))
+    if str(params.get("task") or "") == "retake":
+        return seconds + _HALF_LATENT_FRAME_SECONDS
+    return seconds
 
 
 def _task_kwargs(params: dict[str, Any], job_dir: Any) -> dict[str, Any]:
@@ -238,10 +265,24 @@ def _stage_rolled_wav(output: Any, seconds: float) -> None:
     ``.<name>.tmp`` convention -- a bare ``track.wav.tmp`` could collide with
     a concurrent writer using the same convention on a different file, which
     is its own recorded incident (M03).
+
+    **A failed stage removes its own temp** (the 2026-10-14 audit, finding
+    service-kinds-07). The temp is roughly one take, and ``_discard_artifacts``'
+    ``music`` arm listed only ``track.wav`` and ``track_input_params.json``, so a
+    write that ran out of disk or a replace an antivirus scanner refused left
+    tens of MB behind in the job directory until the row was deleted -- the
+    shape muse-17 closed for the stems' temps. Removed here, where the failure
+    is known; the arm now lists ``.track.wav.tmp`` as well, for a kill or a
+    cancel mid-roll, which never reaches this handler.
     """
     tmp = output.with_name(f".{output.name}.tmp")
-    tmp.write_bytes(_roll_wav(output.read_bytes(), seconds))
-    tmp.replace(output)
+    try:
+        tmp.write_bytes(_roll_wav(output.read_bytes(), seconds))
+        tmp.replace(output)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
+        raise
 
 
 def _wav_duration_seconds(path: Any, fallback: float) -> float:
@@ -355,7 +396,7 @@ class MusicOps:
                     prompt,
                     output,
                     lyrics=str(source_lyrics),
-                    audio_duration=float(params.get("duration", 60.0)),
+                    audio_duration=_sampler_duration(params),
                     infer_step=int(params.get("infer_step", 60)),
                     guidance_scale=float(params.get("guidance_scale", 15.0)),
                     scheduler_type=str(params.get("scheduler_type", "euler")),

@@ -79,6 +79,7 @@ from ._map_model import (
     TileLayer,
     TileShape,
     _dimension,
+    finite_float,
     new_uid,
     shape_for_kind,
     shape_kind,
@@ -348,7 +349,14 @@ class MapDoc(ProjectionOps, TilesetOps, LayerOps, PaintOps, GeometryOps, ObjectO
     def _apply_map_settings(self, values: dict[str, Any]) -> None:
         class_name = str(values["class_name"])
         origin = values["parallax_origin"]
-        parallax_origin = (float(origin[0]), float(origin[1]))
+        # Finite, like the layer offsets beside it: the 2026-10-14 audit
+        # (finding plotter-map-05) found ``nan``/``inf`` stored here and the
+        # ``.rmap`` this map then wrote refused by its own reader, which holds
+        # this field to a finite number.
+        parallax_origin = (
+            finite_float(origin[0], "the map's parallax origin"),
+            finite_float(origin[1], "the map's parallax origin"),
+        )
         order = str(values["renderorder"])
         if order not in project.RENDER_ORDERS:
             raise ValueError(f"unknown render order {order!r}")
@@ -356,6 +364,7 @@ class MapDoc(ProjectionOps, TilesetOps, LayerOps, PaintOps, GeometryOps, ObjectO
             values["backgroundcolor"], "a map background colour"
         )
         skew_x, skew_y = int(values["skew_x"]), int(values["skew_y"])
+        project.check_skew(self.projection, self.tile_w, self.tile_h, skew_x, skew_y)
         stagger_axis = str(values["stagger_axis"])
         if stagger_axis not in ("x", "y"):
             raise ValueError(f"unknown stagger axis {stagger_axis!r}")

@@ -4,7 +4,8 @@ The whole shape of S4 is "nothing new happens to a document that has no
 slices", so the sidecar's byte pin in ``tests/test_sheet.py`` is the negative
 control and the cases here are what a document *with* slices adds: a per-cell
 pivot that overrides the bottom-centre constant, a per-cell ``slices`` block in
-source-image space, and a pixel-sheet rescale of both.
+source-image space. (The pixel-sheet rescale of both went with
+``pixelsheet.pixel_sidecar``: the 2026-10-14 audit, finding inker-80.)
 """
 
 from __future__ import annotations
@@ -17,7 +18,6 @@ from realmspinner.kernels import sheet as sheetlib
 from realmspinner.kernels.pixel import sheetout
 from realmspinner.kernels.pixel.document import Document
 from realmspinner.kernels.pixel.slices import SliceKey
-from realmspinner.pipelines import pixelsheet
 
 
 def _animated(width: int = 16, height: int = 12, frames: int = 3) -> Document:
@@ -199,80 +199,3 @@ def test_a_directional_sheet_keys_its_block_by_timeline_position():
     assert [c["frame"] for c in cells] == [0, 0, 0, 0], "the row numbering restarts"
     assert cells[3]["slices"][0]["bounds"] == {"x": 8, "y": 8, "w": 4, "h": 4}
     assert cells[0]["slices"][0]["bounds"] == {"x": 0, "y": 0, "w": 4, "h": 4}
-
-
-# --- the pixel sheet ----------------------------------------------------------
-
-
-def _render_meta(**cell) -> dict:
-    """A rendered sheet's sidecar, square and reducible by 4."""
-    base = {
-        "index": 0, "row": 0, "column": 0, "x": 0, "y": 0, "w": 64, "h": 64,
-        "pose": None, "pose_name": "rest", "yaw": 0.0, "frame": 0,
-        "pivot_x": 32.0, "pivot_y": 64.0, "trim": None,
-    }
-    base.update(cell)
-    return {
-        "frame_size": 64, "columns": 1, "rows": 1, "id": "i", "name": "n",
-        "source_job": "j", "elevation": 0.0, "lighting": "flat", "yaws": [0.0],
-        "poses": [], "cells": [base],
-    }
-
-
-def _reduced(**cell) -> dict:
-    return pixelsheet.pixel_sidecar(
-        _render_meta(**cell),
-        image="p.png",
-        logical_size=16,
-        palette=[],
-        recipe={},
-        created=0.0,
-    )["cells"][0]
-
-
-def test_a_sheet_with_no_slice_block_gets_none():
-    assert "slices" not in _reduced()
-
-
-def test_the_slice_block_reduces_exactly_on_divisible_sizes():
-    entry = _reduced(
-        slices=[
-            {
-                "name": "body",
-                "bounds": {"x": 8, "y": 16, "w": 32, "h": 16},
-                "pivot": {"x": 24.0, "y": 32.0},
-                "center": {"x": 16, "y": 20, "w": 16, "h": 8},
-            }
-        ]
-    )["slices"][0]
-    assert entry["bounds"] == {"x": 2, "y": 4, "w": 8, "h": 4}
-    assert entry["pivot"] == {"x": 6.0, "y": 8.0}
-    assert entry["center"] == {"x": 4, "y": 5, "w": 4, "h": 2}
-    assert entry["name"] == "body"
-
-
-def test_an_indivisible_extent_ceils_rather_than_clipping_the_thing_it_describes():
-    entry = _reduced(
-        slices=[{"name": "x", "bounds": {"x": 5, "y": 5, "w": 6, "h": 6}}]
-    )["slices"][0]
-    assert entry["bounds"] == {"x": 1, "y": 1, "w": 2, "h": 2}
-    assert entry["pivot"] is None and entry["center"] is None
-
-
-def test_the_trim_rule_is_unchanged_by_the_refactor():
-    """``reduced`` is now one helper serving trim, bounds and centre, so the
-    rule trim already had is asserted here rather than assumed."""
-    entry = _reduced(trim={"x": 5, "y": 5, "w": 6, "h": 6})
-    assert entry["trim"] == {"x": 1, "y": 1, "w": 2, "h": 2}
-
-
-def test_a_pixel_sheet_stays_plain_json():
-    meta = pixelsheet.pixel_sidecar(
-        _render_meta(slices=[{"name": "x", "bounds": {"x": 0, "y": 0, "w": 8, "h": 8}}]),
-        image="p.png",
-        logical_size=16,
-        palette=[],
-        recipe={},
-        created=0.0,
-    )
-    assert json.loads(json.dumps(meta)) == meta

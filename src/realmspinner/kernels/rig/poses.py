@@ -1,5 +1,5 @@
 """A pose payload -- a bone -> local rotation quaternion map -- and the two
-rotation frames Poser and a clip library each speak.
+rotation frames the viewer's pose editor and a clip library each speak.
 
 Split out of the former ``rigging.py`` (P4 of the 2026-09 restructure). The
 shipped pose libraries (the picker's presets and the deformation-QA battery)
@@ -108,7 +108,8 @@ def validate_bones(
 # the bone's own rest, which is what a clip library is authored in. The two are
 # related by ``node = rest * delta``, and **that one sentence is the whole of
 # the conversion** -- which is why it lives here rather than being written out
-# at each boundary. It was written twice: once in ``studio/poser_mode`` against
+# at each boundary. It was written twice: once in a studio mode module (since
+# removed) against
 # the viewer's rest quaternions and once in ``pipelines/blender_worker``
 # against Blender's, and neither knew about the other. The multiply is one
 # line; the *order* and which side is conjugated are the parts that drift, and

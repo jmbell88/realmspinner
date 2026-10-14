@@ -257,7 +257,7 @@ def _layer_bar(ctx: Any, state: Any, doc: Any, layer: Any, editable: bool) -> No
     from imgui_bundle import imgui
 
     uid = None if layer is None else layer.uid
-    many = len(doc.layers) > 1
+    blocker = "" if uid is None else layer_delete_blocker(doc, uid)
     if controls.button(f"{icons.PLUS}##plotter-layer-add", tooltip="Add a layer"):
         imgui.open_popup(ADD_POPUP)
     _add_popup(ctx, doc, editable)
@@ -300,14 +300,10 @@ def _layer_bar(ctx: Any, state: Any, doc: Any, layer: Any, editable: bool) -> No
     if controls.button(
         f"{icons.TRASH}##plotter-layer-del",
         role=controls.ButtonRole.DESTRUCTIVE,
-        enabled=editable and uid is not None and many,
+        enabled=editable and uid is not None and not blocker,
         reason=_BUSY_WHY
         if not editable
-        else (
-            "A map keeps at least one layer."
-            if uid is not None
-            else "Select a layer first."
-        ),
+        else (blocker if uid is not None else "Select a layer first."),
         tooltip="Delete this layer",
     ):
         _delete_layer(ctx, doc, layer)
@@ -322,6 +318,29 @@ def _layer_bar(ctx: Any, state: Any, doc: Any, layer: Any, editable: bool) -> No
         tooltip="Dim every layer but this one (H)",
     ):
         state.highlight = not state.highlight
+
+
+def layer_delete_blocker(doc: Any, uid: int) -> str:
+    """Why this layer cannot be deleted, or ``""``.
+
+    The real rule is that something must be left standing: every layer in the
+    tree counts, a group's whole subtree goes with it. The bar and the Layer
+    menu both counted only the root list, so a layer inside a map's only folder
+    was refused as "the last layer" while its siblings would remain (the
+    2026-10-14 audit, finding plotter-mode-14). One function, so the two
+    surfaces cannot disagree.
+    """
+    found = doc.layer(uid)
+    if found is None:
+        return ""
+    doomed = 1 + _descendants(found)
+    if len(doc.all_layers()) - doomed < 1:
+        return "A map keeps at least one layer."
+    return ""
+
+
+def _descendants(layer: Any) -> int:
+    return sum(1 + _descendants(child) for child in getattr(layer, "children", ()))
 
 
 def _add_popup(ctx: Any, doc: Any, editable: bool) -> None:
@@ -1344,6 +1363,13 @@ def _shape_fields(doc: Any, layer: Any, obj: MapObject) -> None:
                 )
             except ValueError:
                 return
+            if not plotter_mode.tile_gid_resolves(doc, encoded):
+                # The field's +/- steps walk straight past the last tile. A gid
+                # no tileset covers saves cleanly and then makes the map
+                # unopenable, so the write simply does not happen and the field
+                # reads the object's own gid again next frame (the 2026-10-14
+                # audit, finding plotter-mode-01).
+                return
             doc.set_object(layer.uid, obj.uid, shape=replace(shape, gid=encoded))
         return
     if not isinstance(shape, Text):
@@ -1740,10 +1766,20 @@ def _prop_footer(ctx: Any, form: dict, props: dict[str, Prop], on_change: Any) -
         "##prop-type", form["type"], [(t, t) for t in AUTHORABLE_TYPES], width=sp(80)
     )
     imgui.same_line()
+    typed = form["name"].strip()
+    # An existing key used to be replaced by a blank value of the chosen type,
+    # so a mistyped name silently reset the property it matched (the 2026-10-14
+    # audit, finding plotter-mode-13). The same editor serves map, layer,
+    # object and tile properties.
+    exists = typed in props
     if widgets.disabled_button(
         f"{icons.PLUS}##add-prop",
-        bool(form["name"].strip()),
-        reason="Give the property a name first.",
+        bool(typed) and not exists,
+        reason=(
+            f"A property named {typed} already exists."
+            if exists
+            else "Give the property a name first."
+        ),
         tooltip="Add a property with this name and type",
     ):
         replacement = dict(props)

@@ -1,4 +1,4 @@
-"""What ``studio/muse/`` is allowed to reach for, pinned exactly.
+"""What ``studio/modes/muse/engine/`` is allowed to reach for, pinned exactly.
 
 ``tests/modes/sirens/test_sirens_imports.py``'s pin, sixth instance -- and the
 interesting difference is that the outward set here is **empty**. Sirens reaches
@@ -107,7 +107,7 @@ def test_the_engine_never_imports_another_editor():
 
     ``sirens`` is among the siblings this bans, which is the one that would be
     tempting: ``wavout`` used to live there and Muse's *exporter* uses it. But
-    that exporter is ``studio/muse_io.py``, outside this package -- and the
+    that exporter is ``muse/fileio.py``, outside this package -- and the
     reason is that ``wavout`` was a RIFF encoder misfiled under ``sirens/``
     because Sirens was its first caller, not a fact about what a take is (P3
     of ``dev/RESTRUCTURE.md`` has since moved it to ``kernels/audio/``, one

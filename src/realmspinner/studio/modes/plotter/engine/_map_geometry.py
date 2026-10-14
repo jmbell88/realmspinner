@@ -544,6 +544,10 @@ class GeometryOps:
         tile_h = _dimension(tile_h, "tile height")
         if (tile_w, tile_h) == (self.tile_w, self.tile_h):
             return False
+        # Before anything is closed or moved: a new size that makes the oblique
+        # skew's determinant zero is a document ``cell_at`` cannot invert (the
+        # 2026-10-14 audit, finding plotter-map-04).
+        project.check_skew(self.projection, tile_w, tile_h, self.skew_x, self.skew_y)
 
         # The 2026-09-08 audit, plotter-05: the same reason ``resize`` closes
         # both sessions first -- this method is about to scale every object's

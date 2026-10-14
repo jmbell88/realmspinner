@@ -1,26 +1,23 @@
-"""Poser's sheet planning: clip x direction -> frame table -> ``sheet.Plan``.
+"""Character-sheet planning: clip x direction -> frame table -> ``sheet.Plan``.
 
 Pure arithmetic. No torch, no Blender, no ``service``, no filesystem -- the
-same bargain ``sheet.py`` makes, and for the same reason: the browser preview,
+same bargain ``sheet.py`` makes, and for the same reason: the preview,
 the Blender renderer and the sidecar must never disagree about what cell 137
 depicts, and the way to guarantee that is for one testable function to decide.
 
-**The frame table is held twice.** ``studio.modes.poser.engine.spec`` holds it as the
-studio's answer and this module holds it as the kernel's -- a
-``pipelines``/worker-process module (``spritesynth.py``) and a Blender
-process (``blender_worker.py``) both need it with no ``studio`` importable at
-all, this module's own home (``kernels/``, since the 2026-09-17 restructure
-moved it out of ``pipelines/``) is no more able to reach ``studio`` than
-either of them, and ``studio/modes/poser/engine`` imports nothing outward. That is
-the ``spritesynth`` / ``inker.animation`` ``DIRECTION_ORDER`` arrangement at its
-second instance, and it takes the same safeguard:
-``tests/modes/poser/test_sheet_geometry_agreement.py`` is the **sole owner** of the
-agreement between the two copies. A change to one is a change to both plus that
-test, or a character sheet and the editor that opens it come to mean different
-things by ``walk_left``.
+**The frame table has one copy.** The 2026-10-14 audit, finding poser-render-05:
+this docstring used to say the table was held twice, here and in the Poser
+mode's own spec, with a test as the sole owner of their agreement. Poser was
+removed (a character is posed and animated in Clay now), and that second copy
+and its test went with it, so nothing is left to agree with.
+The ``pipelines``/worker-process module (``spritesynth.py``) and the Blender
+process (``blender_worker.py``) both need the table with no ``studio`` importable
+at all, and this module's own home (``kernels/``, since the 2026-09-17
+restructure moved it out of ``pipelines/``) is no more able to reach ``studio``
+than either of them. It is the ``spritesynth`` / ``inker.animation``
+``DIRECTION_ORDER`` arrangement, minus the second instance.
 
-Cell order is grouped by ``(animation, direction)`` and dense -- the argument is
-written out in ``studio.modes.poser.engine.spec``.
+Cell order is grouped by ``(animation, direction)`` and dense.
 """
 
 from __future__ import annotations
@@ -45,8 +42,6 @@ __all__ = [
     "MAX_FRAME_SIZE",
     "MAX_FRAMES",
     "MIN_FRAME_SIZE",
-    "MOVEMENT_MIN_FRAMES",
-    "WARN_CELLS",
     "SIZES",
     "ClipTiming",
     "LayoutSpec",
@@ -54,15 +49,12 @@ __all__ = [
     "TroupeCell",
     "animation_block",
     "check_frame_counts",
-    "check_subset",
     "compass_name",
     "frame_table",
     "movement_min_frames",
     "plan",
-    "point_in_cell",
     "resolve_layout",
     "spans",
-    "subset_indices",
 ]
 
 #: ``(name, frames, loop, duration_ms)``, as a literal table rather than a
@@ -90,14 +82,12 @@ DIRECTIONS: tuple[tuple[str, float], ...] = (
 
 COLUMNS = 8
 SIZES = (16, 24, 32, 48, 64, 96, 128, 256)
-RENDER_SIZE = 512
 
 #: **Task G, 2026-09-12: the custom sprite size's actual range.** ``SIZES`` is
-#: the ladder of presets a form offers and stays the ladder the tests pin
-#: (``tests/modes/poser/test_sheet_geometry_agreement.py`` ties
-#: ``studio.modes.poser.engine.spec`` to it); these two are the wider question ``plan``
-#: itself answers, matching the retired Troupe door -- see
-#: that constant's comment for why 8 and 256 are the floor and ceiling.
+#: the ladder of presets a form offers and stays the ladder the tests pin;
+#: these two are the wider question ``plan`` itself answers, matching the custom
+#: sprite size the sprite-sheet door accepts -- see that constant's comment for why 8
+#: and 256 are the floor and ceiling.
 MIN_FRAME_SIZE = 8
 MAX_FRAME_SIZE = 256
 
@@ -114,9 +104,9 @@ MAX_FRAME_SIZE = 256
 #: seen straight down is a pair of shoulders and a hat brim -- it reads as a
 #: blob, and every "top-down" sprite anyone actually ships is tilted.
 #:
-#: **The table lives in ``kernels`` rather than in the retired Troupe door**
+#: **The table lives in ``kernels`` rather than in a door**
 #: because the worker frames from it too, and ``kernels`` is the one layer
-#: both the door and the worker can see -- ``service`` is importable in neither
+#: both a door and the worker can see -- ``service`` is importable in neither
 #: the Blender process nor the worker.
 CAMERA_PRESETS: tuple[tuple[str, str, float], ...] = (
     ("three_quarter_top_down", "3/4 top-down", 35.0),
@@ -132,15 +122,15 @@ DEFAULT_CAMERA_PRESET = "three_quarter_top_down"
 #: :data:`ANIMATIONS`' five names. ``resolve_layout`` still reads a 2, and
 #: ``LayoutSpec.as_dict`` still writes one whenever the result is expressible
 #: in it -- see ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
+#: (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 LAYOUT_VERSION = 3
-WARN_CELLS = 256
 MAX_CELLS = 512
 MAX_FRAMES = sheet.MAX_CLIP_FRAMES
 
 #: A layout-wide frame rate (Settings, an export choice) rather than an
 #: arbitrary number: every legal ``fps`` has to divide cleanly enough that
 #: ``round(1000 / fps)`` names a duration a person would recognise, and the
-#: ladder is Troupe's own, and no other module needs it.
+#: ladder is the sprite sheet's own, and no other module needs it.
 FPS_CHOICES: tuple[int, ...] = (6, 8, 10, 12, 15, 24, 30)
 
 #: A v3 movement's own ``loop``/``duration_ms`` bounds, and a clip library's
@@ -190,7 +180,7 @@ _COMPASS_POINTS: tuple[str, ...] = (
 def compass_name(yaw: float) -> str:
     """The compass point a frame-folder export names direction ``yaw`` with.
 
-    See ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``
+    See ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` [lost; re-measure to change]
     ("Compass names follow the camera arithmetic, not the docstring"):
     **bearing = (180 + yaw) mod 360**, derived from
     :func:`blender_worker._view_forward` -- the camera sits at
@@ -210,26 +200,21 @@ def compass_name(yaw: float) -> str:
     return _COMPASS_POINTS[round(bearing / 22.5) % 16]
 
 
-#: Every Troupe facing key, named by the compass point a frame-folder export
+#: Every sprite-sheet facing key, named by the compass point a frame-folder export
 #: uses for it. Built from :data:`_DIRECTIONS_16` rather than hand-written,
 #: so the two cannot silently disagree about which key is which point.
 COMPASS_16: dict[str, str] = {key: compass_name(yaw) for key, yaw in _DIRECTIONS_16}
 
 _ANIMATION_BY_NAME = {a[0]: a for a in ANIMATIONS}
-MOVEMENT_MIN_FRAMES = {name: 1 for name, *_rest in ANIMATIONS}
 
 
 def movement_min_frames(name: str) -> int:
     """The fewest frames any movement may have -- always 1.
 
-    A function rather than a dict lookup, now that a layout may name a
-    movement :data:`MOVEMENT_MIN_FRAMES` (built from the closed
-    :data:`ANIMATIONS` table) has never heard of. ``characters/recipe.py``
-    and the retired Troupe door both already call this function rather than
-    indexing the dict directly -- the 2026-09-14 audit (troupe-04) found this
-    docstring still claiming otherwise. ``MOVEMENT_MIN_FRAMES`` itself is
-    kept only because it is part of this module's exported surface
-    (``__all__``); nothing in ``src/`` indexes it directly any more.
+    A function, not a table keyed on :data:`ANIMATIONS`, because a layout may
+    name a movement that closed table has never heard of. The per-name dict
+    that used to sit beside it is gone (the 2026-10-14 audit, finding
+    poser-22): every value was 1 and nothing read it.
     """
     return 1
 
@@ -244,6 +229,7 @@ class ClipTiming:
     layout resolve any clip a rig's library defines, not just the five
     :data:`ANIMATIONS` names. See
     ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
+    (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     """
 
     frames: int
@@ -333,10 +319,10 @@ def _validate_movement_duration_ms(
 
 
 def _reject_direction_named_movement(name: str) -> None:
-    """Raise if *name* ends in ``_<direction>`` for one of Troupe's 16 facings.
+    """Raise if *name* ends in ``_<direction>`` for one of the 16 sprite-sheet facings.
 
     Restated from ``cliplib.reject_direction_named_clip`` -- ``pipelines``
-    and the poser modules do not import each other, the same reason
+    and the character recipes do not import each other, the same reason
     :data:`_ANIMATION_BY_NAME`'s legacy table is restated in ``cliplib``
     rather than shared. A movement name is exactly the same trap a clip name
     is: Inker's tag parser reads ``walk_front`` as clip ``walk`` facing
@@ -345,7 +331,7 @@ def _reject_direction_named_movement(name: str) -> None:
     for key, _yaw in _DIRECTIONS_16:
         if name.endswith(f"_{key}"):
             raise ValueError(
-                f'{name!r} ends in "_{key}"; Troupe reads a name like that as '
+                f'{name!r} ends in "_{key}"; a sprite sheet reads a name like that as '
                 f'movement {name[: -len(key) - 1]!r} facing {key!r}'
             )
 
@@ -360,13 +346,12 @@ def _movement_base_timing(
     """``(frames, loop, duration_ms)`` before any global ``fps`` override.
 
     The precedence
-    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` lays out:
-    a rig's own clip library (``timing``) first; then a v3 snapshot's own
-    literal ``loop``/``duration_ms``; then the closed legacy table --
-    **always** the table for a v2 payload, even though a v2 movement dict may
-    carry ``loop``/``duration_ms`` fields too (every ``as_dict`` output does),
-    because that is what keeps a v2 layout resolving byte-identically to
-    before this vocabulary opened.
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` [lost; re-measure to change] lays
+    out: a rig's own clip library (``timing``) first; then a v3 snapshot's own literal
+    ``loop``/``duration_ms``; then the closed legacy table -- **always** the table for a v2 payload,
+    even though a v2 movement dict may carry ``loop``/``duration_ms`` fields too (every ``as_dict``
+    output does), because that is what keeps a v2 layout resolving byte-identically to before this
+    vocabulary opened.
 
     ``fps`` is the layout's own global rate, when it carries one -- passed
     down so the middle branch can validate a v3 movement's own ``duration_ms``
@@ -394,7 +379,7 @@ def _movement_base_timing(
     if legacy is not None:
         _n, frames, loop, ms = legacy
         return frames, loop, ms
-    raise ValueError(f"{name!r} is not a Troupe movement")
+    raise ValueError(f"{name!r} is not a sprite-sheet movement")
 
 
 def _expresses_as_v2(movements: tuple[MovementSpec, ...], fps: int | None) -> bool:
@@ -419,7 +404,7 @@ def _expresses_as_v2(movements: tuple[MovementSpec, ...], fps: int | None) -> bo
 
 @dataclass(frozen=True, slots=True)
 class LayoutSpec:
-    """A validated, immutable Troupe frame-table snapshot."""
+    """A validated, immutable frame-table snapshot."""
 
     version: int
     columns: int
@@ -502,8 +487,8 @@ def resolve_layout(
     given -- the name must be one of its keys, or the movement is refused by
     name; *(b)* a v3 movement carrying its own ``loop`` and ``duration_ms``;
     *(c)* a legacy :data:`ANIMATIONS` name -- always this path for a v2
-    payload; *(d)* otherwise refused. A movement named after one of Troupe's
-    sixteen facings (``walk_front``, and so on) is refused outright, the same
+    payload; *(d)* otherwise refused. A movement named after one of the
+    sixteen sprite-sheet facings (``walk_front``, and so on) is refused outright, the same
     trap ``cliplib.reject_direction_named_clip`` guards a clip name against.
 
     A v3 payload may also carry a top-level ``fps`` (one of
@@ -514,6 +499,7 @@ def resolve_layout(
     rather than the legacy/timing frame count verbatim, so it keeps its real
     length at the new rate. See
     ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
+    (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     """
 
     if not payload:
@@ -525,7 +511,7 @@ def resolve_layout(
     raw_version = payload.get("version")
     version = LAYOUT_VERSION if raw_version is None else _refused_int(raw_version, "version")
     if version not in (2, 3):
-        raise ValueError(f"Troupe layout version {version} is not supported")
+        raise ValueError(f"sprite-sheet layout version {version} is not supported")
     fps: int | None = None
     if version >= 3:
         raw_fps = payload.get("fps")
@@ -535,16 +521,16 @@ def resolve_layout(
                 raise ValueError(f"fps must be one of {list(FPS_CHOICES)}")
     raw_movements = payload.get("movements")
     if not isinstance(raw_movements, Sequence) or isinstance(raw_movements, (str, bytes)):
-        raise ValueError("a Troupe layout needs at least one movement")
+        raise ValueError("a sprite-sheet layout needs at least one movement")
     movements: list[MovementSpec] = []
     seen: set[str] = set()
     for raw in raw_movements:
         if not isinstance(raw, Mapping):
-            raise ValueError("every Troupe movement must be an object")
+            raise ValueError("every sprite-sheet movement must be an object")
         name = str(raw.get("key") or raw.get("name") or "").strip()
         _reject_direction_named_movement(name)
         if name in seen:
-            raise ValueError(f"two Troupe movements are named {name!r}")
+            raise ValueError(f"two sprite-sheet movements are named {name!r}")
         seen.add(name)
         base_frames, loop, base_ms = _movement_base_timing(
             name, raw, version, timing, fps
@@ -583,7 +569,7 @@ def resolve_layout(
             if len(raw_directions) > 16:
                 raise ValueError("directions must use the 1, 4, 8, or 16 direction preset")
             if any(not isinstance(d, Mapping) for d in raw_directions):
-                raise ValueError("every Troupe direction must be an object")
+                raise ValueError("every sprite-sheet direction must be an object")
             # A v2 direction object with no ``yaw`` used to hit
             # ``float(None)`` and surface a raw TypeError instead of a named
             # refusal -- the 2026-09-13 audit, finding troupe-01. Wrapped the
@@ -599,7 +585,7 @@ def resolve_layout(
                 )
             except (TypeError, ValueError):
                 raise ValueError(
-                    "every Troupe direction must carry a numeric yaw"
+                    "every sprite-sheet direction must carry a numeric yaw"
                 ) from None
             if directions not in DIRECTION_PRESETS.values():
                 raise ValueError("directions must use the 1, 4, 8, or 16 direction preset")
@@ -614,14 +600,14 @@ def resolve_layout(
                 raise ValueError("directions must be 1, 4, 8, or 16") from None
         movements.append(MovementSpec(name, frames, loop, duration_ms, directions))
     if not movements:
-        raise ValueError("a Troupe layout needs at least one movement")
+        raise ValueError("a sprite-sheet layout needs at least one movement")
     raw_columns = payload.get("columns")
     columns = COLUMNS if raw_columns is None else _refused_int(raw_columns, "columns")
     if columns != COLUMNS:
-        raise ValueError(f"Troupe sheets use exactly {COLUMNS} columns")
+        raise ValueError(f"sprite sheets use exactly {COLUMNS} columns")
     result = LayoutSpec(LAYOUT_VERSION, columns, tuple(movements), fps)
     if result.cell_count > MAX_CELLS:
-        raise ValueError(f"a Troupe sheet may contain at most {MAX_CELLS} cells")
+        raise ValueError(f"a sprite sheet may contain at most {MAX_CELLS} cells")
     return result
 
 
@@ -632,11 +618,6 @@ class TroupeCell:
     direction: str
     yaw: float
     frame: int
-
-
-def frames_per_direction(layout: LayoutSpec | Mapping[str, Any] | None = None) -> int:
-    resolved = layout if isinstance(layout, LayoutSpec) else resolve_layout(layout)
-    return sum(m.frames for m in resolved.movements)
 
 
 def frame_table(
@@ -682,71 +663,6 @@ def spans(
     return tuple(out)
 
 
-def check_subset(
-    subset: Sequence[Mapping[str, Any]] | None,
-    layout: LayoutSpec | Mapping[str, Any] | None = None,
-) -> tuple[tuple[str, str], ...]:
-    """Normalise a re-render request to ``((animation, direction), ...)``.
-
-    A subset names whole *runs* -- one animation seen from one direction --
-    because a run is the unit a person judges and re-authors. Half a walk cycle
-    re-rendered against the other half is not a thing anybody wants and would be
-    a seam by construction.
-
-    Refused by name rather than filtered, which is ``check_frame_counts``' rule
-    one function up: a request naming an animation this sheet does not carry is
-    a mistake about the sheet, and silently rendering the rest of it would leave
-    the user looking for a change that never happened.
-
-    **A subset naming every run is refused too**, and that one is not
-    pedantry: it is a full render taking the slower path, with a copy step and
-    a pinned palette it does not need. The ordinary door is right there.
-    """
-    resolved = layout if isinstance(layout, LayoutSpec) else resolve_layout(layout)
-    available = {(animation, direction) for animation, direction, *_ in spans(resolved)}
-    if not subset:
-        raise ValueError("name at least one animation and direction to re-render")
-    wanted: list[tuple[str, str]] = []
-    for entry in subset:
-        animation = str((entry or {}).get("animation") or "")
-        direction = str((entry or {}).get("direction") or "")
-        if not animation or not direction:
-            raise ValueError("each run needs an animation and a direction")
-        if animation not in {name for name, _d in available}:
-            raise ValueError(f"{animation} is not an animation on this sheet")
-        if (animation, direction) not in available:
-            raise ValueError(f"this sheet has no {animation} facing {direction}")
-        if (animation, direction) in wanted:
-            raise ValueError(f"{animation} facing {direction} is named twice")
-        wanted.append((animation, direction))
-    if len(wanted) == len(available):
-        raise ValueError(
-            "that is every run on the sheet -- build a new sheet instead of "
-            "re-rendering all of it"
-        )
-    return tuple(wanted)
-
-
-def subset_indices(
-    subset: Sequence[Mapping[str, Any]] | None,
-    layout: LayoutSpec | Mapping[str, Any] | None = None,
-) -> tuple[int, ...]:
-    """The cell indices a subset covers, ascending.
-
-    Expanded from ``spans`` rather than from arithmetic of its own, so this
-    answer and ``sheetscope.runs``' Inker-side answer come from the two copies
-    ``tests/modes/poser/test_sheet_geometry_agreement.py`` already owns rather than
-    from a third nothing owns.
-    """
-    resolved = layout if isinstance(layout, LayoutSpec) else resolve_layout(layout)
-    wanted = set(check_subset(subset, resolved))
-    out: list[int] = []
-    for animation, direction, start, end, _loop in spans(resolved):
-        if (animation, direction) in wanted:
-            out.extend(range(start, end + 1))
-    return tuple(sorted(out))
-
-
 def check_frame_counts(
     records: Mapping[str, Sequence[Any]],
     layout: LayoutSpec | Mapping[str, Any] | None = None,
@@ -767,7 +683,7 @@ def check_frame_counts(
             )
     extra = sorted(set(records) - {m.name for m in resolved.movements})
     if extra:
-        raise ValueError(f"not Troupe animations: {extra}")
+        raise ValueError(f"not sprite-sheet animations: {extra}")
 
 
 def plan(
@@ -787,7 +703,7 @@ def plan(
 
     Built directly rather than through ``sheet.plan``: that one lays out poses
     down and yaws across, one row per pose, which for 256 cells would be a
-    32-row-by-8-column grid whose rows are *poses* -- and Troupe's rows are a
+    32-row-by-8-column grid whose rows are *poses* -- and a sprite sheet's rows are a
     dense run of ``(animation, direction)`` groups instead. Both go through
     ``check_atlas_size``, which is the part that must not be approximated
     twice.
@@ -798,7 +714,7 @@ def plan(
         raise ValueError("elevation must be between -89 and 89 degrees")
     # Task G: any whole number in [MIN_FRAME_SIZE, MAX_FRAME_SIZE] is a size
     # this function lays out correctly -- SIZES/FRAME_SIZES are presets, not
-    # the limit -- so a caller offering a custom size (the retired Troupe door) is
+    # the limit -- so a caller offering a custom size (the sprite-sheet door) is
     # answered rather than refused for being off two ladders it was never on.
     if (
         frame_size not in SIZES
@@ -897,47 +813,3 @@ def animation_block(
     if resolved.fps is not None:
         block["fps"] = resolved.fps
     return block
-
-
-def point_in_cell(
-    point: tuple[float, float] | None, frame_size: int
-) -> tuple[float, float] | None:
-    """A point the worker projected at ``RENDER_SIZE``, in *cell* pixels.
-
-    The sidecar documents its pivot as pixels within a cell, and every reader
-    of it assumes exactly that -- ``sheet.sidecar`` defaults the field to
-    ``(cell_w / 2, cell_h)`` for the same reason. ``blender_worker.op_sheet``
-    projects the ground origin in the pixels it rendered at, which on every
-    *other* sheet path is the cell size and on this one deliberately is not:
-    Troupe renders at :data:`RENDER_SIZE` and packs at the logical size,
-    because a 256-cell atlas at 512 would be refused at the 8192 ceiling.
-
-    So the number needs converting, and the conversion had been missing: a
-    32px cell recorded a pivot near ``(256, 470)``, sixteen times outside
-    itself, and an engine placing sprites from the sidecar put the character's
-    feet far below the sprite. Placing without drift is the one property the
-    field exists for.
-
-    **Generalised from ``pivot_in_cell`` on 2026-09-05**, when the worker began
-    projecting *sockets* as well as the ground origin: they are the same render
-    at the same size and want the same conversion, and a second copy of it
-    would put a composited flame sixteen cells away from the hand rather than
-    the feet.
-
-    Here rather than inline in the retired Troupe worker because this module is the
-    filesystem-free half of the character sheet -- it decides what cell 137
-    depicts and never reads a file -- which is what makes the arithmetic
-    testable at all.
-    """
-    if point is None:
-        return None
-    scale = float(frame_size) / float(RENDER_SIZE)
-    return (float(point[0]) * scale, float(point[1]) * scale)
-
-
-def pivot_in_cell(
-    pivot: tuple[float, float] | None, frame_size: int
-) -> tuple[float, float] | None:
-    """The sheet's ground origin, in cell pixels. :func:`point_in_cell` by its
-    older name, kept because "pivot" is what the sidecar field is called."""
-    return point_in_cell(pivot, frame_size)

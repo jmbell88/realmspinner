@@ -18,6 +18,7 @@ rather than shown -- ``viewer_embed``'s pending-marker rule, applied to cels.
 
 from __future__ import annotations
 
+import contextlib
 import enum
 import time
 from collections.abc import Mapping
@@ -31,10 +32,12 @@ SNIPPET_POPUP = "inker-flourish-snippet"
 TEXTURE_POPUP = "inker-flourish-texture"
 TEXTURE_KEY = "inker-flourish-texture"
 TEXTURE_LAND_KEY = "inker-flourish-texture-land"
+TEXTURE_POLL_KEY = "inker-flourish-texture-poll"
 PROMPT_KEY = "inker-flourish-prompt"
 RESTYLE_POPUP = "inker-flourish-restyle"
 RESTYLE_KEY = "inker-flourish-restyle"
 RESTYLE_LAND_KEY = "inker-flourish-restyle-land"
+RESTYLE_POLL_KEY = "inker-flourish-restyle-poll"
 #: Not "of this effect": the slot is one on ``InkerState``, shared by every open
 #: document, so a restyle running in another tab refuses this one too (the
 #: 2026-10-03 audit, inker-83).
@@ -166,6 +169,15 @@ def regenerate_reason(state: Any, tab: Any) -> str:
 
 
 def has_conflicts(state: Any, tab: Any) -> bool:
+    """Whether "Keep painted cells" has anything to do *and may do it now*.
+
+    ``not busy`` is part of the answer: the 2026-10-14 audit (finding
+    inker-flourish-20) found this the one Flourish predicate left without the
+    guard the 2026-09-15 audit (inker-05) gave ``can_detach`` and its siblings,
+    so the button stayed live during a save, an export or playback and pushed a
+    history step onto a document something else was still writing."""
+    if getattr(tab, "busy", False):
+        return False
     group = active_group(state, tab)
     return group is not None and bool(tab.doc.flourish_conflicts(group))
 
@@ -175,6 +187,8 @@ def conflicts_reason(state: Any, tab: Any) -> str:
         return "Nothing is open."
     if not has_effect(state, tab):
         return NO_EFFECT
+    if getattr(tab, "busy", False):
+        return BUSY
     return "" if has_conflicts(state, tab) else NO_CONFLICTS
 
 
@@ -246,6 +260,31 @@ class SubmitResult(enum.Enum):
     BUSY = "busy"
 
 
+def document_palette(tab: Any) -> tuple[tuple[int, int, int], ...] | None:
+    """The colours a Pixel-art bake should quantise to for this document, or
+    ``None`` when it has no table of its own.
+
+    The manual says an indexed document's own palette is used for the pixel
+    pass, and nothing did it: the bake derived a palette from the render and the
+    document then snapped every cel onto its own table afterwards -- the
+    quantise-then-snap round trip the document's palette is meant to replace
+    (the 2026-10-14 audit, finding inker-flourish-02). Opaque entries only: the
+    transparent slot is a hole, not a colour to paint with. Read on the frame
+    thread, before the task starts.
+    """
+    doc = getattr(tab, "doc", None)
+    table = getattr(doc, "palette", None)
+    if not table:
+        return None
+    hole = getattr(doc, "transparent_index", -1) if doc.color_mode == "indexed" else -1
+    colours = tuple(
+        (int(c[0]), int(c[1]), int(c[2]))
+        for i, c in enumerate(table)
+        if i != hole and (len(c) < 4 or int(c[3]) > 0)
+    )
+    return colours or None
+
+
 def submit_render(
     ctx: Any,
     tab: Any,
@@ -278,12 +317,13 @@ def submit_render(
     assets = dict(held.assets) if held is not None else {}
     if pending_assets:
         assets.update(pending_assets)
+    palette = document_palette(tab)
 
     def work() -> dict[str, Any]:
         def progress(done: int, total: int) -> None:
             ctx.tasks.set_progress(key, 100.0 * done / max(total, 1), f"{done}/{total}")
 
-        baked = flourish_bake.bake(recipe, progress=progress, assets=assets)
+        baked = flourish_bake.bake(recipe, progress=progress, assets=assets, palette=palette)
         return {"tab": tab_uid, "group": group_uid, "baked": baked, "force": force}
 
     return SubmitResult.ACCEPTED if ctx.submit(key, work) else SubmitResult.BUSY
@@ -301,12 +341,16 @@ def submit_insert(ctx: Any, tab: Any, recipe: Any) -> SubmitResult:
 
     key = insert_key(tab)
     tab_uid = tab.uid
+    palette = document_palette(tab)
 
     def work() -> dict[str, Any]:
         def progress(done: int, total: int) -> None:
             ctx.tasks.set_progress(key, 100.0 * done / max(total, 1), f"{done}/{total}")
 
-        return {"tab": tab_uid, "baked": flourish_bake.bake(recipe, progress=progress)}
+        return {
+            "tab": tab_uid,
+            "baked": flourish_bake.bake(recipe, progress=progress, palette=palette),
+        }
 
     return SubmitResult.ACCEPTED if ctx.submit(key, work) else SubmitResult.BUSY
 
@@ -794,7 +838,11 @@ def submit_texture(ctx: Any, state: Any, tab: Any, subject: str) -> bool:
             ctx.svc,
             kind="text",
             prompt=prompt,
-            negative="photo, realistic, text, watermark, frame, border",
+            # ``negative_prompt``, not ``negative``: the 2026-10-14 audit,
+            # finding inker-flourish-01, found this door raising TypeError
+            # before any job was queued, hidden by tests whose fake
+            # ``create_job`` took ``**kwargs``.
+            negative_prompt="photo, realistic, text, watermark, frame, border",
             output="reference",
             count=1,
         )
@@ -824,19 +872,52 @@ def on_texture_queued(ctx: Any, state: Any, done: Any) -> None:
     pending["job_id"] = job_id
 
 
+def read_job_rows(store: Any, job_ids: list[str]) -> dict[str, dict[str, Any] | None]:
+    """Task thread. ``{job id: {"status", "error"} or None}`` for each id.
+
+    The store is one sqlite connection behind an RLock that the queue worker
+    writes through, so a read on the pygame thread waits for whatever the worker
+    is committing. The 2026-10-14 audit (finding inker-flourish-16) found both
+    Flourish pollers doing exactly that every ``TEXTURE_POLL_S`` -- one query
+    per keyframe job for a restyle -- the shape
+    ``tests/test_frame_thread_doors.py`` already refuses for the filter widen.
+    A row that cannot be read raises; the poller's handler treats that as "ask
+    again next tick"."""
+    rows: dict[str, dict[str, Any] | None] = {}
+    for job_id in job_ids:
+        job = store.get(job_id)
+        rows[job_id] = (
+            None if job is None else {"status": job.get("status"), "error": job.get("error")}
+        )
+    return rows
+
+
 def poll_texture(ctx: Any, state: Any, *, now: float) -> None:
-    """Frame thread, cheap: once every ``TEXTURE_POLL_S`` ask whether the job
-    is done, and hand the decode to a task."""
+    """Frame thread, cheap: once every ``TEXTURE_POLL_S`` hand the store read to
+    a task. ``on_texture_polled`` is what acts on the answer, back on this
+    thread, and hands the decode to a second task."""
     pending = state.flourish_texture_pending
     if pending is None or not pending.get("job_id"):
         return
     if now < float(pending.get("next_poll") or 0.0):
         return
     pending["next_poll"] = now + TEXTURE_POLL_S
-    try:
-        job = ctx.svc.store.get(pending["job_id"])
-    except Exception:  # noqa: BLE001 -- the store answers next tick
-        return
+    ctx.submit(
+        f"{TEXTURE_POLL_KEY}:{pending['tab_uid']}",
+        read_job_rows,
+        ctx.svc.store,
+        [pending["job_id"]],
+    )
+
+
+def on_texture_polled(ctx: Any, state: Any, done: Any) -> None:
+    pending = state.flourish_texture_pending
+    if pending is None or done.error is not None or not isinstance(done.result, dict):
+        return  # an unreadable store answers on the next tick
+    job_id = pending.get("job_id")
+    if job_id not in done.result:
+        return  # the answer is for a texture that is no longer the pending one
+    job = done.result[job_id]
     if job is None:
         state.flourish_texture_pending = None
         return
@@ -964,7 +1045,18 @@ def text_model_present(config: Any) -> bool:
 #: 2026-09-11) fixed in ``ui/panes/flourish.py``. Module state rather than a
 #: field on ``InkerState`` for the same reason as that fix: the cache is
 #: about this directory, not about any one document.
-_TEXT_MODEL_AVAILABLE: dict[str, bool] = {}
+#:
+#: **It expires** (the 2026-10-14 audit, finding inker-flourish-15). The only
+#: way to install the model is to drop it into ``text-instruct`` by hand, and
+#: nothing in ``src/`` ever called :func:`reset_text_model_available_cache` --
+#: so a model placed while the app was open was reported missing, and the
+#: keyword mapper answered every prompt, until restart. Each entry now carries a
+#: deadline ``TEXT_MODEL_RECHECK_S`` out: a few seconds of staleness is the
+#: price of not walking the directory on every frame.
+_TEXT_MODEL_AVAILABLE: dict[str, tuple[bool, float]] = {}
+
+#: How long :func:`text_model_available` trusts its last answer.
+TEXT_MODEL_RECHECK_S = 3.0
 
 
 def reset_text_model_available_cache() -> None:
@@ -981,9 +1073,10 @@ def text_model_available(config: Any) -> bool:
     :func:`reset_text_model_available_cache` when the answer could have
     changed."""
     key = str(text_model_dir(config))
+    now = clock()
     cached = _TEXT_MODEL_AVAILABLE.get(key)
-    if cached is not None:
-        return cached
+    if cached is not None and now < cached[1]:
+        return cached[0]
     if not text_model_present(config):
         result = False
     else:
@@ -992,7 +1085,7 @@ def text_model_available(config: Any) -> bool:
         result = all(
             importlib.util.find_spec(name) is not None for name in ("torch", "transformers")
         )
-    _TEXT_MODEL_AVAILABLE[key] = result
+    _TEXT_MODEL_AVAILABLE[key] = (result, now + TEXT_MODEL_RECHECK_S)
     return result
 
 
@@ -1194,11 +1287,19 @@ def phase_names(state: Any, tab: Any) -> list[str]:
 
 
 def _phase_span(state_held: Any, anim: Any, phase_name: str) -> tuple[int, int] | None:
-    """The flat frame span of one phase of the effect, from its tag."""
+    """The flat frame span of one phase of the effect, from its tag.
+
+    The tag carries the effect's own ``tag_suffix`` (the 2026-10-14 audit,
+    finding inker-flourish-04): a second effect in the document has tags of the
+    same phase names, and the first one named was always the first effect's.
+    """
     from ....kernels.pixel import sheetout
 
+    suffix = str(getattr(state_held, "tag_suffix", "") or "")
     for tag in anim.tags:
-        if tag.name == phase_name or tag.name.startswith(phase_name + "/"):
+        if tag.name == phase_name + suffix or (
+            tag.name.startswith(phase_name + "/") and tag.name.endswith(suffix)
+        ):
             return sheetout.tag_span(anim, tag)
     return None
 
@@ -1273,27 +1374,35 @@ def submit_restyle(
         from ....service import jobs as svc_jobs
 
         ids: dict[int, str] = {}
-        for index, plane in planes.items():
-            png = _png_bytes(plane)
-            result = svc_jobs.create_job(
-                ctx.svc,
-                kind="text",
-                prompt=prompt,
-                negative="photo, text, watermark, frame, border",
-                reference=png,
-                init_image=True,
-                init_strength=strength,
-                output="reference",
-                count=1,
-                reference_prep=False,
-            )
-            job_id = str(result.get("id") or "") if isinstance(result, dict) else ""
-            if not job_id and isinstance(result, dict):
-                found = result.get("ids") or result.get("jobs") or []
-                job_id = str(found[0]) if found else ""
-            if not job_id:
-                raise RuntimeError(f"frame {index} was not queued")
-            ids[index] = job_id
+        try:
+            for index, plane in planes.items():
+                png = _png_bytes(plane)
+                result = svc_jobs.create_job(
+                    ctx.svc,
+                    kind="text",
+                    prompt=prompt,
+                    negative_prompt="photo, text, watermark, frame, border",  # see submit_texture
+                    reference=png,
+                    init_image=True,
+                    init_strength=strength,
+                    output="reference",
+                    count=1,
+                    reference_prep=False,
+                )
+                job_id = str(result.get("id") or "") if isinstance(result, dict) else ""
+                if not job_id and isinstance(result, dict):
+                    found = result.get("ids") or result.get("jobs") or []
+                    job_id = str(found[0]) if found else ""
+                if not job_id:
+                    raise RuntimeError(f"frame {index} was not queued")
+                ids[index] = job_id
+        except BaseException:
+            # The 2026-10-14 audit (finding inker-flourish-19): a later
+            # keyframe refused -- a queue or VRAM refusal -- left the earlier
+            # SDXL jobs queued while the door told the user the restyle was not
+            # queued, and nothing would ever collect them. All or none.
+            _cancel_jobs(ctx, list(ids.values()))
+            raise
         return ids
 
     if not ctx.submit(key, run):
@@ -1301,6 +1410,16 @@ def submit_restyle(
     state.flourish_restyle_pending = pending
     ctx.toast(f"Restyling {len(frames)} keyframes of {phase}...")
     return True
+
+
+def _cancel_jobs(ctx: Any, job_ids: list[str]) -> None:
+    """Best effort: a job that has already left the queue is not worth hiding
+    the refusal that brought us here."""
+    from ....service import jobs as svc_jobs
+
+    for job_id in job_ids:
+        with contextlib.suppress(Exception):  # the original refusal is the news
+            svc_jobs.cancel_job(ctx.svc, job_id)
 
 
 def _png_bytes(plane: np.ndarray) -> bytes:
@@ -1325,18 +1444,30 @@ def on_restyle_queued(ctx: Any, state: Any, done: Any) -> None:
 
 
 def poll_restyle(ctx: Any, state: Any, *, now: float) -> None:
+    """``poll_texture``'s shape: the store reads (one per keyframe) are a task."""
     pending = state.flourish_restyle_pending
     if pending is None or not pending.get("jobs"):
         return
     if now < float(pending.get("next_poll") or 0.0):
         return
     pending["next_poll"] = now + TEXTURE_POLL_S
+    ctx.submit(
+        f"{RESTYLE_POLL_KEY}:{pending['tab_uid']}",
+        read_job_rows,
+        ctx.svc.store,
+        list(pending["jobs"].values()),
+    )
+
+
+def on_restyle_polled(ctx: Any, state: Any, done: Any) -> None:
+    pending = state.flourish_restyle_pending
+    if pending is None or done.error is not None or not isinstance(done.result, dict):
+        return  # an unreadable store answers on the next tick
+    if set(done.result) != set(pending["jobs"].values()):
+        return  # the answer is for a restyle that is no longer the pending one
     statuses: dict[int, str] = {}
     for index, job_id in pending["jobs"].items():
-        try:
-            job = ctx.svc.store.get(job_id)
-        except Exception:  # noqa: BLE001 -- the store answers next tick
-            return
+        job = done.result[job_id]
         if job is None:
             state.flourish_restyle_pending = None
             return

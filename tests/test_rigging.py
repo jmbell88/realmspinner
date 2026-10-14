@@ -67,10 +67,12 @@ def test_template_dir_resolves_to_the_real_directory():
     assert templates.TEMPLATE_DIR.is_dir()
     assert (templates.TEMPLATE_DIR / "humanoid.json").is_file()
     assert templates.templates()
-    # The four subdirectories every other loader in the package derives from
-    # TEMPLATE_DIR -- poses, clips and limbs each back a shipped library, so
-    # a climb that landed one level off would empty those too, silently.
-    for name in ("poses", "clips", "limbs", "deform_qa"):
+    # The subdirectories every other loader in the package derives from
+    # TEMPLATE_DIR -- poses and clips each back a shipped library, so a climb
+    # that landed one level off would empty those too, silently. (``limbs`` was
+    # one until the viewer's skeleton editor left: the 2026-10-14 audit,
+    # finding poser-rig-03.)
+    for name in ("poses", "clips", "deform_qa"):
         assert (templates.TEMPLATE_DIR / name).is_dir(), name
 
 
@@ -1665,133 +1667,6 @@ def test_retexture_frame_measures_a_supplied_rigged_meshs_bounds_correctly(monke
     )
 
 
-def test_op_rig_validate_joints_failure_falls_back_to_the_bbox_fit(monkeypatch, tmp_path):
-    """poser-04: validate_joints raises ValueError too (a jointfit measurement
-    that does not match a non-humanoid template's bone set), and it used to
-    sit in the try's ``else`` rather than the try itself -- so a clean
-    measurement that failed validation crashed the worker instead of falling
-    back, against the comment above it: 'Costs the measurement, never the
-    rig'."""
-    import types
-
-    from realmspinner.pipelines import blender_worker, jointfit
-
-    class _IdentityMatrix:
-        def __matmul__(self, other):
-            return other
-
-    mesh = types.SimpleNamespace(
-        type="MESH",
-        parent=None,
-        modifiers=[],
-        vertex_groups=[],
-        matrix_world=_IdentityMatrix(),
-        data=types.SimpleNamespace(vertices=[types.SimpleNamespace(co=(0.0, 0.0, 0.0))]),
-    )
-    bpy = _fake_bpy_with_incoming_armature([mesh])
-
-    monkeypatch.setattr(blender_worker, "_import_glb", lambda _bpy, _path: mesh)
-    monkeypatch.setattr(blender_worker, "_world_bounds", lambda _mesh: ([0.0] * 3, [1.0] * 3))
-    monkeypatch.setattr(jointfit, "payload", lambda _points: {"bones": []})
-
-    def rejecting_validate(_measured, _template):
-        raise ValueError("joints payload is missing bone(s)")
-
-    monkeypatch.setattr(skeleton, "validate_joints", rejecting_validate)
-
-    seen_spec = {}
-
-    def spy_rig_bones(spec, _lo, _hi):
-        seen_spec["spec"] = spec
-        raise _StopHere()
-
-    monkeypatch.setattr(blender_worker, "_rig_bones", spy_rig_bones)
-
-    source = tmp_path / "model.glb"
-    source.write_bytes(b"fake-glb")
-    spec = {
-        "template": "humanoid",
-        "source_glb": str(source),
-        "out_glb": str(tmp_path / "rig.glb"),
-        "out_json": str(tmp_path / "rig.json"),
-        "joints": "measured",
-    }
-
-    with pytest.raises(_StopHere):
-        blender_worker.op_rig(bpy, spec)
-
-    assert "bones" not in seen_spec["spec"], (
-        "a measurement validate_joints rejected must never reach _rig_bones -- "
-        "the bbox fit is still a rig"
-    )
-
-
-def test_op_rig_records_a_measured_joint_fit_as_jointfit_not_manual_and_not_adjusted(
-    monkeypatch, tmp_path
-):
-    """The 2026-09-16 audit: ``op_rig``'s own ``joints="measured"`` branch
-    rebinds its local ``spec`` with the jointfit-measured bones (``spec =
-    {**spec, "bones": validated}``) before calling ``_rig_bones`` -- so
-    ``_rig_bones``'s caller-supplied branch (``spec.get("fit") or {"method":
-    "manual"}``) and ``op_rig``'s own ``adjusted=bool(spec.get("bones"))``
-    could no longer tell "the caller supplied bones" from "op_rig's own
-    measured-joints branch just populated spec['bones']" -- so a Troupe/
-    T-pose rig built with ``joints="measured"`` recorded ``"adjusted": true``
-    and ``"fit": {"method": "manual"}``, identical to a real user
-    hand-correction, breaking dev/INVARIANTS.md's "adjusted still means
-    only 'the user moved these'"."""
-    import types
-
-    from realmspinner.pipelines import blender_worker, jointfit
-
-    class _IdentityMatrix:
-        def __matmul__(self, other):
-            return other
-
-    mesh = types.SimpleNamespace(
-        type="MESH",
-        parent=None,
-        modifiers=[],
-        vertex_groups=[],
-        matrix_world=_IdentityMatrix(),
-        data=types.SimpleNamespace(vertices=[types.SimpleNamespace(co=(0.0, 0.0, 0.0))]),
-    )
-    bpy = _fake_bpy_with_incoming_armature([mesh])
-
-    monkeypatch.setattr(blender_worker, "_import_glb", lambda _bpy, _path: mesh)
-    monkeypatch.setattr(blender_worker, "_world_bounds", lambda _mesh: ([0.0] * 3, [1.0] * 3))
-    monkeypatch.setattr(jointfit, "payload", lambda _points: {"bones": []})
-
-    measured_bones = _humanoid_rig_bones()
-    monkeypatch.setattr(skeleton, "validate_joints", lambda _measured, _template: measured_bones)
-    monkeypatch.setattr(blender_worker, "_build_armature", lambda _bpy, _bones: object())
-    monkeypatch.setattr(blender_worker, "_skin", lambda *a, **k: ("automatic", None))
-    monkeypatch.setattr(blender_worker, "_export", lambda *a, **k: None)
-
-    source = tmp_path / "model.glb"
-    source.write_bytes(b"fake-glb")
-    spec = {
-        "template": "humanoid",
-        "source_glb": str(source),
-        "out_glb": str(tmp_path / "rig.glb"),
-        "out_json": str(tmp_path / "rig.json"),
-        "joints": "measured",
-    }
-
-    result = blender_worker.op_rig(bpy, spec)
-    assert result["ok"] is True
-
-    rig_meta = json.loads((tmp_path / "rig.json").read_text(encoding="utf-8"))
-    assert rig_meta["fit"]["method"] == "jointfit", (
-        "an automatic geometric measurement must not be tagged 'manual', the "
-        f"same tag a real user hand-correction gets -- got {rig_meta['fit']!r}"
-    )
-    assert rig_meta["adjusted"] is False, (
-        "dev/INVARIANTS.md: 'adjusted still means only the user moved these' "
-        "-- a measured fit is not a correction the user made"
-    )
-
-
 # --- with Blender actually installed ----------------------------------------
 
 
@@ -1870,8 +1745,8 @@ def test_a_landmark_informed_rig_builds_the_armature_from_the_landmarks(tmp_path
 
 # --- the pose library's engine half ------------------------------------------
 #
-# pose_spec's root kwargs, save_pose's extra merge, root_offset_world and
-# armature_spec are what the retired pose-library door stands on; all four are host-side pure.
+# pose_spec's root kwargs, save_pose's extra merge and root_offset_world are what the
+# retired pose-library door stands on; all three are host-side pure.
 
 
 def test_pose_spec_without_root_kwargs_is_byte_identical_to_the_old_shape(tmp_path):
@@ -2124,30 +1999,6 @@ def test_root_offset_world_zero_stays_zero():
     assert blender_spec.root_offset_world([0.0, 0.0, 0.0], bounds) == [0.0, 0.0, 0.0]
 
 
-def test_armature_spec_validates_the_template_before_spawning_anything(tmp_path):
-    with pytest.raises(ValueError, match="unknown skeleton template"):
-        blender_spec.armature_spec("dragon", tmp_path / "a.glb", tmp_path)
-
-
-def test_armature_spec_shape(tmp_path):
-    spec = blender_spec.armature_spec("humanoid", tmp_path / ".preview.tmp.glb", tmp_path)
-    assert spec == {
-        "op": "armature",
-        "template": "humanoid",
-        "out_glb": str(tmp_path / ".preview.tmp.glb"),
-        "result_path": str(tmp_path / ".humanoid.armature_result.json"),
-    }
-
-
-def test_armature_specs_for_different_templates_use_different_result_files(tmp_path):
-    """The preview lock is per template, so two templates may build at once --
-    and ``run_worker`` unlinks and then watches the result path, so a shared
-    name would let each build eat the other's answer."""
-    a = blender_spec.armature_spec("humanoid", tmp_path / "a.glb", tmp_path)
-    b = blender_spec.armature_spec("fish", tmp_path / "b.glb", tmp_path)
-    assert a["result_path"] != b["result_path"]
-
-
 def test_interpolate_carries_endpoint_root_offsets_through_the_clip():
     """This was a refusal by name -- the TMX rule, applied to a feature the
     lerp did not model. It models it now: a root offset is what a walk's
@@ -2156,6 +2007,10 @@ def test_interpolate_carries_endpoint_root_offsets_through_the_clip():
     ``root_offset``) was already keyed per frame and ready for it."""
     from realmspinner.kernels import sheet as sheetlib
 
+    def _between(a, b, frames):
+        # ``sheet.interpolate``'s shape, through the live multi-key door.
+        return sheetlib.interpolate_clip([a, b], [frames, frames], closed=True)[:frames]
+
     plain = {"id": "a" * 12, "name": "A", "bones": {"hips": [0, 0, 0, 1]}}
     offset = {
         "id": "b" * 12,
@@ -2163,16 +2018,16 @@ def test_interpolate_carries_endpoint_root_offsets_through_the_clip():
         "bones": {"hips": [0, 0, 0, 1]},
         "root_translation": [0.0, 0.0, 0.3],
     }
-    out = sheetlib.interpolate(plain, offset, 4)
+    out = _between(plain, offset, 4)
     assert [round(r["root_translation"][2], 4) for r in out] == [0.0, 0.075, 0.15, 0.225]
-    assert [round(r["root_translation"][2], 4) for r in sheetlib.interpolate(offset, plain, 4)] == [
+    assert [round(r["root_translation"][2], 4) for r in _between(offset, plain, 4)] == [
         0.3, 0.225, 0.15, 0.075
     ]
     # A zero offset is still no offset: every record written before the field,
     # and every pose that never touched the root, produces the byte-identical
     # records it always did, with no ``root_translation`` key at all.
     zeroed = dict(plain, root_translation=[0.0, 0.0, 0.0])
-    records = sheetlib.interpolate(zeroed, plain, 4)
+    records = _between(zeroed, plain, 4)
     assert len(records) == 4
     assert all("root_translation" not in r for r in records)
 
@@ -2359,64 +2214,6 @@ def _world_positions(doc) -> dict[str, list[float]]:
 
 
 @pytest.mark.gpu
-def test_op_armature_exports_a_meshless_skeleton(tmp_path):
-    """The empirical gate the whole Poser preview stands on: Blender's glTF
-    exporter emits an armature with no mesh at all as one node per bone, named
-    exactly, correctly parented, with no skin -- so the preview the editor
-    rotates is built by the same code path (and therefore the same bone
-    frames) as every real rig."""
-    pytest.importorskip("bpy")
-    import bpy
-
-    from realmspinner import poselib
-    from realmspinner.pipelines import blender_worker
-
-    out = tmp_path / ".preview.tmp.glb"
-    result = blender_worker.op_armature(
-        bpy, blender_spec.armature_spec("humanoid", out, tmp_path)
-    )
-    assert result["ok"] is True
-    assert out.exists()
-
-    doc = _glb_doc(out)
-    # Measured, not assumed: Blender 5.2 exports a meshless armature with a
-    # joints-only ``skins`` palette but no mesh and nothing skinned -- so the
-    # assertion that matters is that nothing draws, not that the word "skins"
-    # is absent from the file.
-    assert "meshes" not in doc
-    assert not any("mesh" in n or "skin" in n for n in doc["nodes"])
-
-    template = templates.get_template("humanoid")
-    bone_names = {b["name"] for b in template.bones}
-    named = [n["name"] for n in doc["nodes"] if n.get("name") in bone_names]
-    assert sorted(named) == sorted(bone_names), "one node per template bone, named exactly"
-
-    parent_of: dict[int, int] = {}
-    for i, node in enumerate(doc["nodes"]):
-        for child in node.get("children", []):
-            parent_of[child] = i
-    index_by_name = {n.get("name"): i for i, n in enumerate(doc["nodes"])}
-    for bone in template.bones:
-        parent_index = parent_of.get(index_by_name[bone["name"]])
-        parent_name = (
-            doc["nodes"][parent_index].get("name") if parent_index is not None else None
-        )
-        if bone["parent"] is not None:
-            assert parent_name == bone["parent"], f"{bone['name']} parented wrong"
-        else:
-            assert parent_name not in bone_names, "the root bone hangs off the armature node"
-
-    # Head positions land on the unit-box fit -- the canonical armature is
-    # exactly one character-height tall, which is what makes a stored
-    # root_translation mean character-height units literally. Blender world
-    # (x, y, z) reads back as glTF (x, z, -y).
-    world = _world_positions(doc)
-    for bone in skeleton.fit_template(template, poselib.UNIT_LO, poselib.UNIT_HI):
-        bx, by, bz = bone["head"]
-        assert world[bone["name"]] == pytest.approx([bx, bz, -by], abs=1e-4), bone["name"]
-
-
-@pytest.mark.gpu
 def test_op_pose_bakes_the_root_offset_and_only_when_asked(tmp_path):
     """A library pose's root translation reaches the baked GLB as exactly
     ``rest + d`` on the root node, and a spec without the key bakes the same
@@ -2511,11 +2308,12 @@ def test_a_garbage_result_from_an_exit_zero_worker_is_a_blender_error(tmp_path, 
     assert not result.exists()
 
 
-# --- the skeleton editor (P1: kernels/rig/skeleton.py, pure) ------------------
+# --- skeleton validation (kernels/rig/skeleton.py, pure) ----------------------
 #
-# Poser's skeleton editor: move/add/remove pivots, split a bone, graft a limb
-# preset. Everything here is pure -- list[dict] in, a new list[dict] out -- so
-# an editor's undo stack is just the sequence of dicts each edit returned.
+# The structural editors (add/split/remove a bone, graft a limb preset, clip
+# coverage) were deleted with the viewer's skeleton editor on 2026-10-14: no
+# production caller (the 2026-10-14 audit, finding poser-rig-03). What is left
+# is the validator a whole skeleton comes back through.
 
 
 def test_max_skeleton_bones_matches_the_viewer_shader_uniform():
@@ -2536,6 +2334,18 @@ def _humanoid_rig_bones():
 
 def _humanoid_bounds():
     return {"min": [-1, -1, 0], "max": [1, 1, 2]}
+
+
+def _with_bone(bones, parent, name, head, tail):
+    """``bones`` plus one new bone -- the custom skeleton these tests validate."""
+    return [dict(b) for b in bones] + [
+        {
+            "name": name,
+            "parent": parent,
+            "head": [float(v) for v in head],
+            "tail": [float(v) for v in tail],
+        }
+    ]
 
 
 class TestValidateSkeleton:
@@ -2565,7 +2375,7 @@ class TestValidateSkeleton:
 
     def test_an_extra_bone_is_custom(self):
         base = templates.get_template("humanoid")
-        bones = skeleton.add_bone(
+        bones = _with_bone(
             _humanoid_rig_bones(), "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5]
         )
         result = skeleton.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
@@ -2664,7 +2474,7 @@ class TestValidateSkeleton:
         own diagonal before anything is checked against it."""
         base = templates.get_template("humanoid")
         bones = _humanoid_rig_bones()
-        bones = skeleton.add_bone(bones, "hips", "tail_01", [0, -0.1, 0.5], [0, -1.5, 0.5])
+        bones = _with_bone(bones, "hips", "tail_01", [0, -0.1, 0.5], [0, -1.5, 0.5])
         result = skeleton.validate_skeleton({"bones": bones}, base=base, bounds=_humanoid_bounds())
         assert any(b["name"] == "tail_01" for b in result["bones"])
 
@@ -2699,290 +2509,6 @@ class TestValidateSkeleton:
                 base=base,
                 bounds=_humanoid_bounds(),
             )
-
-
-# --- pure bone-list edits -----------------------------------------------------
-
-
-def test_add_bone_appends_and_never_mutates_the_input():
-    bones = _humanoid_rig_bones()
-    before = [dict(b) for b in bones]
-    out = skeleton.add_bone(bones, "hips", "tail_01", [0, 0, 0], [0, -1, 0])
-    assert bones == before, "add_bone must not mutate its input"
-    assert len(out) == len(bones) + 1
-    assert out[-1] == {
-        "name": "tail_01", "parent": "hips", "head": [0.0, 0.0, 0.0], "tail": [0.0, -1.0, 0.0],
-    }
-
-
-def test_add_bone_rejects_a_duplicate_name():
-    bones = _humanoid_rig_bones()
-    with pytest.raises(store.RigError, match="duplicate"):
-        skeleton.add_bone(bones, "hips", bones[0]["name"], [0, 0, 0], [0, 0, 1])
-
-
-def test_add_bone_rejects_an_unknown_parent():
-    bones = _humanoid_rig_bones()
-    with pytest.raises(store.RigError, match="unknown parent"):
-        skeleton.add_bone(bones, "nonexistent", "new", [0, 0, 0], [0, 0, 1])
-
-
-def test_split_bone_inserts_a_child_at_the_midpoint():
-    bones = [{"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 2]}]
-    out = skeleton.split_bone(bones, "a", "a2")
-    by_name = {b["name"]: b for b in out}
-    assert by_name["a"]["tail"] == pytest.approx([0, 0, 1])
-    assert by_name["a2"]["parent"] == "a"
-    assert by_name["a2"]["head"] == pytest.approx([0, 0, 1])
-    assert by_name["a2"]["tail"] == pytest.approx([0, 0, 2])
-
-
-def test_split_bone_moves_children_onto_the_new_half():
-    bones = [
-        {"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 2]},
-        {"name": "child", "parent": "a", "head": [0, 0, 2], "tail": [0, 0, 3]},
-    ]
-    out = skeleton.split_bone(bones, "a", "a2")
-    by_name = {b["name"]: b for b in out}
-    assert by_name["child"]["parent"] == "a2"
-
-
-def test_remove_pivot_reparents_children_and_keeps_their_heads():
-    bones = [
-        {"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
-        {"name": "b", "parent": "a", "head": [0, 0, 1], "tail": [0, 0, 2]},
-        {"name": "c", "parent": "b", "head": [0, 0, 2], "tail": [0, 0, 3]},
-    ]
-    out = skeleton.remove_pivot(bones, "b")
-    names = {b["name"] for b in out}
-    assert names == {"a", "c"}
-    by_name = {b["name"]: b for b in out}
-    assert by_name["c"]["parent"] == "a"
-    assert by_name["c"]["head"] == [0, 0, 2]
-
-
-def test_remove_pivot_promotes_the_sole_child_when_removing_the_root():
-    bones = [
-        {"name": "root", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
-        {"name": "child", "parent": "root", "head": [0, 0, 1], "tail": [0, 0, 2]},
-    ]
-    out = skeleton.remove_pivot(bones, "root")
-    by_name = {b["name"]: b for b in out}
-    assert by_name["child"]["parent"] is None
-
-
-def test_remove_pivot_refuses_the_root_with_more_than_one_child():
-    bones = [
-        {"name": "root", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
-        {"name": "a", "parent": "root", "head": [0, 0, 1], "tail": [0, 0, 2]},
-        {"name": "b", "parent": "root", "head": [0, 0, 1], "tail": [1, 0, 1]},
-    ]
-    with pytest.raises(store.RigError, match="exactly one child") as exc:
-        skeleton.remove_pivot(bones, "root")
-    assert exc.value.field == "root"
-
-
-def test_remove_subtree_takes_every_descendant():
-    bones = [
-        {"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
-        {"name": "b", "parent": "a", "head": [0, 0, 1], "tail": [0, 0, 2]},
-        {"name": "c", "parent": "b", "head": [0, 0, 2], "tail": [0, 0, 3]},
-        {"name": "d", "parent": "a", "head": [0, 0, 1], "tail": [1, 0, 1]},
-    ]
-    out = skeleton.remove_subtree(bones, "b")
-    assert {b["name"] for b in out} == {"a", "d"}
-
-
-def test_remove_subtree_refuses_the_root():
-    bones = [{"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}]
-    with pytest.raises(store.RigError, match="root"):
-        skeleton.remove_subtree(bones, "a")
-
-
-def test_rename_bone_updates_children_and_pairs():
-    bones = [
-        {"name": "arm.L", "parent": None, "head": [0, 0, 0], "tail": [1, 0, 0]},
-        {"name": "hand.L", "parent": "arm.L", "head": [1, 0, 0], "tail": [1.3, 0, 0]},
-    ]
-    pairs = [("arm.L", "arm.R")]
-    out_bones, out_pairs = skeleton.rename_bone(bones, pairs, "arm.L", "upper_arm.L")
-    by_name = {b["name"]: b for b in out_bones}
-    assert "upper_arm.L" in by_name
-    assert by_name["hand.L"]["parent"] == "upper_arm.L"
-    assert out_pairs == [("upper_arm.L", "arm.R")]
-
-
-def test_rename_bone_rejects_a_collision():
-    bones = [
-        {"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
-        {"name": "b", "parent": "a", "head": [0, 0, 1], "tail": [0, 0, 2]},
-    ]
-    with pytest.raises(store.RigError, match="duplicate"):
-        skeleton.rename_bone(bones, [], "a", "b")
-
-
-def test_prune_pairs_drops_pairs_naming_a_gone_bone():
-    bones = [{"name": "a", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}]
-    pairs = [("a", "b"), ("c", "d")]
-    assert skeleton.prune_pairs(bones, pairs) == []
-
-
-def test_mirror_partner_name():
-    assert skeleton.mirror_partner_name("hand.L") == "hand.R"
-    assert skeleton.mirror_partner_name("hand.R") == "hand.L"
-    assert skeleton.mirror_partner_name("spine") is None
-
-
-def test_unique_name_disambiguates():
-    bones = [{"name": "tail_01", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}]
-    assert skeleton.unique_name(bones, "tail_01") == "tail_01.2"
-    assert skeleton.unique_name(bones, "wing") == "wing"
-
-
-# --- limb presets --------------------------------------------------------------
-
-
-EXPECTED_LIMB_PRESETS = {"arm", "leg", "tail", "wing", "antenna"}
-
-
-def test_every_shipped_limb_preset_loads():
-    assert set(templates.limb_presets()) == EXPECTED_LIMB_PRESETS
-
-
-def test_no_limb_preset_key_collides_with_a_template_key():
-    assert not (set(templates.limb_presets()) & set(templates.templates()))
-
-
-def test_a_limb_preset_with_a_disconnected_parent_cycle_is_skipped_not_fatal(tmp_path, monkeypatch):
-    """The 2026-09-14 audit, finding poser-02: ``_parse_limb_preset`` checked
-    that every bone's parent resolves and that there is exactly one root, but
-    never that walking those links from every bone actually reaches that
-    root -- so a schema-valid preset naming a cycle disconnected from the
-    root (``a``/``b`` each other's parent, neither reachable from ``root``)
-    was accepted at load and would only misbehave later, wherever a consumer
-    walked the chain. Malformed presets are load-and-skip, like every other
-    template file (``_load_templates``'s stated policy, restated for limb
-    presets by ``_load_limb_presets``'s own comment) -- so this is skipped,
-    not a crash, at the loader.
-    """
-    (tmp_path / "good.json").write_text(
-        json.dumps(
-            {
-                "key": "good",
-                "label": "Good",
-                "bones": [{"name": "root", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]}],
-            }
-        )
-    )
-    (tmp_path / "cyclic.json").write_text(
-        json.dumps(
-            {
-                "key": "cyclic",
-                "label": "Cyclic",
-                "bones": [
-                    {"name": "root", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
-                    {"name": "a", "parent": "b", "head": [0, 0, 0], "tail": [0, 0, 1]},
-                    {"name": "b", "parent": "a", "head": [0, 0, 0], "tail": [0, 0, 1]},
-                ],
-            }
-        )
-    )
-    monkeypatch.setattr(templates, "LIMB_DIR", tmp_path)
-    assert set(templates._load_limb_presets()) == {"good"}
-
-
-def test_a_limb_preset_with_out_of_order_bones_is_rejected():
-    """``attach_limb``'s ``_attach_one`` walks ``preset_data["bones"]`` in
-    file order, building ``name_map`` as it goes and looking a bone's parent
-    up in it (``name_map[b["parent"]]``) -- a schema-valid preset that lists
-    a child before its parent throws an uncaught ``KeyError`` there, on the
-    frame thread, instead of the ``RigError`` Poser's ``_skeleton_call``
-    catches. Refused at parse time instead, the same log-and-skip malformed
-    presets already get.
-    """
-    with pytest.raises(ValueError, match="listed before its parent"):
-        templates._parse_limb_preset(
-            {
-                "key": "x",
-                "label": "X",
-                "bones": [
-                    {"name": "root", "parent": None, "head": [0, 0, 0], "tail": [0, 0, 1]},
-                    {"name": "child", "parent": "mid", "head": [0, 0, 0], "tail": [0, 0, 1]},
-                    {"name": "mid", "parent": "root", "head": [0, 0, 0], "tail": [0, 0, 1]},
-                ],
-            }
-        )
-
-
-def test_limb_dir_is_not_swept_up_by_the_template_loader():
-    """``_load_templates`` globs ``TEMPLATE_DIR / "*.json"`` non-recursively;
-    ``templates/limbs/`` is a subdirectory precisely so a preset never shows up
-    in the skeleton template catalogue."""
-    assert "arm" not in templates.templates()
-    assert "leg" not in templates.templates()
-
-
-@pytest.mark.parametrize("preset", sorted(EXPECTED_LIMB_PRESETS))
-def test_every_preset_attaches_to_the_humanoid_chest_as_a_valid_skeleton(preset):
-    base = templates.get_template("humanoid")
-    bones = _humanoid_rig_bones()
-    is_centre = preset == "tail"
-    out_bones, out_pairs = skeleton.attach_limb(
-        bones, [], preset, "chest", None if is_centre else "L", mirror=not is_centre
-    )
-    result = skeleton.validate_skeleton(
-        {"bones": out_bones, "mirror_pairs": out_pairs}, base=base, bounds=_humanoid_bounds()
-    )
-    assert result["skeleton"] == "custom"
-    assert len(result["bones"]) > len(bones)
-
-
-def test_attach_limb_mirror_names_both_sides_and_pairs_them():
-    bones = _humanoid_rig_bones()
-    out_bones, out_pairs = skeleton.attach_limb(bones, [], "wing", "chest", "L", mirror=True)
-    names = {b["name"] for b in out_bones}
-    assert "wing_base.L" in names
-    assert "wing_base.R" in names
-    assert ("wing_base.L", "wing_base.R") in out_pairs
-
-
-def test_attach_limb_refuses_mirroring_a_centre_limb():
-    bones = _humanoid_rig_bones()
-    with pytest.raises(store.RigError, match="no side to mirror"):
-        skeleton.attach_limb(bones, [], "tail", "hips", None, mirror=True)
-
-
-def test_attach_limb_rejects_an_unknown_parent():
-    bones = _humanoid_rig_bones()
-    with pytest.raises(store.RigError, match="unknown parent"):
-        skeleton.attach_limb(bones, [], "arm", "nonexistent", "L", mirror=False)
-
-
-def test_attach_limb_rejects_an_unknown_preset():
-    bones = _humanoid_rig_bones()
-    with pytest.raises(ValueError, match="unknown limb preset"):
-        skeleton.attach_limb(bones, [], "tentacle", "chest", "L", mirror=False)
-
-
-# --- clip coverage -------------------------------------------------------------
-
-
-def test_clip_coverage_is_empty_for_an_unedited_template_rig():
-    bones = _humanoid_rig_bones()
-    rig = {"bones": bones}
-    library = cliplib.clip_library("humanoid")
-    if library["poses"]:
-        assert skeleton.clip_coverage(rig, "humanoid") == []
-
-
-def test_clip_coverage_names_bones_a_custom_rig_dropped():
-    library = cliplib.clip_library("humanoid")
-    if not library["poses"]:
-        pytest.skip("humanoid ships no clip library to test coverage against")
-    animated_bone = next(iter(next(iter(library["poses"].values()))["bones"]))
-    bones = skeleton.remove_pivot(_humanoid_rig_bones(), animated_bone)
-    rig = {"bones": bones}
-    assert animated_bone in skeleton.clip_coverage(rig, "humanoid")
 
 
 # --- rig_spec: skeleton/root/mirror_pairs (P2) --------------------------------
@@ -3041,7 +2567,7 @@ def test_a_custom_skeleton_with_a_broken_structure_falls_back_to_the_bbox_fit(ca
 def test_a_valid_custom_skeleton_is_used_unchanged():
     from realmspinner.pipelines import blender_worker
 
-    custom = skeleton.add_bone(
+    custom = _with_bone(
         _humanoid_rig_bones(), "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5]
     )
     spec = {"template": "humanoid", "bones": custom, "skeleton": "custom"}
@@ -3106,7 +2632,7 @@ def test_op_rig_records_a_custom_skeleton_end_to_end(tmp_path):
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.export_scene.gltf(filepath=str(tmp_path / "model.glb"), export_format="GLB")
 
-    custom = skeleton.add_bone(
+    custom = _with_bone(
         _humanoid_rig_bones(), "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5]
     )
     spec = blender_spec.rig_spec(

@@ -137,6 +137,22 @@ def forget_all() -> None:
     _TILESET_MEMO.clear()
 
 
+def _close_missed_sessions(state: Any) -> None:
+    """Close every open edit session on every tab: the missed-release sweep.
+
+    One function so the list of sessions cannot drift from the list a document
+    has. The group-drag session was missing from it: a Ctrl+S during a group
+    drag (``_events`` returns before the release branch while ``tab.busy``) or a
+    focus loss left the moved objects ahead of the history head, so the map was
+    not dirty and quitting did not prompt until an undo happened to close the
+    session (the 2026-10-14 audit, finding plotter-mode-11).
+    """
+    for entry in state.docs:
+        entry.doc.end_stroke()
+        entry.doc.end_object_edit()
+        entry.doc.end_group_edit()
+
+
 def draw(ctx: Any) -> None:
     from imgui_bundle import imgui
 
@@ -182,9 +198,7 @@ def draw(ctx: Any) -> None:
     # every frame the button is not down, over every tab rather than this one:
     # the tab you switched *away* from is not the tab drawing.
     if not imgui.is_mouse_down(0):
-        for entry in state.docs:
-            entry.doc.end_stroke()
-            entry.doc.end_object_edit()
+        _close_missed_sessions(state)
     avail = imgui.get_content_region_avail()
     # The status is drawn *after* the invisible canvas item, so its line has to
     # be reserved before that item claims the remaining region. Without this,
@@ -1241,6 +1255,17 @@ def _grid(draw_list: Any, doc: Any, view: Any, origin, region) -> None:
         # sideways, so a line from (0, r) to (width, r) crosses cells rather
         # than bounding them. One closed outline per cell is the only honest
         # drawing, and it is what makes a hexagonal map look like one.
+        # Clipped to what the viewport can see. ``_grid_span`` returns the whole map
+        # for a finite one, and this loop builds an outline and a screen
+        # projection per cell: measured at 83 ms of Python per frame on a
+        # 128 x 128 hexagonal map with about 8 x 5 cells showing, and the setup
+        # cap is 512 x 512 (the 2026-10-14 audit, finding plotter-mode-05). An
+        # infinite map's span is already viewport-bounded, and ``_visible_range``
+        # clamps to the window, so it is left alone.
+        if not doc.infinite:
+            c0, r0, c1, r1 = _visible_range(view, doc, origin, region)
+            x0, y0 = max(x0, c0), max(y0, r0)
+            x1, y1 = min(x1, c1 + 1), min(y1, r1 + 1)
         for row in range(y0, y1):
             for column in range(x0, x1):
                 points = [
@@ -1964,7 +1989,7 @@ def _events(ctx: Any, state: Any, tab: Any, origin, hovered: bool, region) -> No
         return
 
     if state.tool == "object" or state.tool in plotter_state.OBJECT_SHAPES:
-        _object_menu(ctx, state, tab, hovered)
+        _object_menu(ctx, state, tab, hovered, origin)
         # Every insert tool is the objects gesture with a shape already
         # chosen -- ``sync_tool`` writes ``state.object_shape`` from the tool,
         # so what arrives here is the one gesture it always was.
@@ -2496,12 +2521,21 @@ def animated_substitutions(doc: Any, clock_ms: int) -> dict[int, int]:
     """
     out: dict[int, int] = {}
     for ref in doc.tilesets:
-        for local_id, meta in ref.tileset.tiles.items():
+        held = ref.tileset
+        for local_id, meta in held.tiles.items():
             frames = meta.animation
             if not frames:
                 continue
             index = tileset_lib.frame_at(frames, clock_ms)
             if index is None:
+                continue
+            # A frame naming a tile the set does not hold turned into a negative
+            # gid here and raised ``OverflowError`` out of ``substitute_animated``
+            # on the frame thread; ``-1`` substituted gid 0 and made the tile
+            # vanish. ``Tileset`` drops such frames on the way in, so this is the
+            # second wall, for a record that got past it (the 2026-10-14 audit,
+            # findings plotter-map-11 and plotter-tiles-02).
+            if not held.has_tile(local_id) or not held.has_tile(frames[index].local_id):
                 continue
             source = ref.firstgid + int(local_id)
             target = ref.firstgid + frames[index].local_id
@@ -2900,7 +2934,7 @@ def _apply_erase_rect(
 OBJECT_MENU = "plotter-object-menu"
 
 
-def _object_menu(ctx: Any, state: Any, tab: Any, hovered: bool) -> None:
+def _object_menu(ctx: Any, state: Any, tab: Any, hovered: bool, origin=(0.0, 0.0)) -> None:
     """Right-click on an object layer: the four verbs Tiled puts there.
 
     The right button is the *capture* on a tile layer (W3.3) and this on an
@@ -2914,8 +2948,28 @@ def _object_menu(ctx: Any, state: Any, tab: Any, hovered: bool) -> None:
     layer = doc.active()
     if not isinstance(layer, ObjectLayer):
         return
-    if hovered and imgui.is_mouse_clicked(1) and state.selected_object is not None:
-        imgui.open_popup(OBJECT_MENU)
+    if hovered and imgui.is_mouse_clicked(1):
+        # The object *under the pointer* is what the menu is about. It used to
+        # open only while something was already selected and every row acted on
+        # that selection, so right-clicking B with A selected deleted A and
+        # right-clicking with nothing selected did nothing (the 2026-10-14
+        # audit, finding plotter-mode-03); the Objects dock selects the row on
+        # right-click first, and the canvas now agrees. An object already in a
+        # multi-selection keeps the set -- Delete then removes all of it, which
+        # is what the row says -- and becomes its primary.
+        mouse = imgui.get_mouse_pos()
+        entry = _active_entry(tab)
+        dx, dy = (0.0, 0.0) if entry is None else _layer_shift(tab.view, origin, entry)
+        raw = paintview.to_image(tab.view, origin, mouse.x, mouse.y)
+        hit = _object_at(
+            tab.view, origin, layer, (raw[0] - dx, raw[1] - dy), (mouse.x, mouse.y), (dx, dy)
+        )
+        if hit is not None:
+            if hit.uid in state.selected_objects and len(state.selected_objects) > 1:
+                state.make_primary(hit.uid)
+            else:
+                state.select_object(hit.uid)
+            imgui.open_popup(OBJECT_MENU)
     with controls.menu_popup(OBJECT_MENU) as opened:
         if opened:
             object_menu_rows(ctx, state, tab, layer)
@@ -3226,16 +3280,23 @@ def _object_input(ctx: Any, state: Any, tab: Any, origin, hovered: bool) -> None
             tile_gid = next((int(value) for value in brush if int(value)), 0)
             if not tile_gid and doc.tilesets:
                 tile_gid = int(doc.tilesets[0].firstgid)
-        obj = plotter_layers.add_object(
-            doc,
-            layer,
-            kind,
-            x0,
-            y0,
-            w if kind != "point" else 0.0,
-            h if kind != "point" else 0.0,
-            gid=tile_gid,
-        )
+        try:
+            obj = plotter_layers.add_object(
+                doc,
+                layer,
+                kind,
+                x0,
+                y0,
+                w if kind != "point" else 0.0,
+                h if kind != "point" else 0.0,
+                gid=tile_gid,
+            )
+        except ValueError as exc:
+            # The 2026-10-14 audit, finding plotter-11: the 100,001st object
+            # raised here on the frame thread; the door's refusal is a sentence.
+            ctx.toast(f"{exc}.", "error")
+            state.clear_drag()
+            return
         state.select_object(obj.uid)
         state.clear_drag()
 

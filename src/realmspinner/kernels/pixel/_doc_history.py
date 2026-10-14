@@ -81,6 +81,8 @@ class HistoryOps:
         active: int,
         grid: dict[str, Any] | None = None,
         slices: list[Any] | None = None,
+        *,
+        keep: bool = False,
     ) -> None:
         """Undo hook for a whole-canvas operation.
 
@@ -129,9 +131,19 @@ class HistoryOps:
             live_layers = {layer.uid: layer for layer in self.stack}
         else:
             live_layers = {layer.uid: layer for layer in self.anim.unique_cel_layers()}
-        copies = [
-            _adopt(live_layers.get(layer.uid), layer.copy(uid=layer.uid)) for layer in layers
-        ]
+        # ``keep`` is the one exception to everything above: the step took
+        # *every* layer out of the document and its snapshot holds those very
+        # objects, so they go back as themselves. A copy here is a second
+        # identity that no older step knows about (the 2026-10-14 audit, finding
+        # inker-document-04); see ``ReplayEdit.keep``.
+        copies = (
+            list(layers)
+            if keep
+            else [
+                _adopt(live_layers.get(layer.uid), layer.copy(uid=layer.uid))
+                for layer in layers
+            ]
+        )
         if slices is not None:
             live_slices = {entry.uid: entry for entry in self.slices}
             self.slices = [_adopt(live_slices.get(entry.uid), entry.copy()) for entry in slices]

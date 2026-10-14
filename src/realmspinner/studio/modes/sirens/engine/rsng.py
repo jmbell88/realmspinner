@@ -62,8 +62,61 @@ MAX_DECOMPRESSED_BYTES = 1 << 30
 #: gigabytes.
 MAX_DOC_SAMPLE_FRAMES = 4 * wavout.MAX_SAMPLE_FRAMES
 
+#: What one archive member may *be*, as distinct from the 1 GiB the archive as a
+#: whole may unpack to. The 2026-10-14 audit, finding sirens-engine-02:
+#: ``MAX_DECOMPRESSED_BYTES`` is the generic ceiling, and a member was read whole
+#: against it before the reader knew what it was -- a 150 KiB ``.rsng`` whose
+#: pattern member was 150 MiB of padding opened with a 304 MiB peak. The sizes
+#: here are the largest a file this build *wrote* can have, so they refuse
+#: nothing legitimate. Each is read from the module at call time so a test lowers
+#: it rather than building the padding.
+#:
+#: A pattern is ``(rows, channels, COLUMNS)`` of ``int16`` plus a ``.npy`` header
+#: (128 bytes for version 1.0); the slack is generous because the ceiling is a
+#: bound on abuse, not a validator -- ``npyguard`` and the shape check are the
+#: validators.
+MAX_PATTERN_BYTES = D.MAX_ROWS * D.MAX_CHANNELS * D.COLUMNS * 2 + 1024
+
+#: A pretty-printed manifest at the format's own ceilings (128 instruments of
+#: four 256-step sequences, 2**53 a value) is ~2.8 MB; the rest of it is names
+#: and a few hundred small records.
+MAX_MANIFEST_BYTES = 8 * 1024 * 1024
+
+#: The most a ``samples/<n>.wav`` member may unpack to: what
+#: :data:`wavout.MAX_DECODED_VALUES` lets one decode hold, at the widest sample
+#: the reader takes (four bytes), plus its chunk headers.
+MAX_SAMPLE_MEMBER_BYTES = 4 * wavout.MAX_DECODED_VALUES + 4096
+
 _NOT_A_SONG = "this is not a Realmspinner song"
 _MALFORMED = "this song's manifest is malformed"
+
+#: What the zip layer raises for a member this reader cannot open that is not a
+#: ``BadZipFile``: ``RuntimeError`` for an encrypted one (it wants a password),
+#: ``NotImplementedError`` for a compression method ``zipfile`` has no codec for.
+#: The 2026-10-14 audit, finding sirens-engine-05: neither is a ``ValueError``,
+#: so each reached the user as "Something went wrong; see the log" instead of
+#: "This song could not be opened".
+_UNREADABLE_MEMBER = (RuntimeError, NotImplementedError)
+
+
+def _read_member(zf: Any, member: str, ceiling: int, what: str) -> bytes:
+    """One archive member's bytes, refused by name before it is read whole.
+
+    The declared size is checked first: ``BoundedZip`` already guarantees the
+    stream cannot outrun it, so a member declared inside *ceiling* is bounded by
+    it, and one declared past it is never inflated at all.
+    """
+    try:
+        declared = int(zf.getinfo(member).file_size)
+        if declared > ceiling:
+            raise ValueError(
+                f"{member} is {declared} bytes unpacked, past the {ceiling} any {what} can be"
+            )
+        return zf.read(member)
+    except (KeyError, zipfile.BadZipFile) as exc:
+        raise ValueError(f"this song is missing {member}") from exc
+    except _UNREADABLE_MEMBER as exc:
+        raise ValueError(_NOT_A_SONG) from exc
 
 
 #: A sample whose encoded WAV is longer than this is stored, not deflated. The
@@ -206,11 +259,21 @@ _WAV_CACHE_MAX = 2 * D.MAX_SAMPLES
 #: rate), so the worst case at 128 entries was ~22 GB resident at once -- the
 #: 2026-09-15 audit, finding sirens-03. This budget evicts long before the
 #: count cap would.
+#:
+#: **Priced by the encoded WAV alone (the 2026-10-14 audit, finding
+#: sirens-engine-04).** The first pricing added ``pcm.nbytes``, so one
+#: ten-minute sample cost ~160 MiB and two overran 256 MiB: every insert evicted
+#: the entry the next ``rsng_bytes`` needed, and a song holding two long takes
+#: re-encoded both on every edit (0.9 s on the frame thread against 0.05 s with
+#: one) -- the stall this cache exists to prevent. The ``pcm`` is the
+#: document's own and is held there regardless; what the cache *adds* is the WAV.
+#: Sixteen-bit mono is two bytes a frame, so every sample a document may hold
+#: (``MAX_DOC_SAMPLE_FRAMES``) encodes to ~230 MB and fits whole.
 _WAV_CACHE_BUDGET = 256 * 1024 * 1024
 
 
 def _wav_cache_cost(pcm: np.ndarray, data: bytes) -> int:
-    return int(pcm.nbytes) + len(data)
+    return len(data)
 
 
 def _wav_of(pcm: np.ndarray) -> bytes:
@@ -293,12 +356,23 @@ def read_rsng(data: bytes, *, reserve: bool = True) -> D.SongDoc:
                 f" {MAX_DECOMPRESSED_BYTES} this build will read"
             )
         try:
+            declared = int(zf.getinfo(MANIFEST).file_size)
+            if declared > MAX_MANIFEST_BYTES:
+                raise ValueError(
+                    f"{MANIFEST} is {declared} bytes unpacked, past the"
+                    f" {MAX_MANIFEST_BYTES} any manifest can be"
+                )
             manifest = json.loads(zf.read(MANIFEST))
+        # ``RecursionError`` is ``json.loads`` on a manifest nested ~100k deep;
+        # the last two are ``_UNREADABLE_MEMBER`` (see there) -- the 2026-10-14
+        # audit, finding sirens-engine-05.
         except (
             zipfile.BadZipFile,
             KeyError,
             UnicodeDecodeError,
             json.JSONDecodeError,
+            RecursionError,
+            *_UNREADABLE_MEMBER,
         ) as exc:
             raise ValueError(_NOT_A_SONG) from exc
         if not isinstance(manifest, dict):
@@ -318,8 +392,7 @@ def read_rsng(data: bytes, *, reserve: bool = True) -> D.SongDoc:
 
         channels = _channels_from(manifest)
         instruments, remap = _instruments_from(manifest)
-        valid_instruments = frozenset(one.uid for one in instruments)
-        patterns = _patterns_from(zf, manifest, len(channels), remap, valid_instruments)
+        patterns = _patterns_from(zf, manifest, len(channels), remap)
         samples = _samples_from(zf, manifest)
         known = {one.uid for one in patterns}
         # sirens-engine-04 (2026-09-26 audit): a bare ``int()`` here, unlike
@@ -503,6 +576,15 @@ def _instruments_from(manifest: dict) -> tuple[list[inst.Instrument], dict[int, 
         if uid in seen:
             raise ValueError(f"this song lists the instrument {uid} twice")
         seen.add(uid)
+        # **A negative id is refused by name (the 2026-10-14 audit, finding
+        # sirens-engine-07).** ``-1`` is ``notes.EMPTY``, the value of every
+        # cell that names no instrument, so a renumbering map holding it turned
+        # every empty cell of every pattern into instrument 0 -- a song where
+        # each row re-selected an instrument on every channel, saved that way.
+        # The renumbering still leaves EMPTY out of its map, so the guard holds
+        # for a caller that hands it one too.
+        if uid < 0:
+            raise ValueError(f"this song numbers an instrument {uid}, which is not an id")
     legal = all(0 <= uid < D.MAX_INSTRUMENTS for uid in stored)
     remap: dict[int, int] = {} if legal else {uid: i for i, uid in enumerate(stored)}
 
@@ -531,7 +613,6 @@ def _patterns_from(
     manifest: dict,
     channels: int,
     remap: dict[int, int] | None = None,
-    valid_instruments: frozenset[int] | None = None,
 ) -> list[D.Pattern]:
     out: list[D.Pattern] = []
     # **A duplicate uid is refused (the 2026-09-16 audit).** See
@@ -547,10 +628,7 @@ def _patterns_from(
         # through ``_int()`` so a non-numeric ``member`` reports the same
         # malformed-manifest refusal instead of a raw ``ValueError``.
         member = f"{PATTERN_DIR}/{_int(entry, 'member', len(out))}.npy"
-        try:
-            raw = zf.read(member)
-        except (KeyError, zipfile.BadZipFile) as exc:
-            raise ValueError(f"this song is missing {member}") from exc
+        raw = _read_member(zf, member, MAX_PATTERN_BYTES, "pattern")
         cells = npyguard.read_array(raw, member)
         rows = _int(entry, "rows", 0) or int(cells.shape[0] if cells.ndim else 0)
         if cells.ndim != 3 or cells.shape != (rows, channels, D.COLUMNS):
@@ -576,35 +654,36 @@ def _patterns_from(
             np.clip(plane, notes.EMPTY, 255, out=plane)
         # **The instrument column's range is the instrument id space**, which
         # is ``0..MAX_INSTRUMENTS-1`` and per document (``document``'s
-        # docstring). The 255 this used to be was nearly that number and not
-        # quite; the int16 ceiling that replaced it was right only while ids
-        # came from the process-global counter, which is the ceiling this
-        # phase removed. A file whose ids needed renumbering is carried
-        # through the same map its instrument list was, so the cells still
-        # name the instruments they named -- and a value that matched *no*
-        # instrument in that file is blanked rather than left to land on
-        # whichever slot the renumbering has since put in its place.
+        # docstring). A file whose ids needed renumbering is carried through the
+        # same map its instrument list was, so the cells still name the
+        # instruments they named -- and a value that matched *no* instrument in
+        # that file is blanked rather than left to land on whichever slot the
+        # renumbering has since put in its place.
         plane = grid[:, :, D.INSTRUMENT]
         if remap:
             stored = plane.copy()
             plane[:] = notes.EMPTY
             for old, new in remap.items():
+                # EMPTY is not an instrument id: see ``_instruments_from``.
+                if old == notes.EMPTY:
+                    continue
                 plane[stored == old] = new
         else:
-            # sirens-01 (2026-09-23 audit, second run). With a legal
-            # instrument list (every stored uid already in range, so
-            # ``remap`` above is empty and ids are unchanged), ``np.clip``
-            # used to fold any cell value past the real instrument count
-            # onto ``MAX_INSTRUMENTS - 1`` -- slot 127 -- which plays whatever
-            # real instrument happens to sit there instead of nothing, unlike
-            # the renumbered branch above, which already blanks a cell
-            # naming no instrument. Clip stays for the *range* (an int16 can
-            # hold anything), but a legal-range id that names no instrument
-            # in this file's own list is now blanked too, on both paths.
-            np.clip(plane, notes.EMPTY, D.MAX_INSTRUMENTS - 1, out=plane)
-            if valid_instruments is not None:
-                unknown = ~np.isin(plane, np.fromiter(valid_instruments, dtype=plane.dtype))
-                plane[unknown] = notes.EMPTY
+            # **A cell naming an id this file holds no instrument for is kept,
+            # not blanked (the 2026-10-14 audit, finding sirens-engine-01).**
+            # ``remove_instrument`` leaves the cells that named it alone and
+            # promises they play silently and an undo can put them back; the
+            # renderer keeps that promise (an id nothing answers to *clears* the
+            # voice). A blanked cell is something else to the renderer -- it
+            # leaves the voice on whatever instrument it last had -- so the
+            # blanking this used to do (sirens-01 of the 2026-09-23 audit, which
+            # was answering ``np.clip`` folding an out-of-range id onto slot
+            # 127) made the snapshot every play, typed note, export and save is
+            # built from sound a removed instrument's notes with a different
+            # instrument, and a save stripped the reference for good. Only what
+            # is not an id at all is dropped: past the instrument space, where
+            # the old clip folded it onto slot 127, or below EMPTY.
+            plane[(plane >= D.MAX_INSTRUMENTS) | (plane < notes.EMPTY)] = notes.EMPTY
         # sirens-02 (the 2026-09-20 audit): see ``_channels_from``.
         uid = _uid(entry)
         if uid in seen:
@@ -656,10 +735,7 @@ def _samples_from(zf: Any, manifest: dict) -> dict[str, np.ndarray]:
             raise ValueError(_MALFORMED)
         # sirens-02 (the 2026-09-20 audit): see ``_channels_from``.
         member = f"{SAMPLE_DIR}/{_int(entry, 'member', index)}.wav"
-        try:
-            raw = zf.read(member)
-        except (KeyError, zipfile.BadZipFile) as exc:
-            raise ValueError(f"this song is missing {member}") from exc
+        raw = _read_member(zf, member, MAX_SAMPLE_MEMBER_BYTES, "sample")
         key = str(entry.get("key", f"sample{index}"))
         if key in out:
             # Refused by name rather than collapsed. An instrument names its

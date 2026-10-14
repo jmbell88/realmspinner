@@ -1415,8 +1415,10 @@ from collections import OrderedDict
 # REALMSPINNER 1/4: the torchvision imports are gone with the download paths below.
 # ``VGG16_Weights.DEFAULT`` and friends are *URLs*: touching one reaches out to
 # download.pytorch.org, which this app may never do -- HF_HUB_OFFLINE is set
-# before anything else in the package and the only process allowed online is
-# the user-initiated fetch child. They were only ever reachable through
+# before anything else in the package, and a process may go online only as one
+# of three user-initiated children (the model fetch, the dependency packs, the
+# update check; the 2026-10-14 audit, finding docs-A-B-16, found this note still
+# naming the first as the only one). They were only ever reachable through
 # ``pretrained=True``, which the checkpoint's own config sets to False, so the
 # whole branch was dead weight pointing at the network.
 # from models.pvt_v2 import pvt_v2_b0, pvt_v2_b1, pvt_v2_b2, pvt_v2_b5

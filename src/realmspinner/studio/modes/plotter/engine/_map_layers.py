@@ -76,6 +76,13 @@ _KEEP = object()
 #: and Mason's ``engine.nodes.MAX_DEPTH`` are both 64 for the same reason.
 MAX_GROUP_DEPTH = 64
 
+#: Most layer nodes -- layers and groups together -- one map holds. The
+#: 2026-10-14 audit, finding plotter-map-06: ``read_rmap`` refused a manifest
+#: past 1000 nodes but ``_add_layer`` did not, so 1001 calls to ``add_*_layer``
+#: made a map that saved and then could not be reopened. One number for the
+#: editing door and both readers (``rmap`` and ``tmx`` take it from here).
+MAX_LAYER_NODES = 1000
+
 
 def _walk(
     layers: list[Layer], parent_uid: int | None, depth: int
@@ -162,6 +169,20 @@ class LayerOps:
             if entry.uid == uid:
                 return depth
         raise KeyError(f"no layer {uid}")
+
+    def _refuse_if_too_many(self: MapDoc, layer: Any) -> None:
+        """Refuse an attach that would take the tree past :data:`MAX_LAYER_NODES`.
+
+        Counts the whole subtree being added, so duplicating a group is held to
+        the same ceiling as adding its members one at a time.
+        """
+        added = _subtree_size(layer)
+        held = len(self.all_layers())
+        if held + added > MAX_LAYER_NODES:
+            raise ValueError(
+                f"this map already holds {held} layers; {MAX_LAYER_NODES} is the "
+                "most this build keeps"
+            )
 
     def _refuse_if_too_deep(self: MapDoc, parent_uid: int | None, layer: Any) -> None:
         """Refuse an attach or reparent that would nest past :data:`MAX_GROUP_DEPTH`.
@@ -278,6 +299,7 @@ class LayerOps:
         siblings = self.children_of(parent_uid)
         at = len(siblings) if index is None else max(0, min(int(index), len(siblings)))
         self._refuse_if_too_deep(parent_uid, layer)
+        self._refuse_if_too_many(layer)
         self.history.push(LayerAddEdit(layer=layer, index=at, parent_uid=parent_uid))
         self._attach_layer(layer, at, parent_uid)
         self.active_layer = layer.uid
@@ -321,6 +343,14 @@ class LayerOps:
         # the ceiling -- a file read before the readers capped nesting -- is
         # the only way to meet this (the 2026-10-03 audit, finding plotter-10).
         self._refuse_if_too_deep(parent_uid, layer)
+        self._refuse_if_too_many(layer)
+        # The objects too (the 2026-10-14 audit, finding plotter-11): a copy mints
+        # an object id per object, and ``add_object`` is not the door it comes
+        # through, so a group of object layers duplicated past the ceiling made a
+        # map that saved and could not be reopened.
+        self.refuse_if_too_many_objects(
+            sum(len(getattr(entry, "objects", ())) for entry, _p, _i, _d in _walk([layer], None, 0))
+        )
         copy = self._copied_subtree(layer)
         copy.name = f"{layer.name} copy"
         # One past the original, not at its own index: ``children_of`` is
@@ -334,7 +364,17 @@ class LayerOps:
         """One layer deep-copied with new identities. Recursive over groups."""
         import copy as copylib
 
-        made = copylib.deepcopy(layer)
+        # A group is copied with its ``children`` list swapped for an empty one
+        # through ``deepcopy``'s own memo, and each child is then copied by the
+        # recursion below. Deep-copying the whole subtree here *and* recursing
+        # copied every leaf array once per nesting level and held every level's
+        # copy until the recursion unwound: 8 MiB peak at depth 1 for one 4 MiB
+        # layer, 36 MiB at depth 8, ~4 GiB for a 64 MiB layer at depth 64, on the
+        # frame thread (the 2026-10-14 audit, finding plotter-map-17).
+        memo: dict[int, Any] = {}
+        if isinstance(layer, GroupLayer):
+            memo[id(layer.children)] = []
+        made = copylib.deepcopy(layer, memo)
         made.uid = new_uid()
         made.id = self._mint_layer_id()
         if isinstance(made, ImageLayer):
@@ -358,7 +398,7 @@ class LayerOps:
                 obj.id = self.next_object_id
                 self.next_object_id += 1
         if isinstance(made, GroupLayer):
-            made.children = [self._copied_subtree(child) for child in made.children]
+            made.children = [self._copied_subtree(child) for child in layer.children]
         return made
 
     def merge_down(self: MapDoc, uid: int) -> bool:
@@ -641,6 +681,11 @@ def _contains(group: Any, uid: int) -> bool:
         if child.uid == uid or _contains(child, uid):
             return True
     return False
+
+
+def _subtree_size(layer: Any) -> int:
+    """1 for a leaf; 1 plus every descendant for a group. Same bound as the height."""
+    return 1 + sum(_subtree_size(child) for child in getattr(layer, "children", None) or ())
 
 
 def _subtree_height(layer: Any) -> int:

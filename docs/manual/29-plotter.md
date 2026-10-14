@@ -23,8 +23,10 @@ once, and **View ▸ Rearrange panes** (`Shift`+`W`) moves any of the panes.
 
 With nothing open, the middle column offers **New map...** and **Open a file...**, and lists the maps
 you had open recently — clicking one reopens it, and hovering it shows the full path. The map panel
-at the bottom of the right column offers the same two buttons. Once a map is open, `Ctrl+N`
-and `Ctrl+O` do the same two things from the keyboard.
+at the bottom of the right column lists the same recent maps and nothing else while no map is open;
+the two buttons live on the canvas, not twice on one screen. Once a map is open, `Ctrl+N` and
+`Ctrl+O` do the same two things from the keyboard, and the map panel gains the file buttons for the
+map in hand.
 
 **New map** asks what the map is before making it. Five presets start you off — 16 px tiles, 32 px
 tiles, a 2:1 isometric cell, staggered, or hexagonal — and each one fills in every field below,
@@ -584,7 +586,9 @@ change to the file.
 
 The pane appears while a tile layer is selected. A map that carries a stamp is written as format
 version 11; one that carries none writes exactly the bytes it did before, so an existing map does not
-start declaring a version an older build would refuse.
+start declaring a version an older build would refuse. A map whose foreign Wang set or colour
+carries its own representative tile or custom class is written as format version 12, and every other
+map keeps the version it had.
 
 ## Objects
 
@@ -711,6 +715,13 @@ failure: a corrupt compressed layer, a number where a value was expected, and a 
 more than 64 groups deep — the editor's own limit — are refused at open by `.tmx`, `.tmj` and
 `.rmap` alike. These are not Tiled features Plotter lacks, so they are not rows in the refusal
 list above.
+
+The same goes for a handful of documents no editor could use, each refused by name rather than
+opened half-working: an oblique map whose skew collapses the grid (tile width times tile height minus
+skew x times skew y comes to zero), refused when you set it, when you change the tile size and when a
+`.tmx`, `.tmj` or `.rmap` carries one; a map whose tilesets' id ranges overlap; a map whose pictures
+decode to more than 2^27 pixels in all, tilesets and image layers together; an `.rmap` whose manifest
+is past 64 MiB; and a map parallax origin that is not a finite number.
 
 ### What Plotter writes that Tiled does not read
 

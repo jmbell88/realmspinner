@@ -68,6 +68,15 @@ def _param_json(param: Any) -> dict[str, Any]:
         row["kind"] = "number"
         row["low"] = param.low
         row["high"] = param.high
+        # The 2026-10-14 audit (finding agents-14): ``low`` alone reads as a
+        # clamp, and Simplify's target (``low: 4``) and Snap to Grid's step
+        # are refused below their floor, never clamped -- the way
+        # ``clay_catalog`` and the handler already say. Both flags ride
+        # along, true-only, so the two catalogues of one registry agree.
+        if param.integer:
+            row["integer"] = True
+        if param.refuse_below:
+            row["refuse_below"] = True
     if param.warn:
         row["warn"] = param.warn
     return row

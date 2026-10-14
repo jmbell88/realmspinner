@@ -2,13 +2,16 @@
 
 Six of them, and each is chosen rather than convenient.
 
-``first-hour`` orients someone who has just opened the app, and **every step of
-it runs on a machine with no GPU and no weights** -- the one step that could ask
-for a generation asks politely and advances on Next instead of waiting, because
-a point-and-wait step that waits for something the machine cannot do is a trap
-rather than a lesson. A machine whose Create door is still shut (a fresh install
-has none of its weights) is walked as far as ``open-create``; the next card stops
-the tour with the reason, rather than ringing controls that will never draw.
+``first-hour`` orients someone who has just opened the app. **No step of it needs
+a GPU or weights to be drawn** -- the one step that could ask for a generation
+asks politely and advances on Next instead of waiting, because a point-and-wait
+step that waits for something the machine cannot do is a trap rather than a
+lesson. But Create itself is gated on the engine and the SDXL weights, so a fresh
+install, which has none of them, **cannot finish this tour**: it is walked as far
+as ``open-create``, and the next card (``stages``, the first one drawn in Create)
+stops the tour with a toast naming what is missing, rather than ringing controls
+that will never draw. The 2026-10-14 audit, finding tour-tour-1-04, found this
+docstring and the Home chapter both promising a tour a fresh install could finish.
 
 ``inker-basics`` proves the same machinery against a real document editor, and
 it was picked over Create for the same reason: drawing needs no card, no weights
@@ -111,12 +114,13 @@ FIRST_HOUR = Tour(
             chapter=("02-your-first-asset", "stage-one-the-reference"),
         ),
         # Optional in the sense that matters here: it points at a *type* rather
-        # than a control, and the reader can pass it in one press. It earns its
-        # place in this tour on the same rule the others do -- ``first-hour``
-        # runs on a machine with no GPU and no weights, and Character is the
-        # one generation type that does too, so it is the only thing on this
-        # screen a reader without a card can be told to try rather than told
-        # about.
+        # than a control, and the reader can pass it in one press. Character
+        # needs no GPU and no SDXL weights, so it is the one thing on this screen
+        # a reader without a card can be told to try rather than told about --
+        # but its rig needs Blender (the Rigging pack), so it is not a type
+        # that "needs nothing downloaded", and a press ends at a rigged mesh,
+        # never a sprite sheet. The 2026-10-14 audit, finding tour-tour-1-01,
+        # found this step promising a sheet and a camera word nothing consumes.
         #
         # ``done`` is the default MANUAL rather than ``mode_is create``: the
         # 2026-09-16 audit (finding tour-1-01) found that every step reaching
@@ -132,9 +136,10 @@ FIRST_HOUR = Tour(
             body=(
                 "Set \"What are you making?\" to Character and the column changes: no model, "
                 "no seed, no reference. Realmspinner builds the body itself from a registry "
-                "of species, rigs it and renders a sprite sheet, all on the CPU.\n\n"
-                "Try: fire ogre, 3/4 top down sprite sheet -- and watch the column "
-                "read your words back. If you would rather carry on here, Next."
+                "of species and rigs it: a rigged mesh, built on the CPU (the rig needs "
+                "Blender, from the Rigging pack in Settings).\n\n"
+                "Try: fire ogre -- and watch the column read your words back. If you "
+                "would rather carry on here, Next."
             ),
             mode="create",
             anchor="create/type",
@@ -258,8 +263,10 @@ INKER_BASICS = Tour(
             title="Colour",
             body=(
                 "Hold Alt with any paint tool for a temporary eyedropper. The mode "
-                "switch at the top of this panel is worth knowing about: Indexed stores "
-                "a palette index per pixel, so nothing can drift off-palette."
+                "switch is worth knowing about: it is in the Palette section at the "
+                "bottom of this panel, which stays closed until the drawing is indexed. "
+                "Indexed stores a palette index per pixel, so nothing can drift "
+                "off-palette."
             ),
             mode="inker",
             anchor="inker/colors",
@@ -283,7 +290,7 @@ INKER_BASICS = Tour(
             id="layer",
             title="Add a layer",
             body=(
-                "Ctrl+Shift+N, or the button on this panel.\n\n"
+                "Ctrl+Shift+N, or Layer > New layer in the menu strip.\n\n"
                 "The layers list and the timeline are one panel here, which is why "
                 "a layer row and a timeline row look alike -- they are the same row."
             ),
@@ -805,7 +812,9 @@ CLAY_TORCH = Tour(
             title="The wall plate: a box",
             body=(
                 "A torch hangs from a plate. Click the Box button on the rail (the cube, "
-                "first below the divider) to add one.\n\n"
+                "first below the divider) to add one -- or, if the window is too short "
+                "for those buttons and the rail shows only Add, open that and pick Box."
+                "\n\n"
                 "Next unlocks once the model holds a box."
             ),
             mode="clay",
@@ -833,7 +842,8 @@ CLAY_TORCH = Tour(
             id="shaft",
             title="The shaft: a cylinder",
             body=(
-                "Add a Cylinder from the rail, then make it a thin pole: Size W 0.08, "
+                "Add a Cylinder from the rail (from Add, if the rail is too short to show "
+                "the shape buttons), then make it a thin pole: Size W 0.08, "
                 "H 0.6, D 0.08. It lands on the ground beside the plate; open Position "
                 "& turn in the Inspector and move it so it stands in front of the plate "
                 "instead.\n\n"
@@ -862,7 +872,8 @@ CLAY_TORCH = Tour(
             id="flame-add",
             title="The flame: a cone",
             body=(
-                "Add a Cone from the rail. It is the flame.\n\n"
+                "Add a Cone from the rail (from Add, if the rail is too short to show the "
+                "shape buttons). It is the flame.\n\n"
                 "Next unlocks once the model holds a cone."
             ),
             mode="clay",

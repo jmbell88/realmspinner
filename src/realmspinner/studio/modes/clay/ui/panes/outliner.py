@@ -762,29 +762,23 @@ def _delete_hint(doc: Any, targets: list[int]) -> str:
 def _remove_objects(ctx: Any, doc: Any, uids: list[int]) -> list[str]:
     """Remove *uids* as one undo step. -> the refusals, which are toasted.
 
-    Highest list index first, for the reason ``selection.delete_selected``
-    gives (a compound undoes in reverse and every recorded index must still be
-    right), and one refusal does not abandon the rest. Unlike the Del key this
-    removes a hidden object too: the user named it from the menu.
+    Through ``doc.remove_objects`` with the whole set, as the Del key and the Delete button
+    do: it keeps the highest-index-first, one-step contract in one place, and it judges a
+    bone against the *set* -- the 2026-10-14 audit, finding clay-panes-01, found this loop
+    calling ``remove_object`` per uid, which refused a bone that sat after the weighted mesh
+    skinned to it ("Run Unbind Skin first") though that mesh was going in the same action, and
+    was the per-uid quadratic walk the Del key had already shed (clay-32). One refusal does
+    not abandon the rest. Unlike the Del key this removes a hidden object too: the user named
+    it from the menu.
     """
-    from ......kernels.mesh.elements import OpError
-
-    refusals: list[str] = []
-    doomed = []
+    present = []
     for uid in uids:
         try:
-            doomed.append((doc.index_of(uid), uid))
+            doc.index_of(uid)
         except KeyError:
             continue
-    mark = doc.history.mark()
-    try:
-        for _index, uid in sorted(doomed, reverse=True):
-            try:
-                doc.remove_object(uid)
-            except OpError as error:
-                refusals.append(str(error))
-    finally:
-        doc.history.collapse_since(mark)
+        present.append(uid)
+    refusals = doc.remove_objects(present) if present else []
     if refusals:
         from ... import ops as clay_ops
 
@@ -803,6 +797,20 @@ def _duplicate_reason(doc: Any, obj: Any) -> str:
     """
     if not obj.visible:
         return "It is hidden: show it with the eye first, then it can be duplicated."
+    return ""
+
+
+def _rig_rows_reason(doc: Any, obj: Any) -> str:
+    """Why the row menu's Mark Bone, Unmark Bone and Unbind Skin are greyed for *obj*, or ``""``.
+
+    The three run through ``clay_ops.run``, which acts on the **selection**, and a hidden row
+    cannot be selected (``_duplicate_reason``'s clay-129). The 2026-10-14 audit, finding
+    clay-panes-03, found them labelled from the hidden row's own state and then landing on
+    whatever else was selected: "Mark as Bone" for hidden H turned the selected shape A into a
+    bone. Pure, beside the draw call, so the sentence is checkable.
+    """
+    if not obj.visible and obj.uid not in doc.selection:
+        return "It is hidden: show it with the eye first, then it can be marked or unbound."
     return ""
 
 
@@ -845,7 +853,7 @@ def _context_menu(ctx: Any, state: Any, doc: Any, obj: Any, tab_uid: str = "") -
         names.append("unbind-skin")
     for name in names:
         op = clay_ops.get(name)
-        why = clay_ops.reason_for(op, doc)
+        why = _rig_rows_reason(doc, obj) or clay_ops.reason_for(op, doc)
         glyph = icons.BONE if "bone" in name else icons.LINK
         if controls.menu_item(f"{glyph} {op.label}", "", False, not why, reason=why)[0]:
             clay_ops.run(ctx, doc, op)

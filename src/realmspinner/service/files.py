@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..core.safeio import atomic as safeio_atomic
 from .errors import Conflict, Invalid, NotFound, TooLarge
 from .validation import (
     MAX_IMAGE_PIXELS,
@@ -150,6 +151,12 @@ def _staged_write(dest, data, *, text: bool = False) -> None:
       could rename a torn result onto the served ``input.png``.
 
     A token in the name fixes the second; the ``finally`` fixes the first.
+
+    The rename rides out a reader holding the served name open (the 2026-10-14
+    audit, finding service-assets-05): a decode, a copy or a download stream
+    open without ``FILE_SHARE_DELETE`` made the bare ``os.replace`` raise a raw
+    ``PermissionError`` and lose a hand-edit or thumbnail save that a moment's
+    wait would have landed; the retry is ``core.safeio.atomic.replace``.
     """
     tmp = dest.with_name(f".{dest.name}.{secrets.token_hex(4)}.tmp")
     try:
@@ -157,7 +164,7 @@ def _staged_write(dest, data, *, text: bool = False) -> None:
             tmp.write_text(data, encoding="utf-8")
         else:
             tmp.write_bytes(data)
-        os.replace(tmp, dest)
+        safeio_atomic.replace(tmp, dest)
     finally:
         with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
@@ -359,14 +366,15 @@ def save_clay_rig(svc: Any, job_id: str, glb: bytes, record: dict[str, Any]) -> 
     derived from a *previous* skeleton, which a freshly minted row has none of and a future
     re-export onto an existing row would.
 
-    The caller (``studio.modes.clay.mode.build_asset``) writes the mesh first and this
-    second, the ``save_clay_source`` ordering: a crash between them leaves a row that is
-    simply not rigged, never a rig advertising a mesh it did not come with. A refused or
-    failed write removes its temps and leaves the row as it was.
+    The caller (``studio.modes.clay.mode.build_asset``) writes the mesh first, the authored
+    ``build.rblk`` second and this last: a crash between them leaves a row that is simply not
+    rigged, never a rig advertising a mesh it did not come with, and a refusal here (the
+    2026-10-14 audit, findings clay-75 and service-assets-04) never costs the row its
+    authored source. A refused or failed write removes its temps and leaves the row as it was.
     """
     import json
 
-    from ..kernels.rig import store
+    from ..kernels.rig import skeleton, store
 
     check_job_id(job_id)
     if svc.store.get(job_id) is None:
@@ -378,6 +386,11 @@ def save_clay_rig(svc: Any, job_id: str, glb: bytes, record: dict[str, Any]) -> 
         raise Invalid("a rig record needs bones", field="bones")
     try:
         store.validate_rig_bones(record["bones"])
+        # The library's own skeleton rule, not only legal names: a document with two
+        # root bones published a rig.json that every later door revalidating it
+        # (Create's skeleton edits, the Blender worker spec) refused, naming only the
+        # first as ``root`` (the 2026-10-14 audit, finding clay-rig-07).
+        skeleton.check_skeleton_structure(record["bones"])
     except store.RigError as exc:
         raise Invalid(str(exc), field="bones") from exc
     job_dir = svc.job_dir(job_id)
@@ -430,7 +443,7 @@ MAX_PACK_SOURCE_BYTES = 20 * MAX_UPLOAD_BYTES
 # geometry at all** (``studio.mason.serialize``'s own rule -- primitives
 # regenerate from their parameters and library assets are links), so what it
 # actually holds is a node tree as text, one terrain height array, and a PNG
-# per hand-painted material override. The same number ``studio.mason_io``
+# per hand-painted material override. The same number ``studio/modes/mason/fileio.py``
 # refuses a file at on the way *in*, imported from here rather than restated,
 # so the door the user's file comes through and the door an export goes out of
 # cannot be set to two different sizes.
@@ -729,7 +742,7 @@ def revert_reference(svc: Any, job_id: str) -> dict[str, Any]:
     with svc.convert_lock(job_id, ORIGINAL):
         if not original.exists():
             raise Conflict("this reference has no unedited original")
-        os.replace(original, dest)
+        safeio_atomic.replace(original, dest)
         # Touched, because a restore is the one write here that would
         # otherwise arrive wearing an *older* timestamp than the pixels it
         # replaces: the backup was copied when the first edit was made, and
@@ -808,10 +821,11 @@ def storage_sizes(data_dir: Path) -> dict[str, int]:
     accounting (a job finishing re-measures its own directory only) shares
     the walk with the full one rather than restating it.
 
-    ``autosave/`` and ``poser/`` live under data_dir too and are counted here
-    as if they were job directories -- a byte total under a different heading,
-    not a correctness issue, and cheaper than teaching the walk which names
-    are not jobs.
+    ``autosave/`` lives under data_dir too, and so may a ``poser/`` folder an
+    older build left (its saved clip libraries, still read by
+    ``service.clips``); both are counted here as if they were job
+    directories -- a byte total under a different heading, not a correctness
+    issue, and cheaper than teaching the walk which names are not jobs.
     """
     sizes: dict[str, int] = {}
     if data_dir.exists():
@@ -903,7 +917,7 @@ DERIVED_IMAGE = ("input.webp", "input.jpg")
 #: for has nothing to animate.
 #:
 #: **Digest staleness, not bare existence** (design decision D6): existence
-#: alone could never reach a clip edited in Poser after the bake, or a clip
+#: alone could never reach a clip edited in the clip library after the bake, or a clip
 #: newly shipped for a template that already has an ``animated.glb`` -- the
 #: file would sit there correct-looking and permanently behind. So ``derive``
 #: stamps the clip library's own ``clips.library_digest`` into the file's root
@@ -1103,7 +1117,7 @@ def ready(job: dict[str, Any], job_dir: Path, name: str) -> bool:
     path = job_dir / name
     if name in ("model.glb", "source.glb"):
         # Gated on status, not just existence: the worker still writes to
-        # model.glb after the file first appears (queue.py:_apply_scale), and
+        # model.glb after the file first appears (``_q_mesh.py``'s ``_apply_scale``), and
         # source.glb is the reconstruction the same run produced.
         return job.get("status") == "done" and path.exists()
     if name == "rig_qa.png":
@@ -1283,7 +1297,8 @@ def attach_files(job: dict[str, Any], job_dir: Path, *, cache: dict | None = Non
     **But a directory's mtime has a resolution, and it is coarse.** Windows
     updates it from the system clock, whose tick is 15.6 ms unless something has
     asked for better; measured here, adding a file left the mtime *unchanged*
-    155 times out of 200 (see ``dev/measurements/2026-08-07-directory-mtime-
+    155 times out of 200 (see ``dev/measurements/2026-08-07-directory-mtime- [lost; re-measure to
+    change]
     granularity.md``). So a write that lands after this listing but still inside
     the stamped mtime's tick is invisible to the stamp -- and not for one tick,
     but **forever**, because every later comparison keeps matching. That is

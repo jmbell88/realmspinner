@@ -747,6 +747,11 @@ def submit_inpaint(ctx: Any, tab: Any, prompt: str, strength: float) -> bool:
         "layer_uid": doc.stack.active.uid,
         "box": box,
         "weight": doc.mask.mask[y0:y1, x0:x1].copy(),
+        # The 2026-10-14 audit, finding inker-panes-04: the geometry the box
+        # was measured on. ``land_inpaint`` refuses a landing once a
+        # whole-canvas step has come after this head, or the size has moved.
+        "size": tuple(doc.size),
+        "head": doc.history.head,
         "job_id": "",
         "next_poll": 0.0,
     }
@@ -801,8 +806,34 @@ def on_inpaint_queued(ctx: Any, result: Any) -> None:
 INPAINT_POLL_S = 0.5
 
 
+#: The task key of the store read that :func:`poll_inpaint` hands off.
+INPAINT_POLL_KEY = "inker-inpaint-poll"
+
+
+def read_inpaint_job(store: Any, job_id: str) -> dict[str, Any]:
+    """Task thread. The pending regeneration's row, reduced to what the landing
+    reads: ``{"id", "found", "status", "error"}``.
+
+    The store is one sqlite connection behind an RLock the queue worker writes
+    through, so a ``get`` on the pygame thread waits for whatever the worker is
+    committing. The 2026-10-14 audit, finding inker-flourish-16, moved the
+    Flourish pollers off the frame thread; this is the same read in the same
+    shape (``tests/test_frame_thread_doors.py``), once every ``INPAINT_POLL_S``
+    for as long as a regeneration is pending. A row that cannot be read raises,
+    and the handler treats that as "ask again next tick".
+    """
+    job = store.get(job_id)
+    if job is None:
+        return {"id": job_id, "found": False, "status": None, "error": None}
+    return {"id": job_id, "found": True, "status": job.get("status"), "error": job.get("error")}
+
+
 def poll_inpaint(ctx: Any) -> None:
-    """Once every ``INPAINT_POLL_S``: is the regeneration done, and land it."""
+    """Once every ``INPAINT_POLL_S``: hand the store read to a task.
+
+    :func:`on_inpaint_polled` is what acts on the answer, back on the frame
+    thread, and hands the decode to a second task.
+    """
     import time
 
     state = inker_mode.ensure(ctx)
@@ -813,23 +844,36 @@ def poll_inpaint(ctx: Any) -> None:
     if now < float(pending.get("next_poll") or 0.0):
         return
     pending["next_poll"] = now + INPAINT_POLL_S
-    try:
-        job = ctx.svc.store.get(pending["job_id"])
-    except Exception:  # noqa: BLE001 - the store answers next tick
-        return
-    if job is None:
+    ctx.submit(
+        f"{INPAINT_POLL_KEY}:{pending['tab_uid']}",
+        read_inpaint_job,
+        ctx.svc.store,
+        pending["job_id"],
+    )
+
+
+def on_inpaint_polled(ctx: Any, done: Any) -> None:
+    """Frame thread: the store's answer for the pending regeneration, landed."""
+    state = inker_mode.ensure(ctx)
+    pending = state.inpaint_pending
+    result = done.result
+    if pending is None or getattr(done, "error", None) is not None or not isinstance(result, dict):
+        return  # an unreadable store answers on the next tick
+    if result.get("id") != pending.get("job_id"):
+        return  # the answer is for a regeneration that is no longer the pending one
+    if not result.get("found"):
         state.inpaint_pending = None
         return
-    status = job.get("status")
+    status = result.get("status")
     if status in ("queued", "running"):
         return
     state.inpaint_pending = None
     if status != "done":
-        ctx.toast(f"The regeneration {status}: {job.get('error') or 'no result'}.", "warn")
+        ctx.toast(f"The regeneration {status}: {result.get('error') or 'no result'}.", "warn")
         return
-    # **Off the frame thread.** This is called from ``popups``, which
-    # ``inker_canvas.draw`` runs every frame, and the landing is a disk read, a
-    # PNG decode and a LANCZOS resize up to the size of the user's selection --
+    # **Off the frame thread.** This runs on the frame thread and the landing
+    # is a disk read, a PNG decode and a LANCZOS resize up to the size of the
+    # user's selection --
     # which can be the whole canvas. The hitch also arrives on whichever frame
     # the job happens to finish, so it is both avoidable and unpredictable.
     # ``inker_mode.on_task_done`` applies what this returns.
@@ -883,6 +927,20 @@ def land_inpaint(ctx: Any, pending: dict[str, Any], pixels: Any) -> bool:
         # regeneration having failed rather than having landed nowhere.
         ctx.toast("Regeneration refused: the document is busy.", "warn")
         return False
+    if _canvas_moved_since(tab.doc, pending):
+        # The 2026-10-14 audit, finding inker-panes-04: the record held only
+        # (tab, layer, box, weight), so a flip, rotate, crop or canvas resize
+        # made while the job was queued -- the docstring above says the user
+        # "carries on editing" -- let the picture generated for the old
+        # selection blend into the same box of different content, under a
+        # "Regeneration landed." toast. Refused by name; a record from before
+        # this stamp (no size, no head) is taken as unmoved.
+        ctx.toast(
+            "Regeneration refused: the canvas was flipped, rotated or resized "
+            "after it was asked for.",
+            "warn",
+        )
+        return False
     try:
         ok = tab.doc.apply_pixels(
             int(pending["layer_uid"]), tuple(pending["box"]), pixels, pending.get("weight")
@@ -908,6 +966,24 @@ def land_inpaint(ctx: Any, pending: dict[str, Any], pixels: Any) -> bool:
         # really "you are looking at a different frame".
         ctx.toast("It was asked for on a frame that is no longer showing.", "warn")
     return ok
+
+
+def _canvas_moved_since(doc: Any, pending: dict[str, Any]) -> bool:
+    """Whether a whole-canvas step landed after *pending* was recorded.
+
+    The size catches a crop or a resize; the history catches the flip or the
+    quarter turn, which keep the size and move every pixel. Undone steps do not
+    count: an undo put the document back.
+    """
+    from ......kernels.pixel.undo import ReplayEdit
+
+    size = pending.get("size")
+    if size is not None and tuple(size) != tuple(doc.size):
+        return True
+    head = pending.get("head")
+    if head is None:
+        return False
+    return any(isinstance(edit, ReplayEdit) for edit in doc.history.done_since(int(head)))
 
 
 def _still_in_the_stack(doc: Any, layer_uid: int) -> bool:

@@ -120,12 +120,23 @@ def _grouped_pieces(mesh: bm.Mesh, labels: np.ndarray) -> list[bm.Mesh]:
     # for why a per-call ``np.diff(mesh.starts)`` was the other half of
     # clay-04's superlinear cost, on top of the grouping this function fixes.
     counts_all = np.diff(mesh.starts).astype("i8")
+    # The 2026-10-14 audit, finding clay-mesh-model-02: the corner starts were cast to i8 inside
+    # ``_piece`` -- the whole mesh's array, once per piece -- so Separate cost pieces x faces
+    # again (11.7 s at 4,000 pieces over a million faces, on the frame thread) and clay-04's
+    # "fix" had only hoisted ``counts_all``. Cast once here and thread it through beside it.
+    starts_all = mesh.starts[:-1].astype("i8")
     return [
-        _piece(mesh, group.astype("i8"), counts_all) for group in np.split(order, splits)
+        _piece(mesh, group.astype("i8"), counts_all, starts_all)
+        for group in np.split(order, splits)
     ]
 
 
-def _piece(mesh: bm.Mesh, faces: np.ndarray, counts_all: np.ndarray | None = None) -> bm.Mesh:
+def _piece(
+    mesh: bm.Mesh,
+    faces: np.ndarray,
+    counts_all: np.ndarray | None = None,
+    starts_all: np.ndarray | None = None,
+) -> bm.Mesh:
     """*mesh* restricted to *faces*, with unused vertices dropped and
     ``loops`` remapped to the compacted vertex array. See the module
     docstring for why this compacts rather than keeping the full array the
@@ -140,16 +151,20 @@ def _piece(mesh: bm.Mesh, faces: np.ndarray, counts_all: np.ndarray | None = Non
     rescanning the face array per group to find that piece's faces in the
     first place. ``None`` (the single-piece callers, :func:`by_selection`'s
     two-piece split among them) computes it locally, unchanged from before.
+    *starts_all* is the same idea for ``mesh.starts[:-1]`` as ``i8`` -- each face's first
+    corner -- the other whole-mesh array this function used to cast on every call.
     """
     if counts_all is None:
         counts_all = np.diff(mesh.starts).astype("i8")
+    if starts_all is None:
+        starts_all = mesh.starts[:-1].astype("i8")
     counts = counts_all[faces]
     starts = np.concatenate([[0], np.cumsum(counts)]).astype("i4")
     total = int(starts[-1]) if len(starts) else 0
     if total:
         face_of_corner = np.repeat(np.arange(len(faces), dtype="i8"), counts)
         within = np.arange(total, dtype="i8") - starts[:-1].astype("i8")[face_of_corner]
-        corners = mesh.starts[:-1].astype("i8")[faces][face_of_corner] + within
+        corners = starts_all[faces][face_of_corner] + within
     else:
         corners = np.zeros(0, dtype="i8")
     old_vertex = mesh.loops[corners].astype("i8")
@@ -217,4 +232,5 @@ def by_selection(mesh: bm.Mesh, sel: el.ElementSel) -> list[bm.Mesh]:
         raise el.OpError("Nothing to separate: select some faces, but not all of them.")
     rest = np.setdiff1d(np.arange(n_faces, dtype="i8"), faces, assume_unique=True)
     counts_all = np.diff(mesh.starts).astype("i8")
-    return [_piece(mesh, faces, counts_all), _piece(mesh, rest, counts_all)]
+    starts_all = mesh.starts[:-1].astype("i8")
+    return [_piece(mesh, faces, counts_all, starts_all), _piece(mesh, rest, counts_all, starts_all)]

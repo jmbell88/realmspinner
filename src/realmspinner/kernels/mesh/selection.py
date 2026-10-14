@@ -242,12 +242,18 @@ def delete_selected(doc: Any) -> list[str]:
                     f"Pick all of a face's {part}, or switch to Faces mode."
                 )
                 continue
+            # The 2026-10-14 audit, finding clay-mesh-core-01: ``set_mesh`` sat outside this
+            # ``try``, so a weighted object whose edit changes its point count (it raises
+            # ``OpError`` from ``_with_skin_of``) escaped the loop: a plain prop picked beside a
+            # rigged body had already lost its faces as a pushed step while Delete reported only
+            # the body's refusal -- and which objects changed depended on dict order. The door's
+            # refusal is collected like ``delete_faces``'s own and the loop carries on.
             try:
                 mesh, sel = ops_topo.delete_faces(obj.mesh, faces)
+                doc.set_mesh(uid, mesh, select=sel)
             except el.OpError as error:
                 refusals.append(str(error))
                 continue
-            doc.set_mesh(uid, mesh, select=sel)
     finally:
         doc.history.collapse_since(mark)
     return refusals
@@ -311,8 +317,17 @@ def duplicate_selected(doc: Any) -> list[int]:
     # exactly where it already sits. A copy whose parent was not itself part
     # of this selection is left naming the original, unchanged: it was never
     # duplicated, so there is no sibling copy to move to.
+    #
+    # The 2026-10-14 audit, finding clay-mesh-core-02: the same was never done for a *skin*, so
+    # duplicating a bone together with the mesh weighted to it gave a copy still driven by the
+    # ORIGINAL skeleton while the copied bones drove nothing, and ``rig_problems`` said nothing.
+    # ``ops.rebind_skin`` moves a skin onto the copied bones when every bone it names was copied
+    # in this press, and leaves it on the original rig otherwise (as ``parent`` is left).
     copies = [
-        replace(copy, parent=old_to_new[copy.parent]) if copy.parent in old_to_new else copy
+        ops.rebind_skin(
+            replace(copy, parent=old_to_new[copy.parent]) if copy.parent in old_to_new else copy,
+            old_to_new,
+        )
         for copy in copies
     ]
     doc.add_objects(copies)

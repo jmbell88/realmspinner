@@ -417,7 +417,9 @@ def recent_files(paths: list[str], on_open: Any) -> None:
 
     if not paths:
         return
-    imgui.dummy((0, 8))
+    # Scaled: a literal 8 is the unscaled-pixel mistake ``grid_width`` records, and at 1.5x
+    # the gap read 5.3 design px (the 2026-10-14 audit, finding shell-widgets-06).
+    imgui.dummy((0, sp(tokens.SP_2)))
     section("Recent")
     for path in paths[:RECENT_SHOWN]:
         if imgui.selectable(f"{Path(path).name}##{path}", False)[0]:
@@ -745,6 +747,7 @@ def quality_badge(job: dict[str, Any], *, inline: bool = False) -> None:
         # not "good". ``hole_worst`` is corpus-dependent and is never a quality
         # scale -- see ``dev/measurements/2026-08-09-rebaseline.md`` and
         # ``judge.py``'s module docstring.
+        # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
         colour = (
             theme.MUTED
             if ratio < quality.AUDIT_UNINFORMATIVE
@@ -1228,6 +1231,15 @@ def attach_settings(settings: Any) -> None:
 # argument to hang it on.
 _OPEN_REQUESTS: set[str] = set()
 
+# "Reset collapsed sections" is a generation, not just an emptied map: imgui keeps a
+# section's open state in memory for the session and ``header`` applies a stored or
+# default state only once (``Cond_.once``), so clearing ``panels_open`` re-opened
+# nothing and the next frame wrote the collapsed state straight back (the 2026-10-14
+# audit, finding shell-widgets-01). ``reset_sections`` raises the generation; each
+# persisted header answers it once, with an ``always`` set to its own default.
+_RESET_GENERATION = 0
+_RESET_SEEN: dict[str, int] = {}
+
 
 def thumb_placeholder(size: float, glyph: str, height: float | None = None) -> None:
     """A framed box with an icon in it, where a thumbnail would be (H72).
@@ -1310,6 +1322,20 @@ def no_matches(needle: str, shown: int) -> None:
     """
     if needle and shown == 0:
         muted("Nothing matches the filter.")
+
+
+def reset_sections(settings: Any = None) -> None:
+    """Forget every remembered section state and re-open each section at its default.
+
+    Clears the stored map (through ``settings``, or the attached one) and asks every
+    persisted :func:`header` to take its default on its next draw, whatever imgui
+    remembers from this session.
+    """
+    global _RESET_GENERATION
+    target = settings if settings is not None else _SETTINGS
+    if target is not None:
+        target.set("panels_open", {})
+    _RESET_GENERATION += 1
 
 
 def request_open(persist_key: str) -> None:
@@ -1910,6 +1936,11 @@ def header(label: str, default_open: bool = True, persist_key: str | None = None
         # collapsed -- happens long after that.
         _OPEN_REQUESTS.discard(persist_key)
         imgui.set_next_item_open(True, imgui.Cond_.always.value)
+    elif persist_key and _RESET_SEEN.get(persist_key, 0) != _RESET_GENERATION:
+        # The one draw after a reset: the default, forced, then the generation is
+        # taken so the user's next click is theirs.
+        _RESET_SEEN[persist_key] = _RESET_GENERATION
+        imgui.set_next_item_open(bool(default_open), imgui.Cond_.always.value)
     elif persist_key and persist_key in stored:
         imgui.set_next_item_open(bool(stored[persist_key]), imgui.Cond_.once.value)
     # allow_overlap: the manual's (?) button right-aligns onto this same header
@@ -3969,7 +4000,7 @@ def _centre_cursor(width: float) -> None:
     )
 
 
-def centred_text(text: str, colour: int = theme.MUTED, *, wrap: bool = False) -> None:
+def centred_text(text: str, colour: int | None = None, *, wrap: bool = False) -> None:
     """One line -- or one wrapped paragraph -- centred in the region.
 
     ``wrap`` is the whole reason this is not two lines inline at each call site.
@@ -3978,7 +4009,14 @@ def centred_text(text: str, colour: int = theme.MUTED, *, wrap: bool = False) ->
     second line anywhere at all: the width the block occupies is not the width
     the measurement was taken of. Measuring at the wrap width and pushing the
     same figure as the wrap position is the only way for the two to agree.
+
+    ``colour=None`` is the theme's MUTED *as it is now*: the default used to be
+    ``theme.MUTED`` evaluated once at import, so every empty-state icon and hint drew
+    the dark palette's grey in the light theme, at 2.60:1 against a 4.5:1 bar (the
+    2026-10-14 audit, finding shell-widgets-02).
     """
+    if colour is None:
+        colour = theme.MUTED
     if not wrap:
         _centre_cursor(imgui.calc_text_size(text).x)
         text_colored(colour, text)

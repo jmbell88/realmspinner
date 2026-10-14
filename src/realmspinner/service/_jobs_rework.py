@@ -39,6 +39,7 @@ from .validation import (
     check_seed,
     check_vram,
     check_weights,
+    not_done_message,
     note_degraded,
     random_seed,
 )
@@ -92,7 +93,8 @@ def optimize_job(
     # ``svc.config.mesh_profile`` here the way this used to. Pre-filling would
     # turn "nothing named" into an *explicit* request the moment it reached
     # ``resolve_profile``, which on a machine with no gltfpack refuses instead
-    # of downgrading (dev/measurements/2026-09-23-default-mesh-budget.md's
+    # of downgrading (dev/measurements/2026-09-23-default-mesh-budget.md [lost; re-measure to
+    # change]'s
     # "defaulted tier downgrades, named tier refuses" split). A retarget
     # button with no tier picked must not start refusing every press the day
     # the default moved off ``raw`` -- so ``resolve_profile`` is left to do its
@@ -150,14 +152,24 @@ def optimize_job(
                 target_triangles=budget,
                 exe=svc.config.gltfpack_exe,
             )
-        except optimize.OptimizeError as exc:
+        except Exception as exc:
             # model.glb is untouched on this path (optimize.run only creates
             # dest on success), so the version just staged describes a
             # replacement that never happened -- back it out rather than let
             # the history claim a retarget that failed.
+            #
+            # Any exception, not only ``OptimizeError`` (the 2026-10-14 audit,
+            # finding pipelines-mesh-03): ``run`` lets a trimesh failure on a
+            # corrupt ``source.glb`` or gltfpack output escape as a bare
+            # ``ValueError``, and the door then left ``versions/<n>.model.glb``
+            # and ``<n>.json`` on disk with no index entry. An unreadable mesh is
+            # a failed retarget and is reported as one; anything else is backed
+            # out the same way and still propagates.
             entries = modelhistory.discard_last(job_dir, entries, staged)
             svc.store.merge_params(job_id, {"model_history": entries})
-            raise Failed(str(exc)) from exc
+            if isinstance(exc, (optimize.OptimizeError, ValueError)):
+                raise Failed(str(exc)) from exc
+            raise
         # optimize.run succeeded: model.glb now is the retargeted mesh, so the
         # version just staged really does describe what it replaced. Only now
         # is it safe to evict past the cap (2026-09-23 audit, finding
@@ -618,6 +630,7 @@ def retexture_job(
     a re-texture queued against a running job would be a second writer with no
     ordering between them. Refusing beats racing.
     """
+    from .. import doctor
     from ..pipelines import retexture
 
     check_job_id(job_id)
@@ -629,6 +642,19 @@ def retexture_job(
     job_dir = svc.job_dir(job_id)
     if not (job_dir / "model.glb").exists():
         raise Invalid("this job has no mesh to re-texture")
+    # At the door, before the row is written, ``remesh_job``'s own check and
+    # sentence: the re-texture's bake and projection run in Blender, so without
+    # bpy the worker would take a queue slot and a GPU lease to fail, and the
+    # row would sit in history as an error. The 2026-10-14 audit, finding
+    # create-panes-03: the panel greys on the same answer, and this is the half
+    # that a caller with no panel (an agent, a script) reaches. ``field`` is
+    # ``prompt`` because the re-texture form has no control for "Blender".
+    if not doctor.blender_check().ok:
+        raise Invalid(
+            "a re-texture runs in Blender, which is not installed "
+            "(`uv sync --extra rig` on Python 3.13)",
+            field="prompt",
+        )
     text = (prompt or "").strip()
     if not text:
         raise Invalid("describe the surface you want", field="prompt")
@@ -841,6 +867,23 @@ def separate_job(
         raise Invalid("only a track can be split into stems", field="source_job")
     if job["status"] in ("queued", "running"):
         raise Conflict(f"job is {job['status']}; split it once it finishes")
+    if job["status"] != "done":
+        # The 2026-10-14 audit, finding muse-jobs-02. Only queued and running
+        # were refused, and ``track.wav``'s existence was then taken for
+        # readiness -- but a take whose row is ``error`` or ``cancelled`` can
+        # hold a partial or corrupt ``track.wav`` (a kill or a full disk inside
+        # the vendored in-place save, which no failure path removes), and
+        # ``files.ready`` already treats that file as not servable and
+        # ``derive_music_job`` refuses the same row. Without this the user paid
+        # for a Demucs run over a file every other surface calls unavailable and
+        # got stems of garbage, served as complete once ``stems.json`` landed.
+        # ``derive_music_job``'s sentence, so the two doors agree.
+        raise Invalid(
+            not_done_message(
+                "this take cannot be split: it", str(job["status"]), noun="audio"
+            ),
+            field="source_job",
+        )
     _require_no_dependents(svc, job_id, "separate", noun="music take")
     job_dir = svc.job_dir(job_id)
     if not (job_dir / "track.wav").exists():

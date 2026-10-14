@@ -28,8 +28,13 @@ defaults to on (such as `REALMSPINNER_NATIVE`) means an unrecognised word leaves
 | `REALMSPINNER_TRELLIS_EXE` | unset | An explicit override for the reconstruction engine binary; unset means the downloaded engine under `REALMSPINNER_TRELLIS_RUNTIME` if present, else `vendor/trellis/trellis-server.exe` in a source checkout. Missing it is a setup row, not a fatal one — the engine is a download. |
 | `REALMSPINNER_TRELLIS_MODELS` | `~/.realmspinner/models/trellis2-gguf` | Where the TRELLIS.2 GGUF weights and `birefnet.gguf` are looked for. |
 | `REALMSPINNER_TRELLIS_RUNTIME` | `~/.realmspinner/engine/trellis` | Where the downloaded engine binaries (`trellis-server.exe`, ggml and the CUDA redistributables) are looked for. Under the home directory rather than the install root so an upgrade does not cost the download again. |
-| `REALMSPINNER_TRELLIS_PORT` | `17971` | The local port the engine subprocess listens on. |
+| `REALMSPINNER_TRELLIS_PORT` | `17971` | The local port the engine subprocess listens on. A whole number from 1 to 65535; anything else is refused with a note in Doctor and the default is used. |
 | `REALMSPINNER_TRELLIS_IDLE` | `600` | Seconds of queue inactivity before resident models are evicted to free VRAM. |
+| `REALMSPINNER_FAMILIAR_RUNTIME` | `~/.realmspinner/engine/llama` | Where Familiar's downloaded `llama-server` and its libraries are looked for. A directory of its own, never trellis's, because the two engines ship differently built `ggml` DLLs and one folder would mix them. |
+| `REALMSPINNER_FAMILIAR_MODELS` | `~/.realmspinner/models/familiar` | Where Familiar's language model and the retrieval embedder are looked for. |
+| `REALMSPINNER_FAMILIAR_PORT` | `17972` | The loopback port Familiar's chat child listens on. A whole number from 1 to 65535, with the same refusal as `REALMSPINNER_TRELLIS_PORT`. |
+| `REALMSPINNER_FAMILIAR_EMBED_PORT` | `17973` | The loopback port of the second, CPU-only child that embeds the Manual and the Library for retrieval. Same range and same refusal. |
+| `REALMSPINNER_FAMILIAR_IDLE` | `300` | Seconds of inactivity before Familiar's chat child is stopped to free VRAM. |
 | `REALMSPINNER_TRELLIS_WEBP` | `off` | Ask the engine for WebP textures instead of PNG. Off is correct: WebP output declares `EXT_texture_webp` as *required*, which Godot's glTF importer refuses rather than skips. |
 | `REALMSPINNER_TRELLIS_TEX_RES` | `512` | Texture resolution. Pinned rather than left on the engine's `auto`, which bakes visible per-texel noise into the base colour atlas at 1024 and 1536. |
 | `REALMSPINNER_TRELLIS_BAND` | unset | Width of the narrow band the mesh extraction runs over. Empty or `auto` omits the flag entirely and lets the engine apply its own heuristic. Measurement says leave it alone — see [Holes or artifacts in a mesh](43-troubleshooting.md#holes-or-artifacts-in-a-mesh). |
@@ -45,20 +50,20 @@ defaults to on (such as `REALMSPINNER_NATIVE`) means an unrecognised word leaves
 | `REALMSPINNER_EVIDENCE_DIR` | `~/.realmspinner/evidence` | Where a bulk delete copies the files of anything you graded, or a benchmark tagged, before removing it. Outside the data directory for `BENCH_DIR`'s reason, and for a measured one: finishing a grading pass is what fires the automatic sweep cleanup, so it was also what deleted the meshes that pass had just judged. `realmspinner doctor` prints the size. |
 | `REALMSPINNER_T2I_ROOT` | `~/.realmspinner/models` | Where every image model lives, with style LoRAs under its `loras/` subdirectory. |
 | `REALMSPINNER_T2I_DIR` | unset | Redirects the built-in `sdxl_cfg` entry (by name; it is the default model) at an arbitrary local diffusers directory. It changes *where* that entry loads from and nothing else. |
-| `REALMSPINNER_T2I_MODEL` | `sdxl_cfg` | The base model key used when a job does not name one. |
+| `REALMSPINNER_T2I_MODEL` | `sdxl_cfg` | The base model key used when a job does not name one. Must be a known base model key; a typo is refused in Doctor and the default is used. |
 | `REALMSPINNER_T2I_IN_PROCESS` | `0` | Loads the image model inside the app process instead of the usual child. Not a speed switch and not recommended: the child costs one spawn per unload cycle and buys back what the in-process loader cannot give, since the allocator's arenas outlive every reference (klein charged +21.1 GiB of host commit on 2026-08-22 and `unload()` returned 0.1 GiB of it). Setting this restores that leak. |
 | `REALMSPINNER_PALETTE_DIR` | `~/.realmspinner/palettes` | Where palette files live (`.hex` from Lospec, `.gpl` from GIMP, `.pal` from Paint Shop Pro, `.txt` from Paint.NET). Ships empty; a missing directory simply means the palette control offers nothing. |
 | `REALMSPINNER_VRAM_EXCLUSIVE` | auto | Restores the sequential VRAM handoff for text jobs. Unset, the mode is chosen from the card's size; set, it is honoured verbatim. See [VRAM modes](#vram-modes). |
 | `REALMSPINNER_VRAM_BUDGET` | unset | Overrides the measured VRAM budget (GiB) that admission control checks jobs against. For a card whose free figure reports low, or for pinning tests. |
 | `REALMSPINNER_VRAM_TOTAL` | unset | Stands in for the device total (GiB) when no GPU is visible — the escape hatch that lets the VRAM planner and `realmspinner doctor` run on a torch-less install. |
 | `REALMSPINNER_RANK` | `on` | Whether a finished reference is scored, for sorting candidates: its composition report, its style anchor when one exists, and a human-preference term when PickScore is installed. |
-| `REALMSPINNER_REFERENCE_RETRIES` | `2` | Extra redraws a text job may spend when the composition report refuses its reference. It was `0`; the 2026-08-07 sweep refused 17 references in 100 and every one of those was a whole mesh job's GPU time lost to a picture that took four seconds to redraw. Set it to `0` to get the old behaviour. |
-| `REALMSPINNER_MESH_RETRIES` | `0` | Extra trellis runs when the finished mesh audits worse than `REALMSPINNER_MESH_HOLE_MAX`. The best attempt is kept, not the last. |
+| `REALMSPINNER_REFERENCE_RETRIES` | `2` | Extra redraws a text job may spend when the composition report refuses its reference. It was `0`; the 2026-08-07 sweep refused 17 references in 100 and every one of those was a whole mesh job's GPU time lost to a picture that took four seconds to redraw. Set it to `0` to get the old behaviour. From 0 to 10; a value outside that is refused with a note in Doctor and the default is used. |
+| `REALMSPINNER_MESH_RETRIES` | `0` | Extra trellis runs when the finished mesh audits worse than `REALMSPINNER_MESH_HOLE_MAX`. The best attempt is kept, not the last. From 0 to 10, with the same refusal as `REALMSPINNER_REFERENCE_RETRIES`. |
 | `REALMSPINNER_MESH_HOLE_MAX` | `0.07` | The worst-view see-through fraction past which a mesh is worth redoing. Measured, not guessed — the hole-rate baseline was taken on the maintainer's own corpus. |
-| `REALMSPINNER_RIG_TEMPLATE` | `humanoid` | Skeleton template a rig request falls back to when it does not name one. |
+| `REALMSPINNER_RIG_TEMPLATE` | `humanoid` | Skeleton template a rig request falls back to when it does not name one. Must be a known template key (`humanoid`, `quadruped`, ...); a typo is refused in Doctor and `humanoid` is used. |
 | `REALMSPINNER_RIG_TIMEOUT` | `1800` | Seconds a single Blender rigging subprocess may run before it is treated as hung. |
-| `REALMSPINNER_POSE_TIMEOUT` | `300` | Seconds for one pose bake. Much tighter, because a bake runs inline rather than on the job queue. |
-| `REALMSPINNER_SHEET_TIMEOUT` | `1800` | Seconds for one sprite-sheet render. Generous because the cell count is yours to choose, but still bounded. |
+| `REALMSPINNER_POSE_TIMEOUT` | `300` | Seconds for one short Blender run made inline: a pose bake, an animated-GLB bake or an FBX export. Much tighter, because these run inline rather than on the job queue. |
+| `REALMSPINNER_SHEET_TIMEOUT` | `1800` | Seconds for one of the Blender runs that render a set of frames: a re-texture's view renders and its projection bake, and the rig deformation-QA sheet. Generous, but still bounded. |
 | `REALMSPINNER_SEPARATION_TIMEOUT` | `1800` | Seconds for one stem-separation subprocess. Generous because a full-length take on the CPU fallback is genuinely slow, but still bounded because this runs on the serial queue. |
 | `REALMSPINNER_LOG_LEVEL` | `INFO` | Logging level for the console and the rotating log file. Case-insensitive (`debug` works); a name that is not a level falls back to `INFO` and says so once in the log. |
 | `REALMSPINNER_ALLOW_UNSAFE_LOCK` | unset | Set to `1` for emergency recovery only. Realmspinner takes a lock on its home, job database and model directory before it opens anything, and refuses to start if it cannot open or take that lock (a read-only data directory, say). `1` lets it start anyway, without that protection, which can corrupt jobs or model files. It does not let a second copy start while another one holds the lock: that is always refused. |
@@ -118,9 +123,11 @@ choice is honoured verbatim — auto-detection never overrules it. `realmspinner
 was chosen and why.
 
 **Coexist.** The engine subprocess starts on the first 3D job and stays resident in
-VRAM alongside the image model. Neither is stopped for the other, and both are evicted after the
-idle timeout (`REALMSPINNER_TRELLIS_IDLE`, ten minutes). On a 32 GB card this is simply faster: a text
-job does not pay to restart the engine, and a mesh job does not pay to reload it.
+VRAM, and the image model is never stopped to make room for it. The two do not stay resident together,
+though: every image stage unloads its checkpoint when it ends, so the engine is the only thing kept
+warm and it is evicted after the idle timeout (`REALMSPINNER_TRELLIS_IDLE`, ten minutes). On a 32 GB
+card this is simply faster: a text job does not pay to restart the engine, and a mesh job does not
+pay to reload it — but the image checkpoint is read from disk again for each image stage.
 
 **Exclusive (`REALMSPINNER_VRAM_EXCLUSIVE=1`).** Restores the sequential handoff for a text job: stop the
 engine, load the image model, generate, unload it, then restart the engine. Every step costs
@@ -205,8 +212,8 @@ assets/
     source.glb             the raw reconstruction, never overwritten
     model.glb              the finished asset, derived from source.glb
     rig.glb, rig.json      once rigged -- beside the mesh they were fitted to
-    poses/<pose_id>.json   one file per saved pose, with its baked .glb beside it
-    sheets/<sheet_id>.png  one sprite sheet, with its JSON sidecar beside it
+    poses/<pose_id>.json   one file per saved pose, with its baked .glb beside it (nothing writes new ones since Poser was removed)
+    sprites/<draft_id>.json a sprite-sheet draft from a drawing, its two candidate PNGs beside it
 ```
 
 Two things about that layout are deliberate and easy to be surprised by. A rig is written into the

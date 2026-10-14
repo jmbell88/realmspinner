@@ -153,7 +153,7 @@ uvx hf download google/gemma-4-12B-it-qat-q4_0-gguf --revision 29d097773436b69ff
 ```
 
 **Retrieval is the second.** `Familiar retrieval (EmbeddingGemma 2)` (registry key `familiar_embed`) is
-a 740M-parameter embedding model served by a second `llama-server` child on the CPU, from the same
+the text block of a 740M-parameter embedding model, served by a second `llama-server` child on the CPU, from the same
 runtime rows above. With it installed, Familiar fuses the meaning-based ranking it gives with the
 keyword (BM25) ranking it always has, so "how do I make the model watertight" finds the section that
 says "manifold" and not only the one that repeats your words, and Library search can find a job by

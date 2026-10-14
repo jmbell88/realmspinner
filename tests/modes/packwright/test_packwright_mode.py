@@ -424,7 +424,8 @@ def test_an_inker_document_contributes_one_sprite_per_frame():
     inker_tab = type("T", (), {"doc": doc, "title": "walk.ora", "uid": "pd1"})()
 
     packwright_mode.add_inker_document(ctx, inker_tab)
-    assert [s.key for s in tab.doc.sprites()] == ["walk#frame0000", "walk#frame0001"]
+    # Keyed on the document (uid), not the title: the 2026-10-14 audit, packwright-03.
+    assert [s.key for s in tab.doc.sprites()] == ["inker-pd1#frame0000", "inker-pd1#frame0001"]
 
 
 def test_an_unknown_setting_is_a_framed_toast_rather_than_a_crash():
@@ -1079,7 +1080,7 @@ def test_an_inker_document_with_no_atlas_starts_one_too():
 
     tab = packwright_mode.active(ctx)
     assert tab is not None
-    assert [s.key for s in tab.doc.sprites()] == ["walk#layer00:Background"]
+    assert [s.key for s in tab.doc.sprites()] == ["inker-pd1#layer00:Background"]
 
 
 # --- W0.2: the empty states told the truth for the first time ---------------

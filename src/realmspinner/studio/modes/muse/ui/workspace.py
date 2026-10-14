@@ -96,7 +96,10 @@ class MuseWorkspace:
         body = imgui.get_content_region_avail().y
         body_h = max(body - (tokens.sp(muse_player.STRIP_H) + gap), 1.0) if strip else body
 
-        flags = imgui.WindowFlags_.no_scroll_with_mouse.value
+        # **The 2026-10-14 audit, finding muse-mode-03.** No
+        # ``no_scroll_with_mouse`` here: it was copied from the canvas
+        # workspaces, which own the wheel for zoom, but this pane is a scrolling
+        # grid of cards and with the flag the wheel did nothing past one screenful.
         with layout_mod.pane(
             "muse-centre",
             # ``centre_width()`` alone. It already answers "what is left once
@@ -109,7 +112,6 @@ class MuseWorkspace:
             # is empty. Muse has no left column to give the space back from.
             (layout_mod.centre_width(), body_h),
             layout_mod.PaneRole.CONTENT,
-            window_flags=flags,
         ) as visible:
             if visible:
                 muse_results.draw(ctx)

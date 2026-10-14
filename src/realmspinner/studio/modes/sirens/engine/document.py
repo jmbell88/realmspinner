@@ -345,6 +345,37 @@ class SongDoc:
 
     # --- identity and state ---------------------------------------------------
 
+    def snapshot(self) -> SongDoc:
+        """A detached copy cheap enough to take on the frame thread, for a task
+        thread to read while the live document goes on being edited.
+
+        What ``rsng_bytes`` followed by ``read_rsng`` bought the previews and
+        the journal without being asked for (the 2026-10-14 audit, finding
+        sirens-playback-02) at the price of a DEFLATE of every pattern and an
+        encode of every sample. The mutable parts are copied: the channel,
+        instrument and one-shot records, and each pattern's cells. **The sample
+        arrays are shared**, because ``add_sample`` stores a private copy and
+        every edit replaces the entry rather than writing into it, so a task
+        holding the reference never sees it change. History is not carried; a
+        snapshot is read, never edited.
+        """
+        return SongDoc(
+            channels=[replace(one) for one in self.channels],
+            instruments=[replace(one) for one in self.instruments],
+            patterns=[
+                Pattern(uid=one.uid, name=one.name, cells=one.cells.copy())
+                for one in self.patterns
+            ],
+            order=list(self.order),
+            oneshots=[replace(one) for one in self.oneshots],
+            samples=dict(self.samples),
+            title=self.title,
+            author=self.author,
+            tempo=self.tempo,
+            speed=self.speed,
+            loop_order=self.loop_order,
+        )
+
     @property
     def dirty(self) -> bool:
         return self.history.head != self.saved_head
@@ -611,8 +642,18 @@ class SongDoc:
         One step, for the reason ``PatternRemoveEdit`` states: a song that
         refers to a pattern which does not exist must not be reachable by
         pressing Ctrl+Z once.
+
+        **A sound effect's own pattern is refused (the 2026-10-14 audit,
+        finding sirens-engine-08).** ``add_oneshot`` mints that pattern for the
+        effect, and removing it used to leave the effect naming nothing: the
+        export raised "that pattern is not in this song" and ``read_rsng``
+        dropped the effect on the next open without a word. Remove the effect.
         """
         pattern = self._require(uid, self.pattern, MISSING_PATTERN)
+        if any(one.pattern == uid for one in self.oneshots):
+            raise ValueError(
+                "that pattern belongs to a sound effect -- remove the sound effect instead"
+            )
         index = self.patterns.index(pattern)
         after = tuple(one for one in self.order if one != uid)
         loop_before = self.loop_order
@@ -676,14 +717,34 @@ class SongDoc:
         if pattern is not None:
             pattern.name = name
 
-    def resize_pattern(self, uid: int, rows: int) -> bool:
+    def resize_pattern(
+        self, uid: int, rows: int, *, keep_from: np.ndarray | None = None
+    ) -> bool:
+        """Give a pattern ``rows`` rows. -> whether anything changed.
+
+        ``keep_from`` is the grid the surviving rows are copied from, for a
+        caller resizing in a gesture (the 2026-10-14 audit, finding
+        sirens-panes-01): the Rows slider reports every frame the pointer
+        moves, each report truncated the grid, and dragging 64 down to 8 and
+        back to 64 left rows 8 to 63 empty. The slider holds the grid as it was
+        when the drag began and hands it here on each frame, so the rows it
+        passed over come back. Ignored if its channel count is not the
+        pattern's.
+        """
         pattern = self._require(uid, self.pattern, MISSING_PATTERN)
         rows = max(MIN_ROWS, min(MAX_ROWS, int(rows)))
         if rows == pattern.rows:
             return False
+        origin = pattern.cells
+        if (
+            keep_from is not None
+            and keep_from.ndim == 3
+            and keep_from.shape[1:] == origin.shape[1:]
+        ):
+            origin = keep_from
         after = empty_cells(rows, pattern.channels)
-        keep = min(rows, pattern.rows)
-        after[:keep] = pattern.cells[:keep]
+        keep = min(rows, origin.shape[0])
+        after[:keep] = origin[:keep]
         self.history.push(E.PatternResizeEdit(pattern=uid, before=pattern.cells, after=after))
         self._apply_pattern_cells(uid, after)
         return True
@@ -741,8 +802,6 @@ class SongDoc:
         unknown = [one for one in after if one not in known]
         if unknown:
             raise ValueError(MISSING_PATTERN)
-        if after == tuple(self.order):
-            return False
         loop_before = self.loop_order
         if loop_order is None:
             loop_after = _carry_loop(tuple(self.order), after, loop_before)
@@ -750,6 +809,15 @@ class SongDoc:
             loop_after = int(loop_order)
             if not -1 <= loop_after < len(after):
                 raise ValueError("the loop point must name an order entry")
+        # **The loop point is part of "nothing changed" (the 2026-10-14 audit,
+        # finding sirens-panes-04).** The equality was on the order alone, so
+        # moving an entry past a neighbour that names the same pattern (order
+        # [a, a, b], loop on entry 1, Up on entry 1) came out as the same list,
+        # returned False and dropped the ``loop_order`` the move was carrying --
+        # the arrow looked dead and the loop stayed on the wrong entry, an
+        # audible difference in the exported ``smpl`` chunk.
+        if after == tuple(self.order) and loop_after == loop_before:
+            return False
         self.history.push(
             E.OrderEdit(
                 before=tuple(self.order), after=after,
@@ -953,9 +1021,11 @@ class SongDoc:
     def update_oneshot(self, uid: int, **values: Any) -> bool:
         oneshot = self._require(uid, self.oneshot, MISSING_ONESHOT)
         self._refuse_bad_fields(oneshot, values, "a sound effect")
-        # An effect naming a pattern the song does not hold passes here and
-        # then fails every export with ``MISSING_PATTERN`` -- and a file saved
-        # that way is one ``read_rsng`` refuses.
+        # An effect naming a pattern the song does not hold would fail every
+        # export with ``MISSING_PATTERN`` -- and ``read_rsng`` would drop it
+        # from a file saved that way without a word (the 2026-10-14 audit,
+        # finding sirens-engine-08: this said the opposite, that the reader
+        # refuses it).
         if "pattern" in values:
             self._require(values["pattern"], self.pattern, MISSING_PATTERN)
         after = replace(oneshot, **values)
@@ -1000,6 +1070,25 @@ class SongDoc:
             return False
         if after is not None and before is None and len(self.samples) >= MAX_SAMPLES:
             raise ValueError(f"a song holds {MAX_SAMPLES} samples")
+        if after is not None:
+            # The reader's own ceiling, at the writer's door. The 2026-10-14
+            # audit, finding sirens-engine-03: only the sample *count* was
+            # bounded here, while ``read_rsng`` refuses a document whose samples
+            # decode to more than ``MAX_DOC_SAMPLE_FRAMES`` -- so five
+            # Muse-length takes (each legal alone) made a song that saved and
+            # journalled and then could not be rendered, played, exported or
+            # reopened. A replacement counts once: what it replaces is not held.
+            # A function-scope import because ``rsng`` imports this module, and
+            # the constant is read from it at call time so one ceiling answers
+            # both doors (and a test that lowers it lowers both).
+            from . import rsng
+
+            held = sum(int(pcm.size) for key_, pcm in self.samples.items() if key_ != key)
+            if held + int(after.size) > rsng.MAX_DOC_SAMPLE_FRAMES:
+                raise ValueError(
+                    f"this song's samples decode to more than the {rsng.MAX_DOC_SAMPLE_FRAMES}"
+                    " frames this build will hold at once"
+                )
         self.history.push(E.SampleEdit(key=key, before=before, after=after))
         self._apply_sample(key, after)
         return True

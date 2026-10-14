@@ -10,7 +10,30 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from pathlib import Path
+
+
+def _installed_build() -> bool:
+    """Whether this is the Windows installer's copy, run by its own ``python``.
+
+    The installer lays the runtime out as ``<app>/python`` beside ``src``, and
+    the shortcuts launch ``<app>/python/pythonw.exe -m realmspinner``. A source
+    checkout runs a ``.venv`` interpreter instead, so the two answer the one
+    question that matters here: which remedy is true. Stdlib only.
+    """
+    from .config import PROJECT_ROOT
+
+    try:
+        return Path(sys.executable).resolve().parent == (PROJECT_ROOT / "python").resolve()
+    except OSError:
+        return False
+
+
+def _launched_without_console() -> bool:
+    """Whether stderr goes nowhere: ``pythonw`` has none, and ``__main__`` points it
+    at the null device so that nothing crashes on a ``print``."""
+    return Path(sys.executable).name.lower() == "pythonw.exe"
 
 
 def main() -> None:
@@ -102,12 +125,37 @@ def main() -> None:
         # naming moderngl or pygame -- accurate, and useless to somebody who
         # installed a thing and ran it (DST-03). The remedy is one line and it
         # is the same line the README opens with.
-        raise SystemExit(
-            f"Realmspinner's window could not be loaded: {exc}\n\n"
-            f"The app's renderer is an optional extra. Install it with:\n\n"
-            f"    uv sync --extra studio --extra text2image --extra rig\n\n"
-            f"`realmspinner doctor` and `realmspinner sweep` work without it."
-        ) from exc
+        #
+        # The 2026-10-14 audit (finding shell-boot-03): the installed app runs
+        # under ``pythonw`` with stderr on the null device, so this text went
+        # nowhere and a missing DLL, a half-extracted upgrade or a pack wipe
+        # looked like double-clicking the icon and nothing happening -- and the
+        # ``uv sync`` line it printed is meaningless on an install with no
+        # ``uv``. ``instance.alert`` (stdlib and ctypes only, no window) is the
+        # answer the "nothing dies quietly before the window exists" rule gives;
+        # it is shown only where nobody would see stderr, so a console run is
+        # not buried under a modal box.
+        installed = _installed_build()
+        if installed:
+            text = (
+                f"Realmspinner's window could not be loaded: {exc}\n\n"
+                f"The installation looks incomplete or damaged (an interrupted update "
+                f"or a removed file is the usual cause). Run the Realmspinner installer "
+                f"again over the existing install to repair it; your library and "
+                f"downloaded models are kept."
+            )
+        else:
+            text = (
+                f"Realmspinner's window could not be loaded: {exc}\n\n"
+                f"The app's renderer is an optional extra. Install it with:\n\n"
+                f"    uv sync --extra studio --extra text2image --extra rig\n\n"
+                f"`realmspinner doctor` and `realmspinner sweep` work without it."
+            )
+        if installed or _launched_without_console():
+            from . import instance
+
+            instance.alert("Realmspinner could not start", text)
+        raise SystemExit(text) from exc
 
     raise SystemExit(run())
 
@@ -127,6 +175,16 @@ def _run_sweep(args: argparse.Namespace) -> None:
         bands = sweep_mod.parse_bands(args.bands or sweep_mod.DEFAULT_BANDS)
     except ValueError as exc:
         raise SystemExit(f"bad --bands: {exc}") from exc
+    # The same refusal for the two numeric flags, before any GPU time is spent
+    # (the 2026-10-14 audit, finding create-workspace-05).
+    try:
+        sweep_mod.parse_resolution(args.resolution)
+    except ValueError as exc:
+        raise SystemExit(f"bad --resolution: {exc}") from exc
+    try:
+        sweep_mod.parse_audit_resolution(args.audit_resolution)
+    except ValueError as exc:
+        raise SystemExit(f"bad --audit-resolution: {exc}") from exc
 
     rows = asyncio.run(
         sweep_mod.sweep(
@@ -184,6 +242,8 @@ def _run_doctor(*, verify: bool = False) -> None:
     print("\nEffective configuration:")
     for setting in effective(config):
         where = f"  <- {setting.env}" if setting.from_env else ""
+        if setting.rejected:
+            where = f"  ({setting.env} {setting.rejected})"
         print(f"  {setting.name} = {setting.value}{where}")
     corrupt = _run_verify(config) if verify else False
     if corrupt or any(not c.ok and c.fatal for c in checks):

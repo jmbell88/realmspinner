@@ -262,6 +262,22 @@ def test_contributing_headless_package_list_matches_pure_packages():
     assert not missing, f"CONTRIBUTING.md never names headless package(s) {missing} (docs-07)"
 
 
+def test_contributing_headless_list_names_no_package_that_is_gone():
+    """The other direction of the gate above (the 2026-10-14 audit, finding
+    docs-A-B-04): the list named ``poser`` for a release after the package
+    left with the Poser removal, and the gate only checked that every real
+    package was named, never that every named one exists."""
+    text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    start = text.index("studio/modes/<name>/engine/` for")
+    section = text[start : text.index("import no", start)]
+    names = set(re.findall(r"`(\w+)`", section))
+    assert names, "the per-mode engine list moved; update this reader"
+    gone = sorted(names - set(editor_packages()))
+    assert not gone, (
+        f"CONTRIBUTING.md names headless engine(s) {gone} that are not packages (docs-A-B-04)"
+    )
+
+
 def test_contributing_md_offline_bullet_names_every_network_worker():
     """CONTRIBUTING.md was the *fifth* copy of this fact, and the one nobody
     counted.
@@ -318,24 +334,25 @@ def test_security_md_file_format_inventory_includes_import_only_mesh_and_animati
     ``*_SOURCE`` native-document suffix (``test_security_md_file_format_
     inventory_includes_every_native_document_suffix`` above, from the
     2026-09-15 audit) but never the *import-only* third-party formats Clay's
-    mesh importer and Poser's clip importer also parse -- ``.obj``/``.stl``/
-    ``.ply`` (``kernels.mesh.meshimport.SUPPORTED_SUFFIXES``) and ``.fbx``/
-    ``.gltf`` (``service.clip_import.SOURCE_EXTENSIONS``). Those are five
-    parsers of untrusted third-party files with no line in the in-scope
-    list. Derived from both modules' own suffix constants, not hand-listed,
-    so a sixth import format enrols itself the way the native-document sweep
-    already does for a seventh native one.
+    mesh importer also parses -- ``.obj``/``.stl``/``.ply``
+    (``kernels.mesh.meshimport.SUPPORTED_SUFFIXES``). Derived from the
+    module's own suffix constant, not hand-listed, so a fourth import format
+    enrols itself the way the native-document sweep already does for a
+    seventh native one.
+
+    The 2026-10-14 audit, finding docs-A-B-02: the list used to also take
+    ``.fbx`` and ``.gltf`` from ``service.clip_import.SOURCE_EXTENSIONS``,
+    Poser's clip importer. Poser is gone and nothing in ``src/`` calls that
+    module, so those two suffixes are not a door a file can arrive by; the
+    list is only what a door can reach (the second test below).
     """
     from realmspinner.kernels.mesh.meshimport import SUPPORTED_SUFFIXES as mesh_import_suffixes
-    from realmspinner.service.clip_import import SOURCE_EXTENSIONS as clip_import_suffixes
 
-    suffixes = sorted(set(mesh_import_suffixes) | set(clip_import_suffixes))
     security = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
-    missing = [suffix for suffix in suffixes if suffix not in security]
+    missing = [suffix for suffix in sorted(mesh_import_suffixes) if suffix not in security]
     assert not missing, (
         f"SECURITY.md's 'Any file the app opens' inventory is missing import-only "
-        f"format(s) {missing} from meshimport.SUPPORTED_SUFFIXES / "
-        f"clip_import.SOURCE_EXTENSIONS (docs-01)"
+        f"format(s) {missing} from meshimport.SUPPORTED_SUFFIXES (docs-01)"
     )
 
 

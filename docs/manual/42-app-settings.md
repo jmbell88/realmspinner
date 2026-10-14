@@ -326,7 +326,7 @@ benchmark run tagged, has its files copied to the evidence archive on the way ou
 accepted ones and the labelled images the quality judge and the tier checks are measured against.
 The verdict rows survive; the pixels behind them do not, and nothing is written to the evidence
 archive either — starting a corpus over is not a request that quietly keeps the largest meshes on the
-disk. Your pose library, Inker autosaves and settings are kept, and it refuses outright while
+disk. Your Inker autosaves and settings are kept, and it refuses outright while
 anything is queued or running.
 
 Both used to sit at the foot of the library, under the list of assets, which is the one place where
@@ -400,18 +400,16 @@ had left it. In the other workspaces the menu row is greyed, with the reason, be
 panes to rearrange yet.
 
 **AI agents.** *Allow AI agents to drive Realmspinner* lets a program that speaks the Model Context
-Protocol build in Clay for you, and take a character from a species name to a rigged, animated
-sprite sheet on its own. It is off on a fresh install and nothing listens until you switch it
+Protocol build and edit models in Clay for you. It is off on a fresh install and nothing listens until you switch it
 on. Doing so writes a key into `mcp.token` in your Realmspinner home and opens a local named pipe: there
 is no port, no firewall prompt, and nothing off your machine can reach it. Realmspinner runs exactly one
 language model of its own, Familiar, on this computer only, and still connects to nothing — an agent
 already running on this computer connects inward to Realmspinner itself, never to Familiar and never the
 other way round. While one is attached the menu bar's status group
-says so. What it may touch is a two-part
-rule: in Clay it works in a tab it opens for itself and cannot address any other document, so
-nothing you have open is at risk; against your character Library it may read any row but can only
-add to it — a new mesh, rig or sprite sheet, or a copy in your export folder — never rewrite,
-re-rig, delete or rerun one, and it can cancel only the jobs it started itself. See
+says so. What it may touch is one rule: it
+works in a Clay tab it opens for itself and cannot address any other document, so nothing you have
+open is at risk. Its only reach beyond that tab is a Library row it reads as a reference, by id, and the
+asset it exports from its own work as a new row; it cannot rewrite, delete or rerun anything. See
 [Extending Realmspinner](46-extending.md#driving-realmspinner-from-an-ai-agent) for the tools it is
 given and how to point one at the app.
 

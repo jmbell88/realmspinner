@@ -229,19 +229,27 @@ def status(
 ) -> dict[str, Any]:
     """What the pane says about one question, without training anything.
 
-    Cheap on purpose -- one DB read and one stat -- because it is what a panel
-    draws. ``trained_at`` is the probe file's mtime: a probe should say *when* it
-    was fitted so a pane can tell a stale one from a fresh one, and the file
-    already knows.
+    Cheap on purpose -- one DB read and a stat per label -- because it is what a
+    panel draws (from a snapshot, never per frame). ``trained_at`` is the probe
+    file's mtime: a probe should say *when* it was fitted so a pane can tell a
+    stale one from a fresh one, and the file already knows.
+
+    **Counts only labels whose image is still on disk** (the 2026-10-14 audit,
+    finding service-gates-11). ``train`` reports the others as ``missing`` and
+    fits on the rest; counting them here let the labelling panel show the
+    threshold met after a prune while ``train`` fitted nothing and the panel
+    said "no probe yet". ``missing`` carries the difference.
     """
     _check_stage(stage)
     fitted = probe(svc, stage)
     path = judge_mod.probe_path(probe_dir(svc), stage)
-    rows = _labels(svc, stage, source)
+    every = _labels(svc, stage, source)
+    rows = [row for row in every if _image_for(svc, row["job_id"]) is not None]
     accepts = sum(1 for row in rows if row.get("verdict") == "accept")
     return {
         "stage": stage,
         "labels": len(rows),
+        "missing": len(every) - len(rows),
         "positives": accepts,
         "negatives": len(rows) - accepts,
         "needed": judge_mod.MIN_PER_CLASS,

@@ -213,6 +213,7 @@ def _render_textured(
         # here; both were no-ops outside the window, which was the whole cost
         # at 400 particles (dev/measurements/
         # 2026-09-13-native-batch-10-candidates.md §3, 1.9s -> ~30ms).
+        # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
         win, patch = result
         tile = out[win.rows, win.cols]
         tile[..., :3] += patch[..., :3]

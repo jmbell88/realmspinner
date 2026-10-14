@@ -22,6 +22,7 @@ resolution, then a centre sample of each remaining group. The argument in
 pixel-art-LoRA output reduced to a 32px tile, which is exactly what happens
 here; only the seamless-torus half of that argument fell away with the ground
 set (deleted 2026-08-18), because a cell in a grid is not a torus.
+(Document lost with the 2026-09-20 backup; re-measure before changing this.)
 
 **The grid mechanism is measured; the art direction is not settled.**
 ``dev/measurements/2026-08-18-tile-sheet-grid.md`` records a four-arm run: the
@@ -102,6 +103,7 @@ ISOMETRIC = "isometric"
 #: nothing. 3/4 shares the rectangle too -- but what SDXL is handed is the
 #: subject clause and the guide, and both of those differ, which is the whole
 #: measured argument (``dev/measurements/2026-08-21-three-quarter-guide.md``).
+#: (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 VIEWS: tuple[str, ...] = (TOP_DOWN, THREE_QUARTER, ISOMETRIC)
 
 #: Stored spellings that are not the canonical one. Read-only: one entry, and a
@@ -308,13 +310,12 @@ def render_guide(geom: SheetGeometry) -> PILImage:
 
     **A 3/4 cell gets the plain rectangle, exactly as a top-down one does, and
     that was measured rather than assumed** --
-    ``dev/measurements/2026-08-21-three-quarter-guide.md``. Two interior marks
-    were tried (a horizon line at 2/3 height, and that plus a hatched front
-    band) and both were *obeyed* and both made the sheet worse: the model drew
-    the mark as a dark stripe rather than a change of plane, and flattened every
-    cell towards the same tile doing it -- the failure mode the grid measurement
-    already named. What carries the view is the subject clause, so there are
-    still exactly two guide shapes here and the third view adds none.
+    ``dev/measurements/2026-08-21-three-quarter-guide.md`` [lost; re-measure to change]. Two
+    interior marks were tried (a horizon line at 2/3 height, and that plus a hatched front band) and
+    both were *obeyed* and both made the sheet worse: the model drew the mark as a dark stripe
+    rather than a change of plane, and flattened every cell towards the same tile doing it -- the
+    failure mode the grid measurement already named. What carries the view is the subject clause, so
+    there are still exactly two guide shapes here and the third view adds none.
     """
     from PIL import Image, ImageDraw
 
@@ -381,6 +382,7 @@ def reduce_cell(pixels: Any, out_w: int, out_h: int) -> Any:
     averaged uncorrelated art pixels into every output pixel and regressed each
     material to its mean colour; a pure centre sample keeps single-pixel noise.
     Measured in ``dev/measurements/2026-08-17-ground-reduction.md``.
+    (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 
     Identity when the target equals the source, and ``m`` degrades to 1 for
     tiles near the cell size, where the stages collapse back to the plain box

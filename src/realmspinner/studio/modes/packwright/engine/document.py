@@ -67,6 +67,25 @@ def check_name(name: str, limit: int = MAX_NAME_LEN) -> None:
         raise ValueError("a sprite name cannot hold a path separator or a control character")
 
 
+def check_display_name(name: str) -> None:
+    """The bound a sprite's *display* name is held to, in one place for both
+    directions of a ``.rpack``.
+
+    The 2026-10-14 audit, finding packwright-09: ``read_rpack`` refused a display
+    name past :data:`MAX_DISPLAY_NAME_LEN` or holding a control character, but
+    ``add_source`` took any ``Sprite.name`` -- a layer name from a foreign
+    ``.ora``/``.aseprite``, a library job name -- so a document could be saved
+    and then refused on reopen, the reopenable-exports contract
+    :func:`_refuse_oversized` already guards for pixels. A ``/`` is allowed on
+    purpose: a layer may hold one and the reader keeps it.
+    """
+    if len(name) > MAX_DISPLAY_NAME_LEN or any(ch < " " for ch in name):
+        raise ValueError(
+            f"a sprite name is at most {MAX_DISPLAY_NAME_LEN} characters "
+            "and cannot hold a control character"
+        )
+
+
 def new_uid() -> int:
     return next(_uids)
 
@@ -358,6 +377,7 @@ class PackDoc:
         named, while the user still has it in front of them.
         """
         _refuse_oversized(sprite)
+        check_display_name(sprite.name)
         _refuse_over_budget(self.total_pixels(), sprite)
         if self.has_key(sprite.key):
             raise ValueError(
@@ -404,6 +424,7 @@ class PackDoc:
                 "reading of one source, not a different one"
             )
         _refuse_oversized(sprite)
+        check_display_name(sprite.name)
         # The replaced source's own pixels come out of the total before the
         # new ones are checked against it -- a same-size or smaller
         # replacement must never be refused for a budget the document already

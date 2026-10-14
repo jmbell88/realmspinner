@@ -25,8 +25,10 @@ import pytest
 from realmspinner import clips
 from realmspinner.kernels import charsheet
 from realmspinner.kernels import sheet as sheetlib
-from realmspinner.kernels.geom3d import glbio
-from realmspinner.kernels.rig import blender_spec, cliplib
+from realmspinner.kernels.geom3d import glbio, glbwrite
+from realmspinner.kernels.mesh import document as clay_document
+from realmspinner.kernels.mesh import primitives as clay_primitives
+from realmspinner.kernels.rig import blender_spec, cliplib, store
 from realmspinner.pipelines import blender_run
 from realmspinner.service import NotReady, derive, files
 from realmspinner.studio import artifacts
@@ -666,22 +668,38 @@ def _accessor_vec3(
     return [tuple(values[i : i + 3]) for i in range(0, len(values), 3)]
 
 
+def _rig_a_box(job_dir):
+    """Run the real rig op over a one-unit box, leaving ``rig.glb`` + ``rig.json``.
+
+    The fixture the bake tests stand on. It used to be a meshless armature from
+    the ``armature`` worker op, whose only other caller was the retired pose
+    editor's preview; that op is gone (the 2026-10-14 audit, finding
+    poser-rig-04), so the subject is now what a user's rig job really produces:
+    ``rig_spec`` -> ``op_rig`` -> ``finalize_rig``, on the smallest mesh the
+    heat solve or its envelope fallback weights.
+    """
+    document = clay_document.ClayDoc()
+    document.objects.append(
+        clay_document.Obj(uid=clay_document.new_uid(), name="Box", mesh=clay_primitives.box())
+    )
+    (job_dir / "model.glb").write_bytes(glbwrite.write_glb(clay_document.to_model(document)))
+    blender_run.run_worker(blender_spec.rig_spec(job_dir, "humanoid"), timeout=600)
+    store.finalize_rig(job_dir)
+
+
 def test_every_authored_clip_comes_back_as_a_named_glTF_animation(svc, tmp_path):
     """The end-to-end claim, through the service's own door.
 
-    The subject is the template's own armature rather than a reconstruction --
-    ``op_armature`` builds it with the same code path a real rig uses -- which
-    is the honest scope: this asks whether the clips bake and land as named,
-    playable tracks, not whether a 300k-face mesh survives the export.
+    The subject is a box rigged with the template's own armature rather than a
+    reconstruction -- ``op_rig`` builds it with the code path a real rig uses --
+    which is the honest scope: this asks whether the clips bake and land as
+    named, playable tracks, not whether a 300k-face mesh survives the export.
     """
     pytest.importorskip("bpy")
 
     job_id = _rigged(svc, rig=False)
     job_dir = svc.job_dir(job_id)
-    blender_run.run_worker(
-        blender_spec.armature_spec("humanoid", job_dir / "rig.glb", tmp_path),
-        timeout=600,
-    )
+    _rig_a_box(job_dir)
     assert (job_dir / "rig.glb").exists()
     (job_dir / "rig.json").write_text(json.dumps({"template": "humanoid"}), "utf-8")
 
@@ -713,13 +731,10 @@ def test_the_bake_applies_the_clips_root_translation_to_the_root_bone(svc, tmp_p
 
     job_id = _rigged(svc, rig=False)
     job_dir = svc.job_dir(job_id)
-    blender_run.run_worker(
-        blender_spec.armature_spec("humanoid", job_dir / "rig.glb", tmp_path),
-        timeout=600,
-    )
+    _rig_a_box(job_dir)
     assert (job_dir / "rig.glb").exists()
-    # poselib.UNIT_LO/UNIT_HI: op_armature fits the preview exactly one
-    # character height tall, so this is the real bounds a rig this shape has,
+    # Clay's default box is one unit tall, so the rig above is exactly one
+    # character height and these bounds are the real ones for a rig this shape,
     # not an arbitrary fixture value.
     (job_dir / "rig.json").write_text(
         json.dumps(

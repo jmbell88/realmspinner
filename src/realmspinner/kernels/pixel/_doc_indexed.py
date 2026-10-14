@@ -935,7 +935,30 @@ class IndexedOps:
         wanted = [tuple(int(channel) for channel in colour) for colour in colours]
         if not wanted or wanted == [tuple(c) for c in (self.palette or [])]:
             return False
-        return self.set_palette(wanted, snap=False)
+        if len(wanted) > ixp.MAX_COLOURS:
+            raise ValueError(f"a palette holds at most {ixp.MAX_COLOURS} colours")
+        # The table has to still name every slot the drawing uses: an index past
+        # its end would be clipped onto the last colour (``ixp.materialize``'s
+        # rule), which is a recolour nobody asked for.
+        planes = [layer.indices for layer in self._index_planes() if layer.indices is not None]
+        top = max((int(plane.max()) for plane in planes), default=0)
+        if len(wanted) <= max(top, self.transparent_index):
+            raise ValueError(
+                f"the new palette has {len(wanted)} colours but the drawing uses slot {top}"
+                if len(wanted) <= top
+                else "the new palette has no slot for the transparent index"
+            )
+        # The 2026-10-14 audit, finding inker-document-09: this used to go
+        # through ``set_palette(snap=False)``, whose indexed branch is
+        # ``convert_to_indexed`` and *re-matches* every pixel to the nearest new
+        # colour -- indices changed and the colours stayed, the opposite of the
+        # verb. A remap moves no plane: the table is assigned and the planes are
+        # re-materialised through it, which is ``recolour_slot``'s door.
+        self.commit_floating()
+        state = self._color_state()
+        self.palette = wanted
+        self._push_color_state(state)
+        return True
 
     # -- mode conversions ---------------------------------------------------
 
@@ -1190,6 +1213,24 @@ class IndexedOps:
             return False
         self.commit_floating()
         state = self._color_state()
+        if _resolved is None and state[0] == "indexed":
+            # **A re-conversion resolves once, now, and replays the answer.**
+            # The step is ``ColorStateEdit`` then the replay, and on redo the
+            # state edit runs first: it re-materialises the planes the undo just
+            # put back through the *new* table, so a replayed
+            # ``_resolve_planes`` that read ``layer.pixels`` resolved from
+            # those wrongly recoloured pixels, where the forward run resolved
+            # from the original ones (red, green, blue came back as blue, red,
+            # green -- the 2026-10-14 audit, finding inker-document-08). A
+            # document that was not indexed has no plane for the state edit to
+            # re-materialise, which is why only this case needs it. The
+            # frame-thread adopter's ``_resolved`` is the same device.
+            _, _resolved = self.resolve_indexed_convert(
+                [(layer.uid, layer.pixels) for layer in self._index_planes()],
+                wanted,
+                method,
+                hole,
+            )
         self.color_mode = "indexed"
         self.palette = wanted
         self.transparent_index = hole

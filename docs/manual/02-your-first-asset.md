@@ -128,7 +128,7 @@ than you might expect. Two of them matter enough to name:
 - **`source.glb`** is the raw reconstruction, exactly as the engine produced it.
 - **`model.glb`** is derived from it — optimised, then re-centred, scaled and stood on the ground.
 
-**Everything downstream uses `model.glb`.** Rigging, posing, sprite sheets, every export, and
+**Everything downstream uses `model.glb`.** Rigging, posing, every export, and
 "Open in Clay" all take the derived file, never the raw one. `source.glb` is kept because it is the
 evidence — the thing every derived file can be rebuilt from — not because you are meant to use it.
 Editing it directly would be invisible to everything else in the app.

@@ -8,12 +8,11 @@ that settles it is an attempted load.
 
 **It runs out of process, and the reason is measured rather than assumed.**
 Loading BiRefNet on the CPU costs **1475 MB** of RSS on this machine
-(``dev/measurements/2026-08-08-load-probe-memory.md``), and the memory does not
-come back: dropping every reference and calling ``gc.collect()`` leaves
-1053 MB resident, because what is holding it is the allocator's arenas
-rather than a live object. So an in-process check is a gigabyte spent on every
-launch, for the life of the process, to make one row say "loads" -- on a user
-who may never do a 2D export. Realmspinner's worst crash to date is host-commit
+(``dev/measurements/2026-08-08-load-probe-memory.md`` [lost; re-measure to change]), and the memory
+does not come back: dropping every reference and calling ``gc.collect()`` leaves 1053 MB resident,
+because what is holding it is the allocator's arenas rather than a live object. So an in-process
+check is a gigabyte spent on every launch, for the life of the process, to make one row say "loads"
+-- on a user who may never do a 2D export. Realmspinner's worst crash to date is host-commit
 exhaustion; that is exactly the wrong trade.
 
 A child pays the same gigabyte and then dies with it. This is

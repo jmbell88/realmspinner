@@ -186,6 +186,28 @@ class PaintOps:
         )
         return True
 
+    def cancel_stroke(self: MapDoc) -> bool:
+        """Close the session and put every touched cell back. -> whether one was open.
+
+        Pushes **no** step: the drag is abandoned, not committed. ``end_stroke``
+        is the other way out, and it is what Esc reached through the canvas's
+        idle-frame recovery -- which committed the half stroke the user had just
+        asked to cancel (the 2026-10-14 audit, finding plotter-mode-32). The
+        snapshot taken at press, kept in the map's coordinates by
+        :meth:`_reframe_stroke`, is what goes back.
+        """
+        stroke, self._stroke = self._stroke, None
+        if stroke is None:
+            return False
+        if stroke["box"] is None:
+            return True
+        layer = self.layer(int(stroke["uid"]))
+        if not isinstance(layer, TileLayer):
+            return True
+        x0, y0, x1, y1 = stroke["box"]
+        self._blit(int(stroke["uid"]), x0, y0, stroke["before"][y0:y1, x0:x1])
+        return True
+
     # -- the hook the edits call back into -------------------------------------
 
     def _blit(self: MapDoc, uid: int, x0: int, y0: int, block: np.ndarray) -> None:

@@ -156,6 +156,7 @@ def _camera_json(node: CameraNode) -> dict[str, Any]:
 def _node_json(
     record: ExportedNode, parent: str | None, doc: MasonDoc
 ) -> dict[str, Any]:
+    world = m3.decompose_with_shear(np.asarray(record.world, dtype="f8"))
     entry: dict[str, Any] = {
         "name": record.name,
         "kind": record.kind,
@@ -174,8 +175,17 @@ def _node_json(
         # the decomposition is done once, here, by the module that owns the
         # convention, rather than by every reader against a 4x4 of numbers
         # whose handedness they would each have to assume.
-        "world": _trs(*m3.decompose(np.asarray(record.world, dtype="f8"))),
+        "world": _trs(*world[:3]),
     }
+    if world[3] is not None:
+        # The 2026-10-14 audit, finding mason-engine-06: a non-uniformly scaled
+        # ancestor over a rotated descendant leaves a sheared world matrix, which
+        # no translation/rotation/scale can express, and ``decompose`` answered
+        # it with a rotation quaternion of norm 0.985 and a composition up to
+        # 0.45 off the true world. The unit-rotation answer above is the nearest
+        # TRS; this flag says it is not exact, so a script that places an object
+        # from it without rebuilding the hierarchy knows to rebuild instead.
+        entry["world_approximate"] = True
     if record.static:
         entry["static"] = True
     if record.locked:
@@ -296,14 +306,31 @@ def scene_manifest(
     prefabs = _prefabs_json(export)
     if prefabs:
         manifest["prefabs"] = prefabs
+    missing: list[dict[str, Any]] = []
     if export.unresolved:
         # The same loss the GLB shows as a node with no mesh, said in words.
         # ``Model.skipped_textures`` is the precedent: a loss that is stated
         # is not the same as a loss that is invisible.
-        manifest["missing"] = [
+        missing.extend(
             {"node": export.nodes[index].name, **(_source_json(ref) or {})}
             for index, ref in export.unresolved
-        ]
+        )
+    # The 2026-10-14 audit's mason-engine-10: an instance whose template is gone
+    # has no node in the GLB at all, so it is named here, by its outliner name
+    # and uid, beside the dangling library refs -- the manifest's "missing" was
+    # the only place a scene exported with a hole in it said so.
+    missing.extend(
+        {
+            "node": dropped.name,
+            "kind": "prefab",
+            "uid": dropped.uid,
+            "template": dropped.template,
+            "reason": dropped.reason,
+        }
+        for dropped in export.unexpanded
+    )
+    if missing:
+        manifest["missing"] = missing
     return manifest
 
 

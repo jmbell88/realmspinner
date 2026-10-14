@@ -295,6 +295,14 @@ def _history_popup(ctx: Any, form: dict[str, Any]) -> None:
             label = entry if len(entry) <= 60 else entry[:57] + "..."
             if controls.menu_item(f"{label}##{hash(entry)}", "", False)[0]:
                 form["prompt"] = entry
+                # What ``_prompt`` does for a typed edit. The 2026-10-14 audit,
+                # finding create-brief-04: this route wrote the form and skipped
+                # both, so a refusal ring and its message stayed beside a valid,
+                # freshly chosen prompt until the next press.
+                ctx.state.clear_field_error("prompt")
+                from . import workspace
+
+                workspace.touch_prompt(ctx, True)
         imgui.end_popup()
 
 
@@ -432,6 +440,19 @@ def _prompt(ctx: Any, form: dict[str, Any], width: float, *, height: float = PRO
     _ring(ctx, "prompt")
 
 
+def nearest_count(counts: tuple[int, ...], value: Any) -> int:
+    """The pill in ``counts`` closest to ``value``; the smaller one on a tie. **Pure.**
+
+    The smaller, because the larger is the more expensive press and the user
+    asked for neither.
+    """
+    try:
+        wanted = int(value)
+    except (TypeError, ValueError):
+        wanted = counts[0]
+    return min(counts, key=lambda n: (abs(n - wanted), n))
+
+
 def _count(
     ctx: Any,
     form: dict[str, Any],
@@ -459,6 +480,13 @@ def _count(
     centring in a row that no longer exists.
     """
     hints = _MESH_COUNT_HINTS if counts is _MESH_COUNTS else _COUNT_HINTS
+    if current not in counts:
+        # The 2026-10-14 audit, finding create-brief-05: the door takes any Images
+        # count from 1 to 8 and the pills offer four, so a form holding 3 (Copy
+        # settings of an API job) showed no pill selected, stepped the arrow keys
+        # from index 0, and a press drew a count nothing on screen displayed. The
+        # form takes the pill that is shown.
+        current = form[key] = nearest_count(counts, current)
     imgui.begin_group()
     imgui.push_item_width(sp(COUNT_W))
     with focus.item(ctx.state, FOCUS_PANE, "count") as focused:
@@ -750,6 +778,17 @@ def _max_prompt() -> int:
 
 
 def _enter_pressed() -> bool:
+    """Enter as a *press* of the focused control, never as typing.
+
+    The 2026-10-14 audit, finding muse-07 (the same shape found here): the Tab
+    ring can rest on Generate (or the source chip) while the caret is in the
+    prompt, and an Enter typed there is a newline, so it also pressed the button
+    and started a generation from a half-written brief. ``want_text_input`` is
+    true while any text field holds the caret, which is exactly the case where
+    Enter belongs to the field.
+    """
+    if imgui.get_io().want_text_input:
+        return False
     return imgui.is_key_pressed(imgui.Key.enter) or imgui.is_key_pressed(imgui.Key.keypad_enter)
 
 
@@ -775,8 +814,8 @@ def _character_hint() -> str:
 
     plans = create_character.body_plans_phrase(len(archetypes()))
     return (
-        f"{_species_count()} species across {plans}, built and animated "
-        f"into a sprite sheet. No GPU needed."
+        f"{_species_count()} species across {plans}, built and rigged, ready to "
+        f"pose and animate in Clay. No GPU needed."
     )
 
 
@@ -791,8 +830,11 @@ TYPE_HINTS: dict[str, str] = {
     "sprite_sheet": "A character in several frames and directions.",
     # The real scope, in one line, because every other hint here describes an
     # SDXL request and this one describes the opposite: a body built from the
-    # species registry, rigged and rendered on the CPU. "No GPU needed" is the
-    # half a user with a small card most needs to read.
+    # species registry and rigged on the CPU. It ends at a rigged mesh, not a
+    # sprite sheet (the 2026-10-14 audit, findings create-brief-02 and
+    # create-workspace-02: eed32549 removed the sheet stage and this line kept
+    # promising one). "No GPU needed" is the half a user with a small card most
+    # needs to read.
     #
     # The species count is *counted*, never typed: a sibling adding a row to
     # ``characters.family._FAMILIES`` must not leave a tooltip promising the

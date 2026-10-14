@@ -302,7 +302,12 @@ def test_arriving_at_a_sprite_draft_keeps_its_just_made_marker(monkeypatch):
     monkeypatch.setattr(create_stages, "go", lambda *a, **k: None)
     monkeypatch.setattr(widgets, "request_open", lambda key: None)
     state = SimpleNamespace(preview={})
-    ctx = SimpleNamespace(state=state, cache=SimpleNamespace(get=lambda _i: None))
+    # The reference is in the cache: a follow-up whose source is not goes to the
+    # Library on the source id instead (the 2026-10-14 audit, finding shell-49),
+    # which is a different arrival from the one this test is about.
+    ctx = SimpleNamespace(
+        state=state, cache=SimpleNamespace(get=lambda i: {"id": i} if i == "REF" else None)
+    )
 
     asset_open.open_asset(ctx, _done("sprite_synthesis", source_job="REF", draft_id="D1"))
     sprite_panel._form(ctx, "REF")  # the panel's first draw for the reference

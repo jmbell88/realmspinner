@@ -20,6 +20,15 @@ from . import retired
 
 log = logging.getLogger(__name__)
 
+#: The kinds ``create_job`` mints for an actual reconstruction request, and so
+#: the only kinds whose finished rows carry a mesh a grade can be about. Every
+#: derived kind (rig, remesh, retexture, sprite_synthesis, separate, lora_train
+#: and the retired sheet rows) also sits at stage ``model`` without a
+#: generation vector. ``unverdicted_models`` filters on this, and so does
+#: ``service.verdicts.record_verdict`` since the 2026-10-14 audit (finding
+#: service-gates-03): the door had checked stage only.
+RECONSTRUCTION_KINDS = ("text", "image")
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
     id          TEXT PRIMARY KEY,
@@ -353,12 +362,11 @@ MIGRATIONS: list[list[str]] = [
     # two-spellings hazard.
     #
     # The backfill is +-3 rather than +-5, and the value is argued in
-    # ``dev/measurements/2026-08-09-grade-scale.md``: a reviewer who pressed
-    # Accept asserted "usable" and had no key for anything stronger, so +-5 would
-    # invent evidence 84 times over and leave every real grade recorded later
-    # sitting inside synthetic tails. It is the same number as ``USABLE_GRADE``
-    # by design -- a cut above +3 would silently demote every row these UPDATEs
-    # just wrote.
+    # ``dev/measurements/2026-08-09-grade-scale.md`` [lost; re-measure to change]: a reviewer who
+    # pressed Accept asserted "usable" and had no key for anything stronger, so +-5 would invent
+    # evidence 84 times over and leave every real grade recorded later sitting inside synthetic
+    # tails. It is the same number as ``USABLE_GRADE`` by design -- a cut above +3 would silently
+    # demote every row these UPDATEs just wrote.
     #
     # The literals are literals rather than an f-string over ``vectors``: a
     # shipped migration must mean the same thing forever, and interpolating a
@@ -708,6 +716,13 @@ class JobStore:
         backup is the one file where believing a bad copy is worst.
         """
         dest = Path(dest)
+        # The 2026-10-14 audit (finding service-queue-05): a destination that is
+        # this store's own file would ``os.replace`` over the live database --
+        # which the open connection blocks, as a raw ``PermissionError`` with a
+        # long temp path. Refused by name instead (``library.backup`` turns it
+        # into the user-facing refusal before it gets here).
+        if dest.exists() and Path(self._path).exists() and os.path.samefile(dest, self._path):
+            raise ValueError("a backup cannot be written over the store itself")
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_name(f".{dest.name}.{secrets.token_hex(4)}.tmp")
         try:
@@ -1975,8 +1990,8 @@ class JobStore:
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM jobs WHERE status = 'done' AND stage = 'model'"
-                " AND kind IN ('text', 'image') AND deleted_at IS NULL"
-                " AND sweep_id IS NULL"
+                f" AND kind IN ({', '.join(repr(k) for k in RECONSTRUCTION_KINDS)})"
+                " AND deleted_at IS NULL AND sweep_id IS NULL"
                 " AND NOT EXISTS (SELECT 1 FROM verdicts v WHERE v.source = ?"
                 " AND v.stage = 'model' AND v.job_id = jobs.id)"
                 " ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -2086,17 +2101,27 @@ class JobStore:
         return [self._observation_to_dict(r) for r in rows]
 
     def history_jobs(self) -> list[dict[str, Any]]:
-        """Every text/image job, as the light columns the generation log reads.
+        """Every text/image job, and any job a verdict or observation names, as the
+        light columns the generation log reads.
 
         One statement, params parsed, and no ``SELECT *``: the log wants the
         job beside its verdicts, and fetching them per row is the N+1 this
         method exists to avoid. Trashed rows are included (``deleted_at`` says
         so) because a trashed job is still a job with a history.
+
+        **Any kind that was judged, not only text/image** (the 2026-10-14 audit,
+        finding create-workspace-01): the grade section opens for any finished
+        model row, so a rig or retexture row can carry a verdict, and the log
+        reads "this job no longer exists" from "this job is not in this list".
+        Selecting only the two kinds listed a live, graded rig as deleted work
+        with Open disabled.
         """
         with self._lock:
             rows = self._conn.execute(
                 "SELECT id, kind, status, stage, prompt, params, created_at,"
                 " deleted_at FROM jobs WHERE kind IN ('text', 'image')"
+                " OR id IN (SELECT job_id FROM verdicts)"
+                " OR id IN (SELECT job_id FROM observations)"
             ).fetchall()
         return [self._to_dict(r) for r in rows]
 

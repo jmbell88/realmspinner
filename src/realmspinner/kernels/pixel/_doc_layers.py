@@ -39,6 +39,7 @@ from .undo import (
     LayerPropsEdit,
     LayerRemoveEdit,
     MatteEdit,
+    ReplayEdit,
     one_step,
 )
 
@@ -894,7 +895,16 @@ class LayerOps:
             # The merged pixels carry this slot's own dimming now, so leaving
             # the number on would apply it a second time -- the track's
             # opacity's argument, one level down.
-            if lower_alpha != 1.0:
+            #
+            # **Only where there was a lower cel to dim.** ``lower_alpha`` is
+            # ``0.0`` for an empty lower slot -- a stand-in for the memo key
+            # above, not a value anybody set -- and recording it as the
+            # ``before`` made an undo write a real ``0.0`` into
+            # ``cel_opacity`` for a slot that holds no cel, so whatever was
+            # drawn there next vanished once the frame was rebuilt (the
+            # 2026-10-14 audit, finding inker-document-07). ``set_cel_opacity``
+            # refuses empty slots for exactly this reason.
+            if lower is not None and lower_alpha != 1.0:
                 self._set_cel_opacity(lower_track.uid, frame.uid, 1.0)
                 edits.append(
                     CelOpacityEdit(lower_track.uid, frame.uid, lower_alpha, 1.0)
@@ -943,7 +953,31 @@ class LayerOps:
         # with a new identity, stranding every patch recorded above it. The uid
         # is drawn once and closed over, so every replay lands on the same one.
         uid = new_uid()
-        self._replay(lambda: self._do_flatten(uid))
+        self._replay_replacing_layers(lambda: self._do_flatten(uid))
+
+    def _replay_replacing_layers(self: Document, run: Any) -> None:
+        """:meth:`_replay` for an op that throws every layer away.
+
+        The step it pushes holds the discarded layer *objects*, not copies of
+        them, and puts those same objects back on undo (``ReplayEdit.keep``).
+        An older step that holds one of them (``LayerAddEdit``, ``CelSetEdit``,
+        ``TrackAddEdit``, ``FrameAddEdit``) would otherwise be redone against a
+        stranger: the copy a plain snapshot restore installs is a different
+        object, so the older whole-canvas steps undone and redone after it
+        rewrote the copy and left the one that step holds stale -- the
+        2026-10-14 audit, finding inker-document-04.
+
+        Taken from here rather than inside ``_replay`` because that lives in
+        ``document.py``; the snapshot's order is the one ``_replay`` takes
+        (``self.stack``, or ``unique_cel_layers`` on a grid), and the grid
+        record indexes into it, so the two lists line up exactly.
+        """
+        layers = list(self.stack if self.anim is None else self.anim.unique_cel_layers())
+        self._replay(run)
+        step = self.history.top
+        if isinstance(step, ReplayEdit) and len(step.snapshot) == len(layers):
+            step.snapshot = layers
+            step.keep = True
 
     def _flatten_grid(self: Document) -> None:
         """Collapse an animated document to one track, frame by frame.
@@ -979,7 +1013,9 @@ class LayerOps:
         partition = list(groups.values())
         uids = [new_uid() for _ in partition]
         track_uid = new_uid()
-        self._replay(lambda: self._do_flatten_grid(partition, uids, track_uid))
+        self._replay_replacing_layers(
+            lambda: self._do_flatten_grid(partition, uids, track_uid)
+        )
 
     def _do_flatten_grid(
         self: Document, partition: list[list[int]], uids: list[int], track_uid: int

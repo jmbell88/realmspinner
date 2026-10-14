@@ -32,8 +32,8 @@ import struct
 
 import numpy as np
 
+from . import anim, objimport, shading, topo
 from . import mesh as bm
-from . import objimport, shading, topo
 from .document import ClayDoc, Obj, new_uid
 from .elements import OpError
 from .glbimport import MAX_OBJECTS, MAX_TRIANGLES
@@ -244,6 +244,56 @@ def mesh_file_to_claydoc(
     return ClayDoc(objects=objects)
 
 
+def _conjugate_animations(doc: ClayDoc, matrix: np.ndarray) -> None:
+    """Move every animation key into the frame the bone objects were just moved into.
+
+    The 2026-10-14 audit, finding clay-io-01: the import scale and up axis
+    conjugated each object's rest transform (``M @ local @ M^-1``) and left the
+    keys of ``doc.rig_state`` as the file recorded them, so a clip played with
+    its bones in the wrong place -- at scale 0.01 a knee keyed 1 m up read 1 m
+    from its parent instead of 1 cm. A key is an absolute local transform, so
+    the same conjugation applies to it, property by property: a translation goes
+    through ``M``'s linear part (scale included), a rotation's axis through the
+    axis rotation alone (the scale cancels, and ``w`` is the angle), and a scale
+    key's three factors are permuted by the axis rotation. ``M`` is
+    :func:`.objimport.axis_matrix`: a uniform scale times either the identity or
+    a signed 90 degree turn, so each of those is exact.
+    """
+    if not doc.rig_state.animations:
+        return
+    linear = np.asarray(matrix, dtype="f8")[:3, :3]
+    factor = float(np.cbrt(abs(np.linalg.det(linear))))
+    turn = linear / factor
+    permute = turn * turn  # (R S R^T) is diagonal for a signed permutation: diag = R**2 @ s
+
+    def moved(prop: str, values: np.ndarray) -> np.ndarray:
+        if prop == "translation":
+            return values @ linear.T
+        if prop == "rotation":
+            return np.concatenate([values[:, :3] @ turn.T, values[:, 3:]], axis=1)
+        return values @ permute.T
+
+    animations = []
+    for animation in doc.rig_state.animations:
+        channels: dict[int, dict[str, anim.Channel]] = {}
+        for uid, props in animation.channels.items():
+            channels[uid] = {}
+            for prop, channel in props.items():
+                with np.errstate(over="ignore", invalid="ignore"):
+                    values = moved(prop, np.asarray(channel.values, dtype="f8"))
+                    fits = np.isfinite(values).all() and np.isfinite(values.astype("f4")).all()
+                if not fits:
+                    raise OpError(
+                        "The import scale moves an animation key too far for Clay's float32 "
+                        "positions. Use a smaller scale."
+                    )
+                channels[uid][prop] = anim.Channel(channel.times, values)
+        animations.append(
+            anim.Animation(animation.name, animation.loop, animation.interpolation, channels)
+        )
+    doc.rig_state = doc.rig_state.with_animations(animations)
+
+
 def import_file(
     data: bytes,
     suffix: str,
@@ -288,7 +338,10 @@ def import_file_report(
     (``M @ local @ M^-1``), so each object's world placement is ``M`` times the
     unscaled one and a node ten metres away stays in lockstep with its mesh.
     (STL and PLY have no node transform, so for them ``M`` is applied to the
-    positions alone -- :func:`.objimport.axis_matrix`'s docstring.) The 2026-10-09
+    positions alone -- :func:`.objimport.axis_matrix`'s docstring.) The
+    animation keys of a rigged GLB are conjugated by the same matrix
+    (:func:`_conjugate_animations`), so a clip plays in the frame its bones
+    were moved into. The 2026-10-09
     second audit's clay-116: this used to say the transform was left alone,
     which is the bug the 2026-09-26 audit's clay-io-01 fixed.
 
@@ -372,6 +425,7 @@ def import_file_report(
                         "positions. Use a smaller scale."
                     )
                 obj.translation, obj.rotation, obj.scale = t, r, s
+            _conjugate_animations(doc, matrix)
         return doc, skipped
     raise OpError(
         f"Clay does not import {suffix!r} files. It reads "

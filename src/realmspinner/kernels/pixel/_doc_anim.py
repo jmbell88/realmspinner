@@ -326,6 +326,37 @@ class AnimOps:
 
     # -- frames -------------------------------------------------------------
 
+    def _inherit_frame_tables(
+        self: Document, source: Frame, frame: Frame, track_uids: Any
+    ) -> None:
+        """Give a duplicated frame the side tables of the frame it came from.
+
+        The per-slot tables (``cel_opacity``, ``cel_z``, ``cel_notes``) are keyed
+        on ``(track uid, frame uid)`` and ``frame_palettes`` on the frame alone,
+        so a duplicate starts with none of them: the 2026-10-14 audit, finding
+        inker-document-03, found a faded cel coming back at full strength, a
+        lifted one dropped to its track's position, a note lost and an indexed
+        frame reverting to the document's table. ``duplicate_layer`` already
+        carries the same three per slot, for the same reason.
+
+        Written straight into the dicts before the insert, with no edit of their
+        own: these tables keep entries for a dead frame (see
+        ``Animation.cel_opacity``), so undoing the add leaves them harmlessly
+        keyed on a uid nothing reads, and redoing it finds them where they were.
+        """
+        anim = self._require_anim()
+        for track_uid in track_uids:
+            slot = (track_uid, source.uid)
+            if slot in anim.cel_opacity:
+                anim.cel_opacity[(track_uid, frame.uid)] = anim.cel_opacity[slot]
+            if slot in anim.cel_z:
+                anim.cel_z[(track_uid, frame.uid)] = anim.cel_z[slot]
+            if slot in anim.cel_notes:
+                anim.cel_notes[(track_uid, frame.uid)] = anim.cel_notes[slot]
+        table = anim.frame_palettes.get(source.uid)
+        if table is not None:
+            anim.frame_palettes[frame.uid] = list(table)
+
     def add_frame(
         self: Document, index: int | None = None, *, link: bool = False, copy: bool = False
     ) -> Frame:
@@ -354,6 +385,8 @@ class AnimOps:
                 cel = anim.cels.get((track.uid, source.uid))
                 if cel is not None:
                     cels[track.uid] = cel if link else cel.copy(name=cel.name)
+        if link or copy:
+            self._inherit_frame_tables(source, frame, cels)
         # The playhead moves *before* the insert, so ``_put_frame``'s own
         # ``_anim_changed`` materialises the new frame -- rather than after it,
         # which meant rebuilding the whole view twice for one click.
@@ -500,6 +533,7 @@ class AnimOps:
         rows under the active layer are finished business and a lift is exactly
         the thing that makes them not. Measured in
         ``dev/measurements/2026-08-30-cel-z-below-cache.md``.
+        (Document lost with the 2026-09-20 backup; re-measure before changing this.)
         """
         slot = self._slot(track_index, frame_index)
         anim = self.anim

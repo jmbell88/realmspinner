@@ -807,27 +807,29 @@ class PlotterState(docmodes.DocTabs[PlotterDoc]):
             cell = getattr(self, name)
             if cell is not None:
                 setattr(self, name, (cell[0] + dx, cell[1] + dy))
-        for name in ("select", "select_before"):
-            rect = getattr(self, name)
-            if rect is not None:
-                setattr(
-                    self,
-                    name,
-                    (rect[0] + dx, rect[1] + dy, rect[2] + dx, rect[3] + dy),
-                )
-        if self.select_mask is not None:
-            import numpy as np
-
-            width, height = int(size[0]), int(size[1])
-            rows, columns = self.select_mask.shape
-            if dy + rows <= height and dx + columns <= width and dx >= 0 and dy >= 0:
-                grown = np.zeros((height, width), dtype=bool)
-                grown[dy : dy + rows, dx : dx + columns] = self.select_mask
-                self.select_mask = grown
-            else:
-                # Cannot be placed, so the rect stands alone -- the same safe
-                # direction ``selection_mask_in`` takes.
-                self.select_mask = None
+        rect = self.select
+        if rect is not None:
+            self.select = _shifted_rect(rect, dx, dy)
+        self.select_mask = _shifted_mask(self.select_mask, dx, dy, size)
+        # ``select_before`` and ``capture_select_before`` are not rects: both are
+        # ``(rect, mask)`` pairs, the selection a gesture will put back or combine
+        # with. Treated as a 4-tuple they raised ``TypeError`` out of ``_room_for``
+        # on the first growth after a missed marquee release (the 2026-10-14
+        # audit, finding plotter-16), and a pair left unshifted would restore the
+        # selection one growth to the left of where the user made it.
+        for name in ("select_before", "capture_select_before"):
+            pair = getattr(self, name)
+            if pair is None:
+                continue
+            before_rect, before_mask = pair
+            setattr(
+                self,
+                name,
+                (
+                    None if before_rect is None else _shifted_rect(before_rect, dx, dy),
+                    _shifted_mask(before_mask, dx, dy, size),
+                ),
+            )
 
     # -- the object selection --------------------------------------------------
     #
@@ -987,6 +989,31 @@ def ensure(ctx: Any) -> PlotterState:
         state = PlotterState()
         ctx.state.plotter = state
     return state
+
+
+def _shifted_rect(rect: Any, dx: int, dy: int) -> tuple[int, int, int, int]:
+    return (rect[0] + dx, rect[1] + dy, rect[2] + dx, rect[3] + dy)
+
+
+def _shifted_mask(mask: Any, dx: int, dy: int, size: tuple[int, int]) -> Any:
+    """``mask`` placed into the grown window, or ``None`` when it cannot be.
+
+    Padded rather than dropped (see :meth:`PlotterState.shift_cells`): a growth
+    is not a user resize, so the mask can be placed exactly.
+    """
+    if mask is None:
+        return None
+    import numpy as np
+
+    width, height = int(size[0]), int(size[1])
+    rows, columns = mask.shape
+    if dy + rows <= height and dx + columns <= width and dx >= 0 and dy >= 0:
+        grown = np.zeros((height, width), dtype=bool)
+        grown[dy : dy + rows, dx : dx + columns] = mask
+        return grown
+    # Cannot be placed, so the rect stands alone -- the same safe direction
+    # ``selection_mask_in`` takes.
+    return None
 
 
 def active(ctx: Any) -> PlotterDoc | None:

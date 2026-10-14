@@ -25,6 +25,7 @@ results by prefix: a key without one is a result delivered nowhere.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -176,6 +177,22 @@ def ask_add_tileset(ctx: Any) -> None:
     ctx.submit(f"packwright-tileset:{uid}", run)
 
 
+def _tile_prefix(path: str, tile: tuple[int, int]) -> str:
+    """One tile import's key prefix: the sheet's stem and a digest of where it
+    came from, then the cut.
+
+    The 2026-10-14 audit, finding packwright-04: this was the raw absolute path,
+    which the ``.rpack`` manifest then carried -- the author's directory layout
+    in a shared atlas, and the same sheet from another folder or machine a
+    different set of sprites. ``file_key`` is the rule a loose image already
+    follows, for exactly that reason; the digest still keeps two different
+    sheets apart.
+    """
+    from .engine.sources import file_key
+
+    return f"{file_key(path)}@{int(tile[0])}x{int(tile[1])}"
+
+
 def import_tileset(ctx: Any) -> bool:
     """Slice the pending sheet with the popup's cell size and add the tiles.
 
@@ -221,17 +238,30 @@ def import_tileset(ctx: Any) -> bool:
         return False
     path, stem, pixels = state.tileset_import
     tile = state.tileset_cell
-    try:
-        sprites = sprites_from_tileset(
-            pixels, tile=tile, prefix=f"{path}@{tile[0]}x{tile[1]}", name=stem
-        )
-    except ValueError as exc:
-        docmodes.refuse(ctx, f"That tile set was not imported: {exc}")
-        return False
-    if state.tileset_dedup:
-        sprites, _dropped = dedup_tiles(
-            sprites, orientations=state.tileset_dedup_flips
-        )
+    # **The slice and the dedup were already done, off the frame thread.** The
+    # 2026-10-14 audit, finding packwright-05: Import re-ran both on the press
+    # (633 ms on a 4096 px sheet of 64 px tiles with "match flipped / rotated",
+    # frozen frame loop) although the popup's preview task had computed the very
+    # same sprites -- and the Import button is greyed until that task's answer
+    # for the *current* inputs has landed, so it is always there to be reused.
+    # The compute below is the fallback for a caller that never opened the popup
+    # (a programmatic import), not a path the UI reaches.
+    ready = getattr(state, "_pw_preview_sprites", None)
+    key = tileset_preview_key(pixels, tile, state.tileset_dedup, state.tileset_dedup_flips)
+    if ready is not None and ready[0] == key and ready[1] is not None:
+        sprites = list(ready[1])
+    else:
+        try:
+            sprites = sprites_from_tileset(
+                pixels, tile=tile, prefix=_tile_prefix(path, tile), name=stem
+            )
+        except ValueError as exc:
+            docmodes.refuse(ctx, f"That tile set was not imported: {exc}")
+            return False
+        if state.tileset_dedup:
+            sprites, _dropped = dedup_tiles(
+                sprites, orientations=state.tileset_dedup_flips
+            )
     # Through ``clear_tileset_import`` rather than the three field resets this
     # used to do inline: the 2026-10-03 audit's packwright-01. Resetting the
     # fields here made the pane's closed-popup guard ("is something parked?")
@@ -306,18 +336,28 @@ def request_tileset_preview(
         kept = int(occupied.sum())
         dropped = rows * columns - kept
         duplicates = 0
-        if dedup and kept and kept <= MAX_SPRITES:
+        sprites = None
+        if kept and kept <= MAX_SPRITES:
             # The same call the import runs, not a second count of its own:
             # the popup-promise contract ``tileset_occupancy`` already
             # enforces for emptiness, applied to the dedup it also promises.
-            _kept, duplicates = dedup_tiles(
-                sprites_from_tileset(
-                    pixels, tile=tile, prefix=f"{path}@{tile[0]}x{tile[1]}", name=stem
-                ),
-                orientations=dedup_flips,
+            # **Kept, and not just counted** (the 2026-10-14 audit, finding
+            # packwright-05): Import adds these very sprites rather than
+            # slicing and hashing the sheet again on the frame thread.
+            sprites = sprites_from_tileset(
+                pixels, tile=tile, prefix=_tile_prefix(path, tile), name=stem
             )
-            kept -= duplicates
-        return {"key": key, "preview": (rows, columns, kept, dropped, duplicates)}
+            if dedup:
+                sprites, duplicates = dedup_tiles(sprites, orientations=dedup_flips)
+                kept -= duplicates
+        return {
+            "key": key,
+            "preview": (rows, columns, kept, dropped, duplicates),
+            # The grid the slice picture outlines: ``_occupancy_for`` used to
+            # recompute it on the frame thread on every tile-size edit.
+            "grid": occupied,
+            "sprites": sprites,
+        }
 
     # Keyed on the inputs rather than the tab: this popup is not per-tab
     # state (``PackwrightState.tileset_import``), and the key doubles as the
@@ -354,16 +394,39 @@ def add_source_paths(ctx: Any, paths: list[Path]) -> None:
         # (the 2026-09-23 audit, second run, docs-01).
         docmodes.refuse(ctx, _BUSY_WHY)
         return
+    from .engine import rpack
     from .engine.sources import file_key
 
     wanted = [Path(p) for p in paths]
     uid = tab.uid
+    # **The decode stops where the pack stops.** The 2026-10-14 audit, finding
+    # packwright-06: this decoded every file to RGBA and left the document's
+    # pixel budget (and the per-sprite ceiling) to the frame thread afterwards,
+    # so 40 PNGs of 2000 x 2000 held 640 MB of arrays for the 16 the pack would
+    # accept. The snapshot is taken here, on the frame thread, because the task
+    # may not read the document: what each held key already costs (a re-add
+    # replaces rather than grows, so its pixels are credited back) and the two
+    # ceilings. The frame thread's own checks in ``_add_sprites`` stay the
+    # authority; this only refuses to allocate what they would then refuse.
+    held = {s.key: s.sprite.width * s.sprite.height for s in tab.doc.sources}
+    headroom = rpack.MAX_DOCUMENT_PIXELS - tab.doc.total_pixels()
+    source_cap = rpack.MAX_SOURCE_PIXELS
 
     def run() -> dict[str, Any]:
-        return {
-            "sprites": [(file_key(p), p.stem, _decode(p)) for p in wanted],
-            "uid": uid,
-        }
+        out: list[tuple[str, str, Any]] = []
+        stopped = ""
+        room = headroom
+        for p in wanted:
+            key = file_key(p)
+            credit = held.get(key, 0)
+            try:
+                pixels = _decode(p, max_pixels=min(source_cap, room + credit))
+            except docmodes.ImageOverBudget as exc:
+                stopped = str(exc)
+                break
+            out.append((key, p.stem, pixels))
+            room -= int(pixels.shape[0]) * int(pixels.shape[1]) - credit
+        return {"sprites": out, "uid": uid, "requested": len(wanted), "stopped": stopped}
 
     token = abs(hash(tuple(str(p) for p in wanted)))
     ctx.submit(f"packwright-add:{uid}:{token}", run)
@@ -443,12 +506,31 @@ def add_inker_document(ctx: Any, inker_tab: Any) -> None:
         # word about it.
         docmodes.refuse(ctx, _BUSY_WHY)
         return
-    prefix = Path(inker_tab.title).stem or inker_tab.uid
+    # **Identity is the document, not its title.** The 2026-10-14 audit, finding
+    # packwright-03: the key prefix was the title's stem, so two Inker documents
+    # both called "Untitled" (every unsaved one is) shared keys and the second
+    # "Add to Packwright" replaced the first one's art, while a retitle did the
+    # reverse -- a re-add made duplicates instead of picking up the edit. The
+    # title stays the display name; the key carries the saved file's path digest
+    # (``file_key``'s rule, stable across sessions) or, for a document with no
+    # file yet, its tab uid, which is stable and never reused within a session
+    # and survives a retitle.
+    from .engine.sources import file_key
+
+    stem = Path(inker_tab.title).stem or str(inker_tab.uid)
+    path = getattr(inker_tab, "path", None)
+    token = file_key(path).rsplit("#", 1)[1] if path else str(inker_tab.uid)
     try:
-        sprites = sprites_from_document(inker_tab.doc, prefix=prefix)
+        sprites = sprites_from_document(inker_tab.doc, prefix=stem)
     except ValueError as exc:
         docmodes.refuse(ctx, f"Those frames were not added: {exc}")
         return
+    # ``sprites_from_document`` builds ``name`` and ``key`` from one prefix, so
+    # the identity replaces it in the key afterwards (no title in the key at all:
+    # a retitle must not move it) and the name stays human.
+    sprites = [
+        replace(sprite, key=f"inker-{token}{sprite.key[len(stem):]}") for sprite in sprites
+    ]
     ctx.toast(_added_sentence(*_add_sprites(ctx, tab, sprites)))
 
 
@@ -776,6 +858,12 @@ def on_task_done(ctx: Any, done: Any) -> None:
             if result.get("key") == current:
                 state.tileset_preview_key = current
                 state.tileset_preview = result["preview"]
+                state._pw_preview_sprites = (current, result.get("sprites"))
+                grid = result.get("grid")
+                if grid is not None:
+                    from .ui.panes import sources as packwright_sources
+
+                    packwright_sources.seed_slice_grid(pixels, state.tileset_cell, grid)
         return
 
     # ``split(":")[1]``, not ``split(":", 1)[1]``: an add carries a third
@@ -862,7 +950,17 @@ def on_task_done(ctx: Any, done: Any) -> None:
                 sprite_from_image(pixels, key=key_, name=display)
                 for key_, display, pixels in result.get("sprites", [])
             ]
-            ctx.toast(_added_sentence(*_add_sprites(ctx, tab, sprites)))
+            noun = result.get("noun", "sprite")
+            stopped = result.get("stopped")
+            added = _add_sprites(ctx, tab, sprites)
+            if sprites or not stopped:
+                ctx.toast(_added_sentence(*added, noun=noun))
+            if stopped:
+                ctx.toast(
+                    f"Stopped after {len(sprites)} of "
+                    f"{result.get('requested', len(sprites))}: {stopped}",
+                    "warn",
+                )
         return
 
     tab.saving = False

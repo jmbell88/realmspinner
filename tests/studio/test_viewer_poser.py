@@ -1,10 +1,9 @@
-"""The viewer half of Poser: explicit-bone binding, bone lines, root translate.
+"""The viewer's pose half: bone lines, root translation, the render path.
 
-Everything here runs over a hand-built skinless ``gltf.Model`` -- the exact
-shape the meshless armature preview loads as -- with no GL context anywhere:
-``bone_segments`` is pure, the editor is pure, and the two ``Viewer`` methods
-under test are exercised unbound over a stub, the pattern that keeps a GL
-object out of a logic test.
+Everything here runs over a hand-built skinless ``gltf.Model`` with no GL
+context anywhere: ``bone_segments`` is pure, the editor is pure, and the
+``Viewer`` methods under test are exercised unbound over a stub, the pattern
+that keeps a GL object out of a logic test.
 """
 
 from __future__ import annotations
@@ -14,11 +13,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from realmspinner import poselib
 from realmspinner.kernels.geom3d import math3d as m3
 from realmspinner.kernels.geom3d.gltf import Model, Node
 from realmspinner.studio.viewer import bonelines
-from realmspinner.studio.viewer.camera import Camera
 from realmspinner.studio.viewer.pose import PoseEditor
 from realmspinner.studio.viewer_embed import Viewer
 
@@ -27,7 +24,7 @@ BONES = ["hips", "spine", "arm.L", "arm.R"]
 
 def _armature_model() -> Model:
     """A meshless armature: a 'rig' object node over a small joint tree --
-    what op_armature's export loads as, minus the file."""
+    what a rig GLB loads as, minus the file."""
     nodes = [
         Node(name="rig", children=[1]),
         Node(name="hips", translation=m3.vec3(0.0, 0.53, 0.0), children=[2, 3, 4]),
@@ -68,82 +65,7 @@ def test_bone_segments_ignore_names_the_model_lacks():
     assert bonelines.bone_segments(model, ["hips", "tail_99"]) == []
 
 
-# --- explicit-bone binding --------------------------------------------------
-
-
-class _ViewerStub:
-    """Just the attributes enter_pose_authoring touches."""
-
-    def __init__(self, model) -> None:
-        self.model = model
-        self.editor = PoseEditor()
-        self.pose_mode = False
-        self.pose_job_id = None
-        self._bone_pairs: list = []
-        self._render_dirty = False
-        self.dirty_reports: list = []
-
-    def _notify_pose_dirty(self) -> None:
-        self.dirty_reports.append(True)
-
-
-def test_enter_pose_authoring_binds_explicit_bones_over_a_skinless_model():
-    """enter_pose_mode's skins check is its contract and stays intact; this is
-    the separate door the Poser walks through, with the bone list supplied."""
-    stub = _ViewerStub(_armature_model())
-    ok = Viewer.enter_pose_authoring(
-        stub, BONES, [["arm.L", "arm.R"]], "poser:humanoid"
-    )
-    assert ok is True
-    assert stub.pose_mode is True
-    assert stub.pose_job_id == "poser:humanoid"
-    assert stub.editor.bones == BONES
-    assert stub.editor.mirror_pairs == [["arm.L", "arm.R"]]
-    assert stub._bone_pairs == bonelines.bone_segments(stub.model, BONES)
-    assert stub.dirty_reports, "binding reports the (clean) editor state"
-
-
-def test_the_token_can_never_be_a_job_id():
-    """pose_job_id carries 'poser:<template>' in the authoring session --
-    belt-and-braces under the separate Viewer instance, because a 12-hex job
-    id can never contain a colon."""
-    from realmspinner.kernels.rig import store
-
-    assert not store.is_valid_id("poser:humanoid")
-
-
-def test_enter_pose_authoring_refuses_with_no_model():
-    stub = _ViewerStub(None)
-    assert Viewer.enter_pose_authoring(stub, BONES, [], "poser:humanoid") is False
-    assert stub.pose_mode is False
-
-
 # --- root translation -------------------------------------------------------
-
-
-def test_move_root_offsets_the_node_and_reports_blender_units():
-    editor = _editor()
-    assert editor.root_translation() == [0.0, 0.0, 0.0]
-    assert editor.dirty is False
-
-    # hips sits at glTF (0, 0.53, 0) under an identity parent, so a target of
-    # (0.1, 0.63, -0.2) is a delta of (0.1, 0.1, -0.2) -- which in Blender
-    # axes reads (0.1, 0.2, 0.1).
-    editor.move_root(np.array([0.1, 0.63, -0.2]))
-    assert editor.dirty is True
-    assert editor.root_translation() == pytest.approx([0.1, 0.2, 0.1])
-    # The handles follow: the marker is the drag handle.
-    assert editor.handles["hips"] == pytest.approx([0.1, 0.63, -0.2])
-    # And the children ride along with their parent.
-    assert editor.handles["spine"] == pytest.approx([0.1, 0.70, -0.2])
-
-
-def test_move_root_soft_clamps_each_component():
-    editor = _editor()
-    editor.move_root(np.array([50.0, 0.53, 0.0]))
-    assert editor.root_translation() == pytest.approx(
-        [poselib.MAX_ROOT_TRANSLATION, 0.0, 0.0]
-    )
 
 
 def test_set_root_translation_round_trips():
@@ -154,7 +76,7 @@ def test_set_root_translation_round_trips():
 
 def test_reset_all_restores_the_rest_translation():
     editor = _editor()
-    editor.move_root(np.array([0.3, 0.53, 0.0]))
+    editor.set_root_translation([0.3, 0.0, 0.0])
     editor.reset_all(dirty=False)
     assert editor.root_translation() == [0.0, 0.0, 0.0]
     assert editor.handles["hips"] == pytest.approx([0.0, 0.53, 0.0])
@@ -163,7 +85,7 @@ def test_reset_all_restores_the_rest_translation():
 
 def test_reset_bone_on_the_root_restores_its_translation_too():
     editor = _editor()
-    editor.move_root(np.array([0.3, 0.53, 0.0]))
+    editor.set_root_translation([0.3, 0.0, 0.0])
     editor.reset_bone("hips")
     assert editor.root_translation() == [0.0, 0.0, 0.0]
 
@@ -172,7 +94,7 @@ def test_apply_preset_is_zero_translation():
     """A preset lists rotations only; applying one after a root move must not
     keep the character floating where the last pose left it."""
     editor = _editor()
-    editor.move_root(np.array([0.0, 1.0, 0.0]))
+    editor.set_root_translation([0.0, 0.0, 1.0])
     editor.apply_preset({"name": "idle", "bones": {"spine": [0, 0, 0, 1]}})
     assert editor.root_translation() == [0.0, 0.0, 0.0]
 
@@ -200,12 +122,6 @@ def _overlay_stub(editor, model):
         _bone_pairs=[],
         bonelines=SimpleNamespace(draws=lambda *a, **k: ["lines"]),
         markers=SimpleNamespace(draws=lambda *a, **k: ["markers"]),
-        # The onion-skin ghosts. Empty here, which is the state every pose
-        # session outside the clip editor is in -- and the point of listing
-        # them: ``_overlays`` must draw the same two items it always did when
-        # nothing has asked for a ghost.
-        ghostlines=[SimpleNamespace(draws=lambda *a, **k: ["ghost"]) for _ in range(2)],
-        onion=[],
         # Non-None so the gizmo branch is entered at all; never called, because
         # the lookups bail before ``place``.
         _active_gizmo=lambda: object(),
@@ -263,11 +179,10 @@ def test_reset_all_clears_the_pose_being_edited():
 
 
 def test_without_a_root_nothing_moves():
-    """pose_panel's entry path never sets editor.root, which is what keeps
-    asset pose mode behaviourally unchanged."""
+    """Nothing in production sets editor.root (Poser, the only setter, was
+    removed on 2026-10-14), so a saved pose's root offset is a no-op."""
     editor = _editor()
     editor.root = None
-    editor.move_root(np.array([5.0, 5.0, 5.0]))
     editor.set_root_translation([1.0, 1.0, 1.0])
     assert editor.root_translation() == [0.0, 0.0, 0.0]
     assert editor.dirty is False
@@ -275,76 +190,8 @@ def test_without_a_root_nothing_moves():
 
 def test_a_root_move_is_an_unsaved_edit():
     editor = _editor()
-    editor.move_root(np.array([0.1, 0.53, 0.0]))
+    editor.set_root_translation([0.1, 0.0, 0.0])
     assert editor.has_unsaved_edits()
-
-
-# --- framing ----------------------------------------------------------------
-
-
-class _RendererStub:
-    def __init__(self) -> None:
-        self.fitted = None
-
-    def fit_grid(self, lo, hi) -> None:
-        self.fitted = (np.asarray(lo), np.asarray(hi))
-
-
-def test_frame_bounds_frames_the_supplied_box_not_the_models():
-    """A meshless armature's Model.bounds() is zeros, which frame() clamps to
-    a 1e-4 radius -- markers invisible, picking dead. frame_bounds takes the
-    host-computed box over the fitted bones instead."""
-
-    class Stub:
-        pass
-
-    stub = Stub()
-    stub.camera = Camera()
-    stub.renderer = _RendererStub()
-    stub.radius = 0.0
-    stub._render_dirty = False
-
-    radius = Viewer.frame_bounds(stub, [-0.55, 0.0, -0.55], [0.55, 1.1, 0.55])
-    assert radius == stub.radius
-    assert stub.radius > 0.5, "a unit-character box frames at a usable radius"
-    assert stub.renderer.fitted is not None
-    assert stub._render_dirty is True
-
-
-def test_an_onion_ghost_draws_under_the_live_skeleton():
-    """Ghosts first, so the pose being edited draws over them: an onion skin
-    that covered the live skeleton would make the thing you are posing harder
-    to read rather than easier."""
-    model = _armature_model()
-    editor = PoseEditor()
-    editor.bind(model, ["hips", "spine"])
-    stub = _overlay_stub(editor, model)
-    stub._active_gizmo = lambda: None
-    stub.onion = [{"spine": [0.0, 0.0, 0.0, 1.0]}, {}]
-
-    items = Viewer._overlays(stub, 600)
-    assert items == ["ghost", "lines", "markers"], "the empty second ghost draws nothing"
-
-
-def test_ghost_handles_never_move_the_live_model():
-    """The whole reason it is a pure walk: this runs every frame of a gizmo
-    drag, and posing the model to read it would drag the live markers to the
-    ghost's positions and back between the read and the draw."""
-    from realmspinner.studio.viewer.pose import ghost_handles
-
-    model = _armature_model()
-    editor = PoseEditor()
-    editor.bind(model, ["hips", "spine"])
-    before = {b: editor.handles[b].copy() for b in editor.bones}
-    worlds = [n.world.copy() for n in model.nodes]
-
-    turned = ghost_handles(model, editor.bones, {"hips": [0.0, 0.3894, 0.0, 0.9211]})
-
-    assert set(turned) == set(editor.bones)
-    for name, point in before.items():
-        assert editor.handles[name] == pytest.approx(point)
-    for node, was in zip(model.nodes, worlds, strict=True):
-        assert node.world == pytest.approx(was)
 
 
 # --- input: Alt+drag orbit (create-01) ---------------------------------------
@@ -390,49 +237,3 @@ def test_alt_drag_orbits_even_when_the_press_lands_on_a_pose_marker(monkeypatch)
     assert consumed is True
     assert stub._grab == "orbit"
     assert stub.editor.selected is None, "Alt+drag must not select the marker it started over"
-
-
-def test_pose_mode_right_click_menu_waits_for_a_clean_release():
-    """``_press`` used to open the joint menu straight from the button-3
-    *press*, bypassing ``FrameOps._rmb_release``'s four-pixel slop rule -- so
-    a right-drag (grabbing button 3 mid-orbit, say) still popped the menu.
-    The 2026-09-20 audit, finding create-04. ``_rmb_release`` is exercised for
-    real here, the same unbound-method-over-a-stub pattern the Alt+drag test
-    above uses, because the slop arithmetic lives there and a second copy of
-    it in this test would only prove the copy agrees with itself."""
-    stub = SimpleNamespace(
-        pose_mode=True,
-        menu_request=None,
-        _rmb_at=None,
-        _last_mouse=(0.0, 0.0),
-    )
-
-    consumed = Viewer._press(stub, 3, (10.0, 10.0))
-    assert consumed is True
-    assert stub.menu_request is None, "the menu must not open on the press itself"
-
-    # A release more than the four-pixel slop away is a drag: no menu.
-    assert Viewer._rmb_release(stub, (40.0, 10.0)) is True
-    assert stub.menu_request is None
-
-    # A second press, released within the slop, is a clean click: the menu
-    # opens, at the release position ``_rmb_release`` records.
-    Viewer._press(stub, 3, (10.0, 10.0))
-    assert Viewer._rmb_release(stub, (12.0, 11.0)) is True
-    assert stub.menu_request == (12.0, 11.0)
-
-
-def test_a_ghost_puts_unnamed_bones_at_rest_not_at_the_live_pose():
-    """A key lists only the bones it moves, so a ghost of that key is what
-    ``apply_preset`` would show -- everything else back at rest. Reading the
-    live pose for the rest would make the ghost a blend of two poses that
-    exists nowhere in the clip."""
-    from realmspinner.studio.viewer.pose import ghost_handles
-
-    model = _armature_model()
-    editor = PoseEditor()
-    editor.bind(model, ["hips", "spine"])
-    rest = ghost_handles(model, editor.bones, {})
-    editor.apply({"hips": [0.0, 0.3894, 0.0, 0.9211]}, dirty=True)
-
-    assert ghost_handles(model, editor.bones, {})["spine"] == pytest.approx(rest["spine"])

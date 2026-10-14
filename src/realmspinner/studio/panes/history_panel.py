@@ -129,9 +129,9 @@ def _confirm_restore(ctx: Any, job: Any, entry: dict[str, Any]) -> None:
     raw = modelhistory.entries_of(job.get("params") or {})
     geometry = modelhistory.crossed_geometry(raw, n)
     message = (
-        "The rig, its poses and its sheets will describe the old mesh."
+        "The rig and its poses will describe the old mesh."
         if geometry
-        else "Only the surface changes; the rig, its poses and its sheets are unaffected."
+        else "Only the surface changes; the rig and its poses are unaffected."
     )
     ctx.confirms.ask(
         dialogs.Confirm(

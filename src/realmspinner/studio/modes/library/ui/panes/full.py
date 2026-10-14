@@ -151,6 +151,10 @@ def _rail(ctx: Any, jobs: list[Any]) -> None:
     # The former pane_title("Library") contract is now the shared pane header:
     # the title remains, with its contextual help anchored in the same row.
     widgets.pane_header("Library", help_text="Browse, filter, select, and export your assets.")
+    # Above Find: a scope from Review's "Show examples" hides the rest of the
+    # library and was the one narrowing this rail had no control for (the
+    # 2026-10-14 audit, finding shell-home-library-03).
+    library.scope_row(ctx)
     widgets.section("Find")
     manual_render.help_button(ctx, "library")
     imgui.set_next_item_width(-1)

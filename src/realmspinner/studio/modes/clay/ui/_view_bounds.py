@@ -21,6 +21,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: bounding radius (the viewer's own floor is 0.5).
 CLOSEST_ZOOM = 0.02
 
+#: Metres of room ``F`` leaves round a selected mesh-less bone's pivot.
+BONE_FRAME_MARGIN = 0.5
+
 
 class BoundsOps:
     """``ClayView``'s centres, bounds and framing. See the module docstring."""
@@ -56,7 +59,31 @@ class BoundsOps:
         if doc.pose_mode:
             return self._pose_centre(doc)
         lo, hi = self.world_bounds(doc, selected_only=True)
-        return None if lo is None else (lo + hi) * 0.5
+        if lo is not None:
+            return (lo + hi) * 0.5
+        # The 2026-10-14 audit, finding clay-view-01: a selected bone with no mesh (what Add
+        # Bone makes) has no world box, so this answered None -- no gizmo drawn, G/R/S and F
+        # silent -- while ``active_gizmo`` still offered a handle that was never placed, which
+        # a press near the world origin grabbed and moved the bone with, unseen. Both manuals
+        # tell the user to move that joint into place with the gizmo or G. A joint is
+        # placed by its pivot, as in Pose mode.
+        return self._pose_centre(doc)
+
+    def selected_bone_box(self: ClayView, doc: Any) -> tuple[Any, Any] | None:
+        """A small world box round the pivots of the selected, visible, mesh-less bones, or
+        ``None`` -- what ``F`` frames for a joint, which has no box of its own (the 2026-10-14
+        audit, finding clay-view-01). The padding is a bone-sized margin, so a lone joint is
+        framed from a sensible distance rather than from the 0.1 mm the empty box would give."""
+        index = self._uid_index(doc)
+        pivots = [
+            self._world(doc, o, index)[:3, 3]
+            for o in doc.objects
+            if o.bone and o.visible and o.uid in doc.selection and len(o.mesh.positions) == 0
+        ]
+        if not pivots:
+            return None
+        pad = np.full(3, BONE_FRAME_MARGIN)
+        return np.min(pivots, axis=0) - pad, np.max(pivots, axis=0) + pad
 
     def element_centre(self: ClayView, doc: Any) -> np.ndarray | None:
         """The world centroid of every selected element, across every object.
@@ -232,7 +259,19 @@ class BoundsOps:
         """
         from .....kernels.mesh import ops as bops
 
-        return bops.world_box(obj, obj.mesh, world=self._world(doc, obj, index))
+        world = self._world(doc, obj, index)
+        skinned = self._skinned_positions(doc, obj, index)
+        if skinned is not None and len(skinned.positions):
+            # The 2026-10-14 audit, finding clay-view-02: in Pose mode a weighted mesh is drawn
+            # skinned, so ``F`` and the gizmo frame the box it occupies, not its rest box.
+            positions = skinned.positions
+            lo, hi = positions.min(axis=0), positions.max(axis=0)
+            corners = np.array(
+                [[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
+            )
+            points = (world @ np.hstack([corners, np.ones((8, 1))]).T).T[:, :3]
+            return points.min(axis=0), points.max(axis=0)
+        return bops.world_box(obj, obj.mesh, world=world)
 
     def frame_selection(self: ClayView, doc: Any) -> float:
         """Put the selection -- or the whole document -- on screen.
@@ -249,7 +288,8 @@ class BoundsOps:
         """
         lo, hi = self.world_bounds(doc, selected_only=bool(doc.selection))
         if lo is None:
-            lo, hi = self.world_bounds(doc)
+            bones = self.selected_bone_box(doc)
+            lo, hi = bones if bones is not None else self.world_bounds(doc)
         return self._frame_box(lo, hi)
 
     def frame_whole(self: ClayView, doc: Any) -> float:

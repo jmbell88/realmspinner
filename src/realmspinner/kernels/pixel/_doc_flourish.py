@@ -36,8 +36,16 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from . import groups as gp
-from .anim_edits import AnimateEdit, CelSetEdit, FrameAddEdit, TagsEdit, TrackAddEdit
-from .animation import Frame, Tag, Track
+from .anim_edits import (
+    AnimateEdit,
+    CelSetEdit,
+    FrameAddEdit,
+    FrameDurationEdit,
+    TagsEdit,
+    TrackAddEdit,
+    TrackRemoveEdit,
+)
+from .animation import Frame, Tag, Track, clamp_duration
 from .layers import Layer
 from .undo import FlourishEdit, one_step
 
@@ -66,6 +74,15 @@ class FlourishState:
     #: layer names. Immutable arrays by convention: an edit replaces the
     #: entry, never writes into it, so a snapshot can share them.
     assets: dict[str, np.ndarray] = field(default_factory=dict)
+    #: What this effect's tag names end with, so two effects in one document
+    #: never share one. Tags are matched **by name** on a regenerate and in
+    #: Restyle (a tag has no other identity), and a second effect inserted while
+    #: another is active lands on the same frames with the same phase names --
+    #: ``impact``, ``burst`` -- so regenerating one rewrote the other's spans
+    #: (the 2026-10-14 audit, finding inker-flourish-04). The first effect in a
+    #: document is ``""``, which is every document written before this existed;
+    #: a later one takes ``_2``, ``_3``... at insert, chosen once and kept here.
+    tag_suffix: str = ""
     #: ``flourish_conflicts``'s memo: ``(signature, result)`` or ``None``.
     #: The 2026-09-13 audit, finding inker-07: the Flourish inspector calls
     #: ``flourish_conflicts`` two or three times per frame while it is open,
@@ -88,6 +105,7 @@ class FlourishState:
             conflicts=set(self.conflicts),
             offset=tuple(self.offset),
             assets=dict(self.assets),
+            tag_suffix=self.tag_suffix,
         )
 
     def next_asset_id(self, stem: str = "tex", *, taken: Iterable[str] = ()) -> str:
@@ -247,6 +265,18 @@ def _cel_for(baked: Any, key: int, flat_index: int) -> np.ndarray | None:
     return None
 
 
+def _free_tag_suffix(baked: Any, taken: set[str]) -> str:
+    """The shortest suffix (``""``, ``_2``, ``_3``...) that makes none of the
+    bake's tag names collide with a tag already in the document."""
+    names = [name for name, _first, _last, _loop in baked.tags()]
+    n = 1
+    while True:
+        suffix = "" if n == 1 else f"_{n}"
+        if not any(name + suffix in taken for name in names):
+            return suffix
+        n += 1
+
+
 class FlourishOps:
     """The effect-group verbs. Mixed into :class:`Document`."""
 
@@ -286,14 +316,22 @@ class FlourishOps:
         call. ``state.conflicts`` is replaced wholesale (never mutated in
         place -- see ``apply_flourish`` and ``resolve_flourish``, which both
         build the next state via ``.copy()`` or a fresh ``FlourishState``) by
-        every edit that could change the answer, so a signature of it plus
-        the frame count is enough to know nothing has changed since the last
-        call, without walking ``anim.frames`` to check.
+        every edit that could change the *set*, so a signature of it plus the
+        frame uids in order is enough to know nothing has changed since the
+        last call -- the order because a reorder changes the indices and
+        replaces nothing.
         """
         state = self.flourish_state(group_uid)
         if state is None or self.anim is None:
             return []
-        signature = (frozenset(state.conflicts), len(self.anim.frames))
+        # The frame **order** is part of the key, not just the count: a move or a
+        # reverse permutes the indices this answers in without touching either
+        # the conflict set or the length, and the stale list sent "Keep painted
+        # cells" to a frame that held no conflict while the real one stayed
+        # flagged (the 2026-10-14 audit, findings inker-document-10 and
+        # inker-flourish-05). A tuple of uids is far cheaper than the
+        # uid -> index dict the memo exists to avoid rebuilding.
+        signature = (frozenset(state.conflicts), tuple(f.uid for f in self.anim.frames))
         cached = state._conflicts_cache
         if cached is not None and cached[0] == signature:
             return cached[1]
@@ -315,6 +353,7 @@ class FlourishOps:
             edits.append(AnimateEdit(self.ensure_animation()))
         anim = self._require_anim()
         edits += self._flourish_ensure_frames(baked.frame_count, baked.fps)
+        edits += self._flourish_set_durations(baked.frame_count, baked.fps)
         frame_uids = [frame.uid for frame in anim.frames[: baked.frame_count]]
         size = self.size
         offset = _centred(recipe, size)
@@ -330,8 +369,11 @@ class FlourishOps:
                 cel = _cel_for(baked, key, i)
                 if cel is None:
                     continue
-                pixels = _place(cel, size, offset)
-                cels[frame_uid] = Layer(pixels=pixels, name=name)
+                # Through the colour mode before the digest is taken, so the
+                # digest describes the pixels the document actually holds --
+                # see ``_constrain_minted``.
+                pixels, indices = self._constrain_minted(_place(cel, size, offset))
+                cels[frame_uid] = Layer(pixels=pixels, indices=indices, name=name)
                 digests[(track.uid, frame_uid)] = _digest(pixels)
             self._put_track(index + k, track, cels)
             edits.append(TrackAddEdit(index + k, track, cels, pinned=True))
@@ -340,8 +382,9 @@ class FlourishOps:
 
         before_tags = list(anim.tags)
         after_tags = [*before_tags]
+        suffix = _free_tag_suffix(baked, {tag.name for tag in before_tags})
         for name, first, last, loop in baked.tags():
-            after_tags.append(Tag(name=name, start=first, end=last, loop=loop))
+            after_tags.append(Tag(name=name + suffix, start=first, end=last, loop=loop))
         self._set_tags(after_tags)
         edits.append(TagsEdit(before_tags, after_tags))
 
@@ -366,7 +409,9 @@ class FlourishOps:
             self._set_membership(uid, node.uid)
             edits.append(gp.MembershipEdit(uid, None, node.uid))
 
-        state = FlourishState(recipe=recipe, tracks=tracks, digests=digests, offset=offset)
+        state = FlourishState(
+            recipe=recipe, tracks=tracks, digests=digests, offset=offset, tag_suffix=suffix
+        )
         self.flourish[node.uid] = state
         edits.append(FlourishEdit(node.uid, None, state))
         self.history.push(one_step(edits))
@@ -384,6 +429,46 @@ class FlourishOps:
             self._put_frame(at, frame, {})
             edits.append(FrameAddEdit(at, frame, {}, pinned=False))
         return edits
+
+    def _flourish_set_durations(self: Document, count: int, fps: int) -> list[Any]:
+        """Give the first ``count`` frames the effect's own frame duration.
+
+        ``_flourish_ensure_frames`` only sets the duration of frames it
+        *appends*, so an effect inserted into a document that already had a
+        frame left that frame at its old 100 ms, and the inspector's FPS slider
+        re-rendered the effect without ever changing how it plays back -- the
+        engine snippet read 10 fps off the first frame while the recipe said 18
+        (the 2026-10-14 audit, finding inker-flourish-06). Returns the edits.
+        """
+        anim = self._require_anim()
+        wanted = clamp_duration(max(1, int(round(1000.0 / max(int(fps), 1)))))
+        edits: list[Any] = []
+        for frame in anim.frames[:count]:
+            if frame.duration_ms != wanted:
+                before = frame.duration_ms
+                self._set_duration(frame.uid, wanted)
+                edits.append(FrameDurationEdit(frame.uid, before, wanted))
+        return edits
+
+    def _constrain_minted(self: Document, pixels: np.ndarray) -> tuple[np.ndarray, Any]:
+        """``(pixels, index plane)`` for an effect cel the document is about to hold.
+
+        An effect's cels are minted from a render, so they have to arrive the
+        way every other minted layer does -- through the colour mode, or they
+        are the silent gap ``_resolved_plane`` exists to close: in an indexed
+        document a planeless cel is invisible to ``check_materialized``,
+        ``recolour_slot`` and ``palette_usage`` and the ORA writer stores it as
+        RGBA under a mode that promises slots; in grayscale the cels were
+        coloured; in a palette-constrained one they were off the table (the
+        2026-10-14 audit, findings inker-document-02 and inker-flourish-02).
+        Indexed resolves onto the table and returns its plane; grayscale and a
+        palette constraint are ``_constrained``'s two ``if``s, and return no
+        plane. In a plain RGB document this is the identity.
+        """
+        indices = self._resolved_plane(pixels)
+        if indices is None:
+            pixels = np.ascontiguousarray(self._constrained(pixels), dtype=np.uint8)
+        return pixels, indices
 
     # -- regenerate --------------------------------------------------------------
 
@@ -467,6 +552,10 @@ class FlourishOps:
                     )
 
         edits += self._flourish_ensure_frames(baked.frame_count, baked.fps)
+        if int(baked.fps) != int(state.recipe.fps):
+            # Only when the rate itself moved: a regenerate that left it alone
+            # must not stomp a duration the person set by hand.
+            edits += self._flourish_set_durations(baked.frame_count, baked.fps)
         frame_uids = [frame.uid for frame in anim.frames[: baked.frame_count]]
 
         for key, name in _layer_keys(baked):
@@ -480,7 +569,17 @@ class FlourishOps:
             self._track_by_uid(track_uid)  # raises if the track has gone
             for i, frame_uid in enumerate(frame_uids):
                 cel = _cel_for(baked, key, i)
-                pixels = None if cel is None else _place(cel, size, offset)
+                pixels, indices = (
+                    (None, None)
+                    if cel is None
+                    # The render goes through the colour mode *before* it is
+                    # compared or digested: ``_patch_edit_for`` constrains what it
+                    # writes, so a digest of the raw render never matched the
+                    # cel it produced, and on a grayscale document the second
+                    # regenerate flagged every cel a conflict with nothing painted
+                    # (the 2026-10-14 audit, finding inker-flourish-02).
+                    else self._constrain_minted(_place(cel, size, offset))
+                )
                 existing = anim.cels.get((track_uid, frame_uid))
                 fresh = None if pixels is None else _digest(pixels)
                 if existing is None:
@@ -493,7 +592,7 @@ class FlourishOps:
                     # pixels in it against a digest that could never match a
                     # hand-drawn edit made there later.
                     if pixels is not None and pixels[..., 3].any():
-                        layer = Layer(pixels=pixels, name=name)
+                        layer = Layer(pixels=pixels, indices=indices, name=name)
                         self._set_cel(track_uid, frame_uid, layer)
                         edits.append(CelSetEdit(track_uid, frame_uid, None, layer, pinned=True))
                         counts["taken"] += 1
@@ -526,6 +625,48 @@ class FlourishOps:
                     conflicts.add((track_uid, frame_uid))
                 digests[(track_uid, frame_uid)] = fresh
 
+        # **Tracks the new render no longer has.** Switching Painterly <-> Pixel
+        # art (or deleting a recipe layer) changes the set of keys the bake
+        # wants, and ``tracks`` was only ever added to: the old look's tracks and
+        # cels stayed in the group under the new one, so both pictures were
+        # visible and exported on top of each other (the 2026-10-14 audit,
+        # finding inker-flourish-03). They go *after* the new tracks exist -- a
+        # group's last member leaving takes the group with it -- and inside this
+        # step, so one Ctrl+Z puts both looks back. A track with a cel somebody
+        # painted on is not thrown away unless ``force``: it is let go of (it
+        # stays in the group as an ordinary layer, no longer the render's) and
+        # each painted cel is flagged, the module's rule that a person decides.
+        wanted_keys = {key for key, _name in _layer_keys(baked)}
+        for key in [k for k in tracks if k >= 0 and k not in wanted_keys]:
+            track_uid = tracks.pop(key)
+            if track_uid not in {t.uid for t in anim.tracks}:
+                continue
+            held = {
+                f.uid: anim.cels[(track_uid, f.uid)]
+                for f in anim.frames
+                if (track_uid, f.uid) in anim.cels
+            }
+            painted = [
+                f_uid
+                for f_uid, cel in held.items()
+                if state.digests.get((track_uid, f_uid)) != _digest(cel.pixels)
+            ]
+            if painted and not force:
+                for f_uid in painted:
+                    conflicts.add((track_uid, f_uid))
+                    counts["kept"] += 1
+                    counts["conflicts"] += 1
+                continue
+            if len(anim.tracks) <= 1:
+                continue
+            track = self._track_by_uid(track_uid)
+            index = anim.track_index(track_uid)
+            self._drop_track(track)
+            edits.append(
+                TrackRemoveEdit(index, track, held, pinned=self._released(held.values()))
+            )
+            edits += self._forget_member(track_uid)
+
         # Recompute this effect's tag spans from the fresh bake. The 2026-09-13
         # audit (inker-02) found this method never touched ``Document.anim.tags``
         # at all: ``insert_flourish`` builds them from ``baked.tags()`` but a
@@ -536,7 +677,13 @@ class FlourishOps:
         # (``TagsEdit``'s own docstring): a phase's tag keeps its name across a
         # regenerate unless the recipe itself renamed the phase.
         before_tags = list(anim.tags)
-        new_by_name = {name: (first, last, loop) for name, first, last, loop in baked.tags()}
+        # Each name carries this effect's own suffix, so another effect's tags
+        # of the same phase name are never the ones matched (see
+        # ``FlourishState.tag_suffix``).
+        new_by_name = {
+            name + state.tag_suffix: (first, last, loop)
+            for name, first, last, loop in baked.tags()
+        }
         after_tags = list(before_tags)
         matched: set[str] = set()
         for idx, tag in enumerate(after_tags):
@@ -585,6 +732,7 @@ class FlourishOps:
             # (``FlourishState.next_asset_id``'s ``taken`` is checked against
             # both), so which side wins is not a live question.
             assets=dict(state.assets) | dict(new_assets or {}),
+            tag_suffix=state.tag_suffix,
         )
         self.flourish[group_uid] = after
         edits.append(FlourishEdit(group_uid, state.copy(), after))
@@ -725,7 +873,12 @@ class FlourishOps:
         for index, pixels in cels.items():
             frame = anim.frames[index]
             placed = _place(pixels, size, (0, 0)) if pixels.shape[:2] != size[::-1] else pixels
-            layer = Layer(pixels=np.ascontiguousarray(placed, dtype=np.uint8).copy(), name=name)
+            # Through the colour mode like every other cel the effect mints --
+            # ``_constrain_minted``. A copy first: it rewrites in place.
+            placed, indices = self._constrain_minted(
+                np.ascontiguousarray(placed, dtype=np.uint8).copy()
+            )
+            layer = Layer(pixels=placed, indices=indices, name=name)
             self._set_cel(track_uid, frame.uid, layer)
             edits.append(CelSetEdit(track_uid, frame.uid, None, layer, pinned=True))
             after.digests[(track_uid, frame.uid)] = _digest(layer.pixels)

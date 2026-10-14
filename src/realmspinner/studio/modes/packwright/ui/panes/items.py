@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ......kernels.sheet import MAX_ATLAS_PX
 from ..... import controls, icons, theme, tokens, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
@@ -87,9 +88,20 @@ def _pack_error_remedy(tab: Any) -> str:
     setting says (see that module's docstring for why) -- so the one remedy a
     grid failure can actually use was buried in two that do not apply to it.
     """
-    if tab.doc.settings.mode == "grid":
-        return "Raise the max size, or split this into two atlases."
-    return "Raise the max size, turn trimming on, or split this into two atlases."
+    settings = tab.doc.settings
+    # **Built from the document's own settings** (the 2026-10-14 audit, finding
+    # packwright-11): the grid case above was fixed alone, so a MaxRects failure
+    # still said "turn trimming on" with trimming on (its default) and "raise the
+    # max size" with the size already at the atlas ceiling -- a remedy that
+    # cannot apply is a remedy that sends the user round in a circle.
+    options = []
+    if settings.max_size < MAX_ATLAS_PX:
+        options.append("raise the max size")
+    if settings.mode != "grid" and not settings.trim:
+        options.append("turn trimming on")
+    options.append("split this into two atlases")
+    sentence = options[0] if len(options) == 1 else ", ".join(options[:-1]) + ", or " + options[-1]
+    return sentence[0].upper() + sentence[1:] + "."
 
 
 def _coverage_pct(tab: Any) -> int:

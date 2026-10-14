@@ -12,9 +12,9 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import logging
-import os
 from pathlib import Path
 
+from ..core.safeio import atomic as safeio_atomic
 from ..kernels.rig import blender_spec, store
 from ..pipelines import blender_run
 from . import files
@@ -137,9 +137,9 @@ def get_file(
     # 2026-09-13 below, a ``rig_digest`` -- written into its own root extras
     # the moment Blender's export lands, before the rename that makes it
     # servable. A clips_digest mismatch against the template's *current*
-    # digest means someone edited a clip (or Poser shipped a new one) since
-    # this copy was baked; a rig_digest mismatch means a re-rig (Poser's
-    # skeleton editor) landed since. Existence alone would leave every
+    # digest means someone edited a clip (or a new one shipped) since
+    # this copy was baked; a rig_digest mismatch means a re-rig
+    # (``create_rig`` or ``rig_with_skeleton``) landed since. Existence alone would leave every
     # ``animated.glb`` baked before either stamp existed, before a
     # since-edited clip, or -- the race the rig_digest half exists for --
     # published from a bake that raced a re-rig's unlocked delete-and-replace
@@ -152,8 +152,8 @@ def get_file(
         with svc.convert_lock(job_id, name):
             # template and rig_digest are both read from rig.json, and both
             # moved inside this lock (defect, fixed 2026-09-13): a re-rig
-            # (store.finalize_rig, run from a Poser skeleton edit's
-            # _q_rig.py job) deletes animated.glb and replaces rig.glb/
+            # (store.finalize_rig, run from _q_rig.py's job for a
+            # create_rig or rig_with_skeleton re-rig) deletes animated.glb and replaces rig.glb/
             # rig.json without ever taking this artifact's convert_lock, so a
             # read taken before the lock could see a rig.json a re-rig was
             # mid-write on. What actually closes the staleness hole is the
@@ -425,11 +425,16 @@ def _staged(job_dir: Path, name: str, write, *, tmp_name: str | None = None) -> 
     already end in it, so the default ``.animated.glb.tmp`` would be written as
     ``.animated.glb.tmp.glb`` and the rename would find nothing. That is
     ``store.RIG_GLB_TMP``'s rule, met a second time.
+
+    The rename rides out a reader holding the served name open (the 2026-10-14
+    audit, finding service-assets-05): a download stream or a copy of the
+    artifact open without ``FILE_SHARE_DELETE`` failed every derivation here
+    with a raw ``PermissionError`` for as long as it was open.
     """
     tmp = job_dir / (tmp_name or f".{name}.tmp")
     try:
         write(tmp)
-        os.replace(tmp, job_dir / name)
+        safeio_atomic.replace(tmp, job_dir / name)
     finally:
         with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
@@ -439,7 +444,7 @@ def _rig_digest(job_dir: Path) -> str:
     """A hash of the rig an ``animated.glb`` bake would run against.
 
     ``rig.json``, not ``rig.glb``: a re-rig (``store.finalize_rig``, run
-    from a Poser skeleton edit's ``_q_rig.py`` job) always rewrites
+    from ``_q_rig.py``'s job for ``create_rig`` or ``rig_with_skeleton``) always rewrites
     ``rig.json``'s ``bones`` list with the mesh's actual joint positions --
     ``blender_worker._rig_meta`` builds it fresh from whatever the solve just
     fit, and a moved pivot or an added/removed limb changes every entry in
@@ -476,7 +481,7 @@ def _bake_animated_glb(svc: RealmspinnerService, job_dir: Path, template: str, t
     ``clips_digest``/``loops`` are read **before** ``clips.animate_spec`` is
     even called, not after ``run_worker`` returns (defect, fixed 2026-09-13):
     ``run_worker`` is a Blender subprocess that can run for seconds to
-    minutes, and a Poser Save landing anywhere in that window used to get
+    minutes, and a clip-library save landing anywhere in that window used to get
     stamped onto the file as if it were the library this bake actually used --
     baked from the *old* clips, marked fresh against the *new* digest, and
     never rebaked again. Reading both right before building the spec narrows
@@ -488,7 +493,7 @@ def _bake_animated_glb(svc: RealmspinnerService, job_dir: Path, template: str, t
 
     ``rig_digest`` is read the same way, right beside them, for a second
     defect fixed the same day: ``store.finalize_rig`` -- a re-rig from
-    Poser's skeleton editor, run from ``_q_rig.py`` -- deletes
+    ``create_rig`` or ``rig_with_skeleton``, run from ``_q_rig.py`` -- deletes
     ``animated.glb`` and replaces ``rig.glb``/``rig.json`` without ever
     taking this artifact's ``convert_lock``. A bake already in flight under
     the lock can therefore publish a stamp built from a rig this file no

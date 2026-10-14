@@ -141,9 +141,10 @@ def draft_in_create(
     sentence alone -- unchanged for its other caller (``_run_door``'s
     ``"draft"`` action, and the test that monkeypatches this whole function).
 
-    *character_fields* exists for T7's character-plan card: applied the way
-    ``poser_mode.vary_in_create`` applies a recipe's own fields -- written,
-    then marked ``character_engine.touched`` so the next prompt edit
+    *character_fields* exists for T7's character-plan card: written into the
+    form the way a recipe's own fields are (the Poser mode that first did so
+    was removed with the character-sheet pipeline), then marked
+    ``character_engine.touched`` so the next prompt edit
     (``sync_from_prompt``) leaves them alone rather than silently
     overwriting what the card just proposed.
     """

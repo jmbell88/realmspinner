@@ -114,7 +114,7 @@ flat under it, which looks like a bug and is the rule doing what it was told.
 ## The two ways out
 
 **Export to the library** mints an ordinary finished asset from your exact geometry. Nothing is
-reinterpreted. It unlocks everything downstream — rigging, posing, sheets, every export format —
+reinterpreted. It unlocks everything downstream — rigging, posing, every export format —
 none of which needs to know Clay exists. **Export GLB** and **Export OBJ** write a plain file to
 somewhere you choose instead, for another tool, and touch nothing in the library.
 

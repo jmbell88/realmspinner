@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..core.safeio import atomic
 from . import metrics as metrics_mod
 from . import views as views_mod
 
@@ -211,7 +212,7 @@ def write_report(out_dir: Path, results: list[dict[str, Any]], config: Any = Non
     }
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "calibrate.json"
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    atomic.write_text(path, json.dumps(payload, indent=2))
     return path
 
 

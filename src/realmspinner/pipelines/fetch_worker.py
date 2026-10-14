@@ -380,6 +380,30 @@ RETRY_BACKOFF_SECONDS = (2.0, 8.0, 20.0)
 #: plain ``ValueError``s.
 _TERMINAL = (download.Refusal,)
 
+#: The hub client's own "this will not change" answers, matched by class name
+#: for the reason ``download._looks_like_a_network_error`` gives (``huggingface_hub``
+#: is imported lazily, inside ``fetch_one``). A gated repo, a mistyped repo, a
+#: revision or file the repo does not have: the same answer on every attempt.
+#: The 2026-10-14 audit (pipelines-children-06) found these retried four times
+#: with 2+8+20 s of sleeps, each announced as "connection lost" -- the comment
+#: above ``RETRY_ATTEMPTS`` said they were refused terminally, and only
+#: ``download.Refusal`` was. Status codes are deliberately *not* used instead:
+#: a 401/403 is also what an expired Xet token looks like, which is the one
+#: failure retry-with-resume was introduced for.
+_HUB_TERMINAL_NAMES = frozenset(
+    {
+        "GatedRepoError",
+        "RepositoryNotFoundError",
+        "RevisionNotFoundError",
+        "EntryNotFoundError",
+        "DisabledRepoError",
+    }
+)
+
+
+def _is_terminal_hub_error(exc: BaseException) -> bool:
+    return any(cls.__name__ in _HUB_TERMINAL_NAMES for cls in type(exc).__mro__)
+
 
 def _resume_key(spec: dict[str, Any]) -> dict[str, Any]:
     """What a staging tree has to match before a later fetch may resume into it.
@@ -443,8 +467,9 @@ def _with_retries(run: Any, spec: dict[str, Any]) -> None:
     retry resumes rather than restarts -- which is what makes a small number of
     attempts worth anything on a 16 GB download.
 
-    ``_TERMINAL`` failures re-raise immediately: retrying them costs the user
-    time to arrive at the same refusal. Everything else is retried, deliberately
+    ``_TERMINAL`` failures, and the hub's gated / not-found errors
+    (:func:`_is_terminal_hub_error`), re-raise immediately: retrying them costs
+    the user time to arrive at the same refusal. Everything else is retried, deliberately
     including exception types this module cannot name -- the transports raise
     ``httpx`` and ``hf_xet`` errors that are not ``OSError`` subclasses, and the
     reset this exists for (``ConnectError: [WinError 10054]``) is one of them.
@@ -462,6 +487,8 @@ def _with_retries(run: Any, spec: dict[str, Any]) -> None:
         except _TERMINAL:
             raise
         except Exception as exc:  # noqa: BLE001 -- see the docstring
+            if _is_terminal_hub_error(exc):
+                raise
             last = exc
             if attempt == attempts - 1:
                 break

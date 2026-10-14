@@ -58,6 +58,13 @@ paragraph saying transplant "moves" them, and the code handing the scratch's
 ``params`` dict to the document). Meshes and materials are shared by identity,
 as :func:`clone` shares them, because both are immutable.
 
+**The rig travels too** (the 2026-10-14 audit, finding clay-mesh-model-01). A clone carries
+``rig_state`` (animations and frame rate, an immutable value replaced wholesale by every edit)
+and ``active_animation``, :func:`diff` tracks ``Obj.bone``, ``Obj.skin`` and ``rig_state`` by
+identity, and :func:`transplant` lands them through ``set_bone``, ``unbind_skin`` (or
+``set_props`` for a skin that is new) and ``set_rig_state``. Before that a preview that marked a
+bone, unbound a skin or keyed a pose showed the edit and Apply silently dropped it.
+
 **Objects transplant before materials, not after.** A first draft of
 :func:`transplant` copied ``document.py``'s own rule for a *live* edit --
 "materials first, because ``remove_material`` renumbers faces" -- and it is
@@ -133,6 +140,13 @@ def clone(doc: bd.ClayDoc) -> bd.ClayDoc:
     scratch.selection = set(doc.selection)
     scratch.element_mode = doc.element_mode
     scratch.element_sel = dict(doc.element_sel)
+    # The 2026-10-14 audit, finding clay-mesh-model-01: ``rig_state`` is the one ``ClayDoc``
+    # field this function did not carry, so a preview of an animated document showed an agent
+    # no animations and an ``add_animation`` on the clone could not be told from nothing.
+    # ``RigState`` is immutable (every edit goes through ``set_rig_state`` and replaces it), so
+    # it is shared as a mesh is.
+    scratch.rig_state = doc.rig_state
+    scratch.active_animation = doc.active_animation
     # ``ClayDoc.__init__`` already builds a fresh, empty ``UndoStack`` -- there
     # is nothing above for this function to have pushed to it, so the clone's
     # history starts exactly where a brand-new document's does.
@@ -181,6 +195,12 @@ class PreviewDiff:
     parent_changed: dict[int, int | None] = field(default_factory=dict)
     order_changed: bool = False
     materials_changed: bool = False
+    # The 2026-10-14 audit, finding clay-mesh-model-01: the rig. ``bone_changed`` maps a uid to
+    # its new flag, ``skin_changed`` a uid to its new ``Skin`` (``None`` for "unbound"), and
+    # ``rig_changed`` is the animations/frame rate, compared by identity as meshes are.
+    bone_changed: dict[int, bool] = field(default_factory=dict)
+    skin_changed: dict[int, object] = field(default_factory=dict)
+    rig_changed: bool = False
 
     base_head: int = 0
     base_selection: set[int] = field(default_factory=set)
@@ -213,6 +233,8 @@ class PreviewDiff:
             | self.transform_changed
             | set(self.props_changed)
             | set(self.parent_changed)
+            | set(self.bone_changed)
+            | set(self.skin_changed)
         )
 
     @property
@@ -226,6 +248,9 @@ class PreviewDiff:
             or self.parent_changed
             or self.order_changed
             or self.materials_changed
+            or self.bone_changed
+            or self.skin_changed
+            or self.rig_changed
         )
 
 
@@ -272,6 +297,8 @@ def diff(base: bd.ClayDoc, scratch: bd.ClayDoc) -> PreviewDiff:
     transform_changed: set[int] = set()
     props_changed: dict[int, set[str]] = {}
     parent_changed: dict[int, int | None] = {}
+    bone_changed: dict[int, bool] = {}
+    skin_changed: dict[int, object] = {}
     for uid in common:
         b, s = base_map[uid], scratch_map[uid]
         if b.mesh is not s.mesh:
@@ -290,6 +317,13 @@ def diff(base: bd.ClayDoc, scratch: bd.ClayDoc) -> PreviewDiff:
         # in that tuple.
         if b.parent != s.parent:
             parent_changed[uid] = s.parent
+        # The 2026-10-14 audit, finding clay-mesh-model-01: neither was compared, so a preview
+        # that marked a bone read as "nothing changed" and Apply had nothing to apply. A skin
+        # is immutable, so identity says whether it moved.
+        if b.bone != s.bone:
+            bone_changed[uid] = s.bone
+        if b.skin is not s.skin:
+            skin_changed[uid] = s.skin
 
     # The 2026-10-07 audit's clay-24: this compared the common uids only, so an
     # object the scratch inserted mid-list (``separate`` puts its pieces where
@@ -311,6 +345,9 @@ def diff(base: bd.ClayDoc, scratch: bd.ClayDoc) -> PreviewDiff:
         parent_changed=parent_changed,
         order_changed=order_changed,
         materials_changed=materials_changed,
+        bone_changed=bone_changed,
+        skin_changed=skin_changed,
+        rig_changed=base.rig_state is not scratch.rig_state,
         base_head=base.history.head,
         base_selection=set(base.selection),
         base_element_mode=base.element_mode,
@@ -375,6 +412,27 @@ class TransplantResult:
         return True
 
 
+def _transplant_rig_marks(doc: bd.ClayDoc, diff_: PreviewDiff) -> None:
+    """Unbind skins, then set bone marks -- the part of a rig edit that must precede the rest.
+
+    Unbinding comes first because a bone cannot be unmarked (or removed) while a skin names it.
+    A skin that is *new* or different rather than gone has no door of its own -- Clay binds
+    weights only by import, adoption and Blender -- so it goes through ``set_props`` after its
+    mesh lands (see :func:`transplant`'s mesh loop, which runs later); here it is only unbound
+    when the scratch's is ``None``. A refusal is tolerated like every other door in
+    :func:`transplant`: the base may have moved since the preview was built.
+    """
+    for uid, skin in diff_.skin_changed.items():
+        if skin is None and uid not in diff_.added:
+            with contextlib.suppress(el.OpError, KeyError):
+                doc.unbind_skin(uid)
+    for flag in (True, False):
+        wanted = [u for u, f in diff_.bone_changed.items() if f is flag and u not in diff_.added]
+        if wanted:
+            with contextlib.suppress(el.OpError, KeyError):
+                doc.set_bone(wanted, flag)
+
+
 def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool | TransplantResult:
     """Apply a preview's changes to the real document, as **one** undo step.
 
@@ -395,6 +453,12 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
     transplant is one step away from making true. Applying every object edit
     first, so every face in ``doc`` already carries final numbering, is what
     lets the material-list resize run last and land clean.
+
+    **The rig goes first and last.** A skin is unbound and a bone's mark changed *before* any
+    object is removed or any mesh replaced -- the scratch could only unmark or delete a bone
+    after unbinding what is weighted to it, and ``set_mesh`` refuses a weighted object's new
+    point count until it is unbound -- and the animations (``set_rig_state``) land after every
+    bone they name exists and every transform that re-keys them has run.
     """
     if diff_.empty:
         return False
@@ -403,6 +467,7 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
     # ``by_uid`` scan per touched one made Apply quadratic on the frame thread.
     scratch_map = scratch._uid_map()
     try:
+        _transplant_rig_marks(doc, diff_)
         live = {o.uid for o in doc.objects}
         for uid in diff_.removed:
             if uid in live:
@@ -530,6 +595,13 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
                     if others:
                         doc.set_props(uid, **others)
 
+        for uid, skin in diff_.skin_changed.items():
+            if skin is not None and uid not in diff_.added:
+                # A skin that arrived (or changed) rides in with its mesh's weights, which
+                # the loop above has landed; the object's own ``skin`` field has no other door.
+                with contextlib.suppress(el.OpError, KeyError):
+                    doc.set_props(uid, skin=skin)
+
         for uid in diff_.transform_changed - diff_.added:
             s = scratch_map[uid]
             # Same tolerance as the mesh branch above, and the same
@@ -546,6 +618,14 @@ def transplant(doc: bd.ClayDoc, scratch: bd.ClayDoc, diff_: PreviewDiff) -> bool
             wanted = [o.uid for o in scratch.objects if o.uid in live]
             for index, uid in enumerate(wanted):
                 doc.move_object(uid, index)
+
+        if diff_.rig_changed:
+            # Last among the object edits: every bone a channel names exists by now and the
+            # ``set_transform`` calls above have re-keyed whatever they were going to. Refused
+            # (a stray channel after the base moved on) the way every other door here is.
+            with contextlib.suppress(el.OpError):
+                doc.set_rig_state(scratch.rig_state)
+            doc.set_active_animation(scratch.active_animation)
 
         kept_materials: list[int] = []
         if diff_.materials_changed:

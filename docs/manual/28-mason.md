@@ -125,7 +125,8 @@ scene of two hundred. **Solo** shows only what is selected and **Show all** puts
 each greys out with the reason when it cannot act ("Select something to show on its own.", "Nothing
 is hidden.").
 
-Right-clicking a row offers **Rename**, **Duplicate**, **Solo**, **Move up**, **Move down**, **Move
+Double-clicking a row, or right-clicking it and choosing **Rename**, edits its name in place; `Esc`
+cancels. Right-clicking a row offers **Rename**, **Duplicate**, **Solo**, **Move up**, **Move down**, **Move
 to root**, **Group**, **Ungroup**, **Make prefab**, **Unpack instance** and **Delete**. The viewport's
 own right-click menu carries the ones that make sense there.
 
@@ -157,7 +158,10 @@ Under those is a block that depends on what the node is. A mesh has its source a
 override — tick **Override**, then set its colour, metallic and roughness, which replaces the
 source's own material on that one node; untick it to go back. The ground has the same colour and
 surface controls, always on. A light has colour, intensity, range, and — for a spot — its inner and outer cone angles.
-A camera has its field of view and its near and far planes. A prefab instance names its template.
+A camera has its field of view and its near and far planes. These fields keep to the ranges glTF
+allows: intensity and range are not negative, a spot's inner cone stays under its outer cone (which is
+at most 90 degrees), the field of view is under 180 degrees, and the near plane stays in front of the
+far plane. A prefab instance names its template.
 
 At the bottom is a table of **user properties**: your own key-and-value pairs, carried through to the
 export's manifest. This is where a scene says "this crate is breakable" to an engine that cares. Type
@@ -170,7 +174,7 @@ A mesh whose source cannot be found says so here — "Missing — the source cou
 ## Prefabs and instances
 
 A **prefab** is a subtree you have named as a template. **Make prefab**, from either right-click
-menu, takes what is selected and stores it under a name; the Prefabs panel then appears in the left
+menu, takes what is selected and stores it under a name; the Prefabs panel then appears in the right
 column with a row for it. Make prefab refuses a name an existing prefab already has, with an error
 toast, and the name box starts from the first free one — `Barrel`, then `Barrel 2`, `Barrel 3` — so
 making a second prefab never swaps the geometry under the instances of the first.
@@ -184,6 +188,10 @@ changing it there retints every instance in one undo step.
 **Unpack instance** is the one way to make an instance differ from its template: it replaces the
 instance with a fresh copy of the template's contents, which you can then edit like anything else.
 The relationship is gone at that point, which is the trade.
+
+**Make prefab** on a hidden, locked or static node keeps those toggles and the node's user properties
+on the instance (the row you see in the outliner), so the instance's own Visible toggle works; the
+template itself is always visible, unlocked and non-static.
 
 Instancing is also what makes a large scene affordable. Five hundred instances of one asset are one
 upload to your card rather than five hundred, which is the difference between a forest that edits
@@ -257,7 +265,9 @@ pick up a re-run of an asset it names.
 It is also what makes a missing source possible: delete an asset from the library and the scenes
 using it have a hole. The Scene file panel lists what could not be resolved, the Properties panel
 says so on the node, and the exporters name what they dropped rather than quietly writing a smaller
-scene. Nothing is lost from the document itself — put the asset back and the link resolves again.
+scene. A prefab instance whose template you removed from the Prefabs panel is named the same way: it
+has no geometry to write, so the manifest's `missing` list and the OBJ's skipped list say which
+instance was left out. Nothing is lost from the document itself — put the asset back and the link resolves again.
 
 ## Saving
 
@@ -282,7 +292,11 @@ The Scene file panel's **Take it somewhere** section, and the whole reason the m
 hierarchy, the instances flattened into real nodes, the lights as `KHR_lights_punctual`, the cameras
 as cameras. The manifest is ours — format `realmspinner-mason-scene`, version 1 — and carries the node
 list, the units, the counts (nodes, meshes, lights, cameras, triangles), the prefab names and
-anything that could not be resolved. An importer that understands glTF needs only the GLB; one that
+anything that could not be resolved. Each node carries its `local` transform and its composed
+`world` one; a node under a non-uniformly scaled ancestor can be sheared past what a position,
+rotation and scale can say, and its entry is marked `world_approximate`, which means rebuild the
+hierarchy from the `local` values instead of trusting that `world`. An importer that understands glTF
+needs only the GLB; one that
 wants to know what the scene *meant* reads the manifest beside it. `Ctrl+E` does this from the
 keyboard.
 

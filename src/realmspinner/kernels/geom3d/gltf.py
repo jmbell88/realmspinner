@@ -464,7 +464,7 @@ class Model:
                 self.by_name[node.name] = i
         self.rest_rotations = [n.rotation.copy() for n in nodes]
         # The mirror of rest_rotations, for the one translation posing may
-        # move: the root joint, when the Poser previews a root offset as
+        # move: the root joint, when the viewer's pose bridge previews a root offset as
         # ``rest + delta``. Remembered for every node because which one is the
         # root is the editor's knowledge, not the file's.
         self.rest_translations = [n.translation.copy() for n in nodes]
@@ -1111,7 +1111,14 @@ def _number(value: Any, default: float) -> float:
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return default
-    number = float(value)
+    # The 2026-10-14 audit, finding create-viewer-04: a 400-digit JSON integer is an ``int``, and
+    # ``float()`` of one raises OverflowError -- an unnamed refusal from a field this docstring
+    # promises falls back. (``_trs`` has caught the same error for the structural fields since
+    # clay-71.)
+    try:
+        number = float(value)
+    except OverflowError:
+        return default
     return number if np.isfinite(number) else default
 
 
@@ -1161,7 +1168,7 @@ def _factor(raw: Any, n: int, default: tuple[float, ...]) -> tuple[float, ...]:
     """
     try:
         arr = np.asarray(raw, dtype="f8")
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # create-viewer-04: a 400-digit integer
         return default
     if arr.shape != (n,) or not np.all(np.isfinite(arr)):
         return default
@@ -1765,6 +1772,15 @@ class _Reader:
             # Renormalising is exact for a well-formed file (a sum of 1 divides
             # by 1) and is the only reading available for a malformed one.
             total = weights.sum(axis=1, keepdims=True)
+            # The 2026-10-14 audit, finding clay-io-03: ``NaN <= 0`` is False, so a NaN weight
+            # sailed past the dead-vertex test below, survived the renormalising division and
+            # imported into Clay as a weighted object that then refused to save. A vertex's
+            # weights sum to something non-finite exactly when one of them is, and the sum is
+            # the one ``(n, 1)`` array already made, so the check costs no same-size copy.
+            if not np.isfinite(total).all():
+                raise ValueError(
+                    "a primitive's WEIGHTS_0 holds a weight that is not a finite number"
+                )
             dead = total[:, 0] <= 0.0
             if dead.any():
                 weights[dead] = 0.0
@@ -2339,7 +2355,13 @@ class _Reader:
         info = np.iinfo(raw.dtype)
         out = self._astype(raw, "f8")
         out /= float(info.max)
-        return np.maximum(out, -1.0) if info.min < 0 else out
+        # The 2026-10-14 audit, finding clay-io-04: ``np.maximum(out, -1.0)`` allocated a second
+        # array the size of ``out`` that nothing charged, so a bufferless 16M-row int16 output
+        # peaked at 1.1 GiB against the 768 MiB budget before the key-count refusal. Clamped in
+        # place, like ``decoded()`` does, so no third array exists.
+        if info.min < 0:
+            np.maximum(out, -1.0, out=out)
+        return out
 
     def skin(self, skin: dict) -> Skin:
         _check_dict_entry(skin, "a skin in this GLB's \"skins\" array")
@@ -2579,5 +2601,14 @@ class _Reader:
         else:
             out.translation = _trs(node, name, "translation", 3, (0.0, 0.0, 0.0))
             out.rotation = _trs(node, name, "rotation", 4, (0.0, 0.0, 0.0, 1.0))
+            # The 2026-10-14 audit, finding clay-io-07: the spec says a rotation MUST be unit,
+            # but ``compose`` does not normalise, so a low-precision or hand-edited quaternion
+            # imported as a scaled, partly sheared rotation -- Clay read (0, 0, .5, .5) as a
+            # non-uniform scale -- where three.js and Blender normalise and draw it upright.
+            # A zero-length one names no rotation at all and is refused like any other bad TRS.
+            length = float(np.linalg.norm(out.rotation))
+            if length == 0.0:
+                raise ValueError(f"node {name!r} has a zero-length rotation")
+            out.rotation = out.rotation / length
             out.scale = _trs(node, name, "scale", 3, (1.0, 1.0, 1.0))
         return out

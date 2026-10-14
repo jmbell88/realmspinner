@@ -63,6 +63,7 @@ from .....kernels.grid2d import gid as gidlib
 from .....kernels.grid2d.tileset import Tileset, TilesetRef, colour_text
 from . import project
 from ._map_layers import MAX_GROUP_DEPTH
+from ._map_tilesets import MAX_TILESETS, PixelBudget, refuse_overlapping_tilesets
 from .pngio import png_bytes
 from .props import (
     TiledUnsupported,
@@ -262,6 +263,23 @@ class _Budget:
                 "cells this build reads"
             )
 
+    def dense_window(self, window: int, charged: int) -> None:
+        """Charge the dense box an infinite layer is allocated as.
+
+        ``charged`` is what ``cell_block`` already took for the chunks that
+        sit inside it, so only the empty remainder is added; the total stays
+        the larger of the two and is refused before the box is allocated.
+        """
+        extra = window - charged
+        if extra > 0:
+            self.cells += extra
+        if self.cells > MAX_DECODED_CELLS:
+            raise ValueError(
+                f"this map's layers decode to more than the {MAX_DECODED_CELLS} "
+                "cells this build reads"
+            )
+
+
 # Tiled's hexagonal 120-degree rotation flag. See the note in :mod:`.gid` for
 # why the constant lives here and not beside the other three.
 _HEX_ROTATE = gidlib.DTYPE(0x10000000)
@@ -351,7 +369,7 @@ def _offset_fields(
     return {
         "stagger_axis": axis if axis in project.STAGGER_AXES else "y",
         "stagger_index": index if index in project.STAGGER_INDICES else "odd",
-        "hex_side": int(root.get("hexsidelength", 0) or 0),
+        "hex_side": max(0, int(root.get("hexsidelength", 0) or 0)),
     }
 
 
@@ -394,7 +412,7 @@ def _offset_fields_json(
     return {
         "stagger_axis": axis if axis in project.STAGGER_AXES else "y",
         "stagger_index": index if index in project.STAGGER_INDICES else "odd",
-        "hex_side": int(payload.get("hexsidelength", 0) or 0),
+        "hex_side": max(0, int(payload.get("hexsidelength", 0) or 0)),
     }
 
 
@@ -557,7 +575,9 @@ def _chunk_side(value: Any, what: str) -> int:
     return side
 
 
-def chunks_from(pieces: list[tuple[int, int, np.ndarray]]) -> tuple[np.ndarray, int, int]:
+def chunks_from(
+    pieces: list[tuple[int, int, np.ndarray]], budget: _Budget | None = None
+) -> tuple[np.ndarray, int, int]:
     """Sparse chunks as one dense array plus the true coordinate of its (0, 0).
 
     The bounding box of the *populated* chunks, which is what an infinite map
@@ -584,6 +604,14 @@ def chunks_from(pieces: list[tuple[int, int, np.ndarray]]) -> tuple[np.ndarray, 
             f"this map's chunks span {x1 - x0}x{y1 - y0} cells, past the"
             f" {MAX_DIMENSION} a side this build reads"
         )
+    # The 2026-10-14 audit, finding plotter-map-01: ``_Budget.cell_block``
+    # charged each chunk's own cells, but the dense box allocated below is the
+    # bounding window of all of them, so two 16x16 chunks at (0, 0) and
+    # (4080, 4080) were charged 512 cells and held 64 MiB -- a 1.7 MB file of
+    # 1000 such layers asked for ~62 GiB. Charge what is *held*: the window,
+    # less the cells already charged for the chunks inside it.
+    if budget is not None:
+        budget.dense_window((x1 - x0) * (y1 - y0), sum(b.size for _x, _y, b in pieces))
     out = gidlib.empty_layer(x1 - x0, y1 - y0)
     for x, y, block in pieces:
         out[y - y0 : y - y0 + block.shape[0], x - x0 : x - x0 + block.shape[1]] = block
@@ -771,11 +799,57 @@ def _json_layer_common(entry: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _budgeted_loaders(
+    image_loader: ImageLoader, tsx_loader: TilesetLoader
+) -> tuple[ImageLoader, TilesetLoader]:
+    """The host's two loaders, each charging what it returns to one budget.
+
+    The 2026-10-14 audit, finding plotter-map-02: each picture the host decodes
+    is held to ``pixelguard``'s per-picture ceiling and nothing summed them
+    across the document, so a map naming a thousand distinct 8192 x 8192
+    images (or tilesets) held every one. Wrapped here, once per read, rather
+    than at each of the four call sites; the charge lands as soon as a loader
+    returns, so the most held past the budget is one picture.
+    """
+    budget = PixelBudget()
+
+    def image(source: str) -> Any:
+        pixels = image_loader(source)
+        if pixels is not None:
+            budget.charge(pixels.shape[1], pixels.shape[0], f"the picture {source!r}")
+        return pixels
+
+    def tileset(source: str) -> Any:
+        loaded = tsx_loader(source)
+        pixels = getattr(loaded, "pixels", None)
+        if pixels is not None:
+            budget.charge(pixels.shape[1], pixels.shape[0], f"the tileset {source!r}")
+        return loaded
+
+    return image, tileset
+
+
+def _refuse_tileset_overflow(held: int) -> None:
+    """Refuse the tileset past :data:`MAX_TILESETS`, *before* its loader runs.
+
+    The 2026-10-14 audit, finding plotter-map-06: only ``read_rmap`` capped the
+    tileset count, so a 213 KiB ``.tmx`` of 5000 ``<tileset source="same.tsx"/>``
+    opened and made 5000 loader calls -- a file read and an image decode each.
+    Checked at the top of each iteration so the call that would be the
+    1001st never happens.
+    """
+    if held >= MAX_TILESETS:
+        raise ValueError(
+            f"this map declares more than the {MAX_TILESETS} tilesets this build reads"
+        )
+
+
 def _read_tmx_tilesets(
     root: ET.Element, *, image_loader: ImageLoader, tsx_loader: TilesetLoader
 ) -> list[TilesetRef]:
     refs: list[TilesetRef] = []
     for node in root.findall("tileset"):
+        _refuse_tileset_overflow(len(refs))
         firstgid = int(node.get("firstgid", 1) or 1)
         source = node.get("source")
         if source:
@@ -821,6 +895,7 @@ def _read_tmx_tilesets(
         refs.append(
             TilesetRef(firstgid=firstgid, tileset=tileset_from_element(node, pixels))
         )
+    refuse_overlapping_tilesets(refs)
     return refs
 
 
@@ -828,12 +903,18 @@ def _xml_points(node: ET.Element, tag: str) -> tuple[tuple[float, float], ...]:
     child = node.find(tag)
     raw = "" if child is None else child.get("points", "")
     try:
-        return tuple(
+        points = tuple(
             (float(pair.split(",", 1)[0]), float(pair.split(",", 1)[1]))
             for pair in raw.split()
         )
     except (ValueError, IndexError) as exc:
         raise ValueError(f"a {tag} object has malformed points") from exc
+    # After the parse, outside its ``except``: a non-finite vertex is a
+    # different refusal from a malformed one (finding plotter-map-14).
+    for vertex in points:
+        for value in vertex:
+            _finite(value, f"a {tag} vertex")
+    return points
 
 
 def _read_tmx_text(node: ET.Element, width: float, height: float) -> Text:
@@ -864,8 +945,16 @@ def _warn_dangling_tile_objects(
 
     The gid was read and stored unchecked, so such an object drew nothing and
     said nothing -- indistinguishable, on screen, from an object the reader had
-    dropped. Logged rather than refused: it is one object of a map, the map is
-    otherwise sound, and Tiled itself opens these.
+    dropped. This helper logs and records rather than refuses, because the
+    object is one of a map and Tiled itself opens these.
+
+    **It cannot fire from ``read_tmx`` or ``read_tmj``.** ``_finish`` runs first
+    and refuses (``ValueError``) any tile object whose gid no tileset accounts
+    for, so by the time the reader calls this there is no such object left to
+    warn about; the 2026-10-14 audit (finding plotter-map-18) found the
+    docstring describing a warning no reader could produce. It stays as the
+    check for a document *built* rather than read -- the tests call it directly
+    on one -- and as the place the warning returns should ``_finish`` ever relax.
 
     ``warnings``, when given, gets the same sentence as data (W3.2), against
     the object's layer name, so a caller can show it beside the import rather
@@ -911,8 +1000,12 @@ def _read_tmx_object(node: ET.Element) -> MapObject:
     where = f"object {node.get('id', '?')}"
     if node.get("template"):
         raise TiledUnsupported("object templates", where)
-    width = float(node.get("width", 0) or 0)
-    height = float(node.get("height", 0) or 0)
+    # Through ``_finite`` like the position beside them: the 2026-10-14 audit
+    # (finding plotter-map-14) found ``<object width="inf" height="nan"/>``
+    # opening and re-exporting as ``width="inf"`` in ``.tmx`` and ``Infinity``
+    # in ``.tmj``, files Tiled cannot parse.
+    width = _finite(float(node.get("width", 0) or 0), "an object's width")
+    height = _finite(float(node.get("height", 0) or 0), "an object's height")
     if node.get("gid") is not None:
         shape: Any = TileShape(gid=int(node.get("gid", 0) or 0), w=width, h=height)
     elif node.find("ellipse") is not None:
@@ -1057,7 +1150,7 @@ def _read_tmx_layers(
                     pieces.append(
                         (int(chunk.get("x", 0) or 0), int(chunk.get("y", 0) or 0), block)
                     )
-                cells, ox, oy = chunks_from(pieces)
+                cells, ox, oy = chunks_from(pieces, budget)
                 chunked = TileLayer(**common, data=cells)
                 placed.append((chunked, ox, oy))
                 layers.append(chunked)
@@ -1156,6 +1249,7 @@ def read_tmx(
     """
     root = xml_root(data, "map")
     _check_map(root)
+    image_loader, tsx_loader = _budgeted_loaders(image_loader, tsx_loader)
 
     infinite = root.get("infinite", "0") not in ("0", "false")
     doc = MapDoc(
@@ -1180,12 +1274,17 @@ def read_tmx(
         root.get("backgroundcolor"), "a map background colour"
     )
     doc.class_name = root.get("class") or root.get("type") or ""
+    # Finite and non-collapsing, like the setter (the 2026-10-14 audit, findings
+    # plotter-map-05 and plotter-map-04): ``parallaxoriginx="inf"`` opened and
+    # then saved a ``.rmap`` this build could not reopen, and a skew with a zero
+    # determinant opened and then raised out of the canvas's per-draw hit test.
     doc.parallax_origin = (
-        float(root.get("parallaxoriginx", 0) or 0),
-        float(root.get("parallaxoriginy", 0) or 0),
+        _finite(float(root.get("parallaxoriginx", 0) or 0), "the map's parallax origin"),
+        _finite(float(root.get("parallaxoriginy", 0) or 0), "the map's parallax origin"),
     )
     doc.skew_x = int(root.get("skewx", 0) or 0)
     doc.skew_y = int(root.get("skewy", 0) or 0)
+    project.check_skew(doc.projection, doc.tile_w, doc.tile_h, doc.skew_x, doc.skew_y)
     for name, value in _offset_fields(root, import_warnings).items():
         setattr(doc, name, value)
     doc.properties = read_properties(root)
@@ -1207,6 +1306,8 @@ def read_tmx(
         next_object_id=_optional_int(root.get("nextobjectid")),
     )
     _adopt_object_space(doc)
+    # A no-op today: ``_finish`` above already refused a dangling tile object
+    # (see :func:`_warn_dangling_tile_objects`).
     _warn_dangling_tile_objects(doc, import_warnings)
     return doc
 
@@ -1219,9 +1320,13 @@ def _json_points(entry: dict[str, Any], key: str) -> tuple[tuple[float, float], 
     if not isinstance(raw, list):
         raise ValueError(f"a {key} object has malformed points")
     try:
-        return tuple((float(point["x"]), float(point["y"])) for point in raw)
+        points = tuple((float(point["x"]), float(point["y"])) for point in raw)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"a {key} object has malformed points") from exc
+    for vertex in points:
+        for value in vertex:
+            _finite(value, f"a {key} vertex")
+    return points
 
 
 def _json_text(entry: dict[str, Any], width: float, height: float) -> Text:
@@ -1250,8 +1355,8 @@ def _json_object(entry: dict[str, Any]) -> MapObject:
     where = f"object {entry.get('id', '?')}"
     if entry.get("template"):
         raise TiledUnsupported("object templates", where)
-    width = float(entry.get("width", 0) or 0)
-    height = float(entry.get("height", 0) or 0)
+    width = _finite(float(entry.get("width", 0) or 0), "an object's width")
+    height = _finite(float(entry.get("height", 0) or 0), "an object's height")
     if "gid" in entry:
         shape: Any = TileShape(gid=int(entry.get("gid", 0) or 0), w=width, h=height)
     elif entry.get("ellipse"):
@@ -1295,6 +1400,7 @@ def _read_tmj_tilesets(
         # 2026-09-26 audit, finding plotter-map-08).
         if not isinstance(entry, dict):
             raise ValueError("a Tiled JSON tileset reference is not an object")
+        _refuse_tileset_overflow(len(refs))
         firstgid = int(entry.get("firstgid", 1) or 1)
         source = entry.get("source")
         if source:
@@ -1327,6 +1433,7 @@ def _read_tmj_tilesets(
         refs.append(
             TilesetRef(firstgid=firstgid, tileset=tileset_from_json(entry, pixels))
         )
+    refuse_overlapping_tilesets(refs)
     return refs
 
 
@@ -1433,7 +1540,7 @@ def _read_tmj_layer_list(
                     pieces.append(
                         (int(chunk.get("x", 0) or 0), int(chunk.get("y", 0) or 0), block)
                     )
-                cells, ox, oy = chunks_from(pieces)
+                cells, ox, oy = chunks_from(pieces, budget)
                 chunked = TileLayer(**common, data=cells)
                 placed.append((chunked, ox, oy))
                 layers.append(chunked)
@@ -1560,10 +1667,11 @@ def read_tmj(
     attribute, which is always text. ``"width": [1]``, ``"properties": [5]`` or
     a float of ``1e999`` reach a numeric parse or a ``.get`` that was written
     for the right type and leave as ``TypeError``, ``AttributeError`` or
-    ``OverflowError`` -- thirty sites, one cause. The 2026-10-03 audit (finding
-    plotter-09) found the open doors frame only ``ValueError`` as "this map
-    could not be opened", so those arrived as a generic task failure; the
-    translation is made once, here, rather than guarded at each parse.
+    ``OverflowError`` -- thirty sites, one cause (and a short array or a missing
+    key leaves as ``IndexError`` or ``KeyError``, translated the same way). The
+    2026-10-03 audit (finding plotter-09) found the open doors frame only
+    ``ValueError`` as "this map could not be opened", so those arrived as a
+    generic task failure; the translation is made once, here, rather than guarded at each parse.
     """
     try:
         return _read_tmj(
@@ -1572,7 +1680,10 @@ def read_tmj(
             tsx_loader=tsx_loader,
             import_warnings=import_warnings,
         )
-    except (TypeError, AttributeError, OverflowError) as exc:
+    except (TypeError, AttributeError, OverflowError, IndexError, KeyError) as exc:
+        # ``IndexError`` and ``KeyError`` too: the 2026-10-14 audit (finding
+        # plotter-map-12) found a collision polygon point with no ``x`` leaving
+        # as a bare ``KeyError``, which the open door does not frame.
         raise ValueError(f"this Tiled JSON map holds a malformed value: {exc}") from exc
 
 
@@ -1589,6 +1700,7 @@ def _read_tmj(
         raise ValueError(f"this is not a readable Tiled JSON map: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("a Tiled JSON map is an object")
+    image_loader, tsx_loader = _budgeted_loaders(image_loader, tsx_loader)
 
     orientation = _check_orientation(str(payload.get("orientation", "orthogonal")))
 
@@ -1606,12 +1718,14 @@ def _read_tmj(
         payload.get("backgroundcolor"), "a map background colour"
     )
     doc.class_name = str(payload.get("class", ""))
+    # Same two refusals as ``read_tmx``, plotter-map-05 and plotter-map-04.
     doc.parallax_origin = (
-        float(payload.get("parallaxoriginx", 0) or 0),
-        float(payload.get("parallaxoriginy", 0) or 0),
+        _finite(float(payload.get("parallaxoriginx", 0) or 0), "the map's parallax origin"),
+        _finite(float(payload.get("parallaxoriginy", 0) or 0), "the map's parallax origin"),
     )
     doc.skew_x = int(payload.get("skewx", 0) or 0)
     doc.skew_y = int(payload.get("skewy", 0) or 0)
+    project.check_skew(doc.projection, doc.tile_w, doc.tile_h, doc.skew_x, doc.skew_y)
     for name, value in _offset_fields_json(payload, import_warnings).items():
         setattr(doc, name, value)
     doc.properties = read_json_properties(payload.get("properties"))
@@ -1626,6 +1740,7 @@ def _read_tmj(
         next_object_id=_optional_int(payload.get("nextobjectid")),
     )
     _adopt_object_space(doc)
+    # A no-op today, as in ``read_tmx``: ``_finish`` refused first.
     _warn_dangling_tile_objects(doc, import_warnings)
     return doc
 
@@ -1869,6 +1984,15 @@ def _image_layer_files(doc: MapDoc, files: dict[str, bytes]) -> dict[int, str]:
         raw = png_bytes(layer.pixels)
         source = str(layer.source).replace("\\", "/")
         candidate = PureWindowsPath(source)
+        # The reserved-name tests run on the *normalised* parts, not the raw
+        # string: the 2026-10-14 audit (finding plotter-map-15) found
+        # ``./tilesets/00-grass.png`` passing the ``startswith("tilesets/")``
+        # test and then landing on the very file the tileset atlas is written
+        # to once ``fileio._write`` joins it under the map's folder -- the later
+        # bytes won and the atlas was silently replaced by the picture.
+        # ``PureWindowsPath`` drops ``.`` parts and doubled separators, which
+        # are the spellings a raw prefix misses.
+        parts = tuple(part.lower() for part in candidate.parts)
         safe = (
             bool(source)
             and not candidate.is_absolute()
@@ -1882,11 +2006,12 @@ def _image_layer_files(doc: MapDoc, files: dict[str, bytes]) -> dict[int, str]:
             # picture, which is the same shape of loss the absolute-path rule
             # above exists to stop, from inside the archive instead of outside
             # it.
-            and source.lower() not in _RESERVED_EXPORT_NAMES
-            and not source.lower().startswith("tilesets/")
+            and parts
+            and not (len(parts) == 1 and parts[0] in _RESERVED_EXPORT_NAMES)
+            and parts[0] != "tilesets"
         )
         stem = _SAFE.sub("-", layer.name).strip("-") or "image"
-        path = source if safe else f"images/{index:02d}-{stem}.png"
+        path = "/".join(candidate.parts) if safe else f"images/{index:02d}-{stem}.png"
         if path in files and files[path] != raw:
             # The colliding path can *be* this layer's fallback -- another
             # layer's safe source spelt ``images/NN-stem.png`` -- so recomputing

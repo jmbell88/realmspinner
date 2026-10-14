@@ -15,6 +15,7 @@ and not an exception. Only a placement *entirely* outside the map returns None.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
@@ -313,9 +314,22 @@ def random_choices(
     if not choices.size or weights is None:
         return choices, None
     values = np.array([max(0.0, float(weights(int(gid)))) for gid in choices])
-    if values.sum() <= 0.0:
+    # The 2026-10-14 audit (finding plotter-map-10): an infinite weight made the
+    # normalised vector NaN, and two finite 1e308 weights overflowed the sum so
+    # the vector no longer added to 1 -- either way ``Generator.choice`` raised
+    # on the frame thread, mid-stroke, with nothing around it. A non-finite
+    # weight cannot be honoured, so it falls back to uniform exactly as an
+    # all-zero brush does; an overflowing sum is rescaled by the peak first.
+    if not np.isfinite(values).all():
         return choices, None
-    return choices, values / values.sum()
+    with np.errstate(over="ignore"):
+        total = float(values.sum())
+    if not math.isfinite(total):
+        values = values / values.max()
+        total = float(values.sum())
+    if total <= 0.0:
+        return choices, None
+    return choices, values / total
 
 
 def random_stamp(

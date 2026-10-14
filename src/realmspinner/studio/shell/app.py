@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -118,6 +119,9 @@ class App(
         # itself is deferred rather than the answer.
         self._quit_deferred = False
         self._quit_deferred_then: Any = None
+        # True once ``_request_quit`` has started its guard chain; see
+        # ``quit.QUIT_CHAIN_TITLES``.
+        self._quit_chain_open = False
         # Which side of the cancel line a startup pack restore is on, written
         # from the splash's load thread and read by its frame loop -- see
         # ``_restore_packs_behind_splash``.
@@ -602,7 +606,9 @@ class App(
         ctx.quit_to_install = self._quit_to_install
         ctx.clear_viewport = self._clear_viewport
         ctx.guidance = svc_system.guidance_catalog(self.svc)
-        self._refresh_model_answers()
+        # Synchronous here, once: nothing is on screen to stall yet and the first
+        # frame's first-run and gate panes read ``pack_rows``.
+        self._refresh_model_answers(packs_off_thread=False)
         # Off the frame thread: rig_templates asks doctor.blender_check, whose
         # first answer is a seconds-long bpy subprocess probe that no longer
         # runs during startup (C30). The rig controls appear when it lands.
@@ -691,7 +697,7 @@ class App(
             refreshed["fields"] = {**fields, "style_lora": models.catalog()["style_lora"]}
         ctx.guidance = refreshed
 
-    def _refresh_model_answers(self) -> None:
+    def _refresh_model_answers(self, *, packs_off_thread: bool = True) -> None:
         """What the app knows about the weights on disk, recomputed from doctor.
 
         Called at startup and again whenever a download finishes. It used to run
@@ -700,6 +706,9 @@ class App(
         The generate combos read ``base_models`` every frame, so a model
         downloaded from the Settings pane has to stop saying "weights missing"
         without a restart.
+
+        The two pack answers are read on a task (:meth:`_request_pack_answers`)
+        unless *packs_off_thread* is false, which only startup passes.
         """
         from ... import fetch, models, vram
         from ...service import downloads as svc_downloads
@@ -759,18 +768,53 @@ class App(
         # pane makes ``bpy`` or ``torch`` importable while the app runs, and
         # every pack answer in the ctx is derived from a ``find_spec`` this
         # process has already cached.
+        if packs_off_thread:
+            self._request_pack_answers()
+        else:
+            self._adopt_pack_answers(self._read_pack_answers())
+
+    def _read_pack_answers(self) -> tuple[list[dict[str, Any]], list[str]]:
+        """The two pack answers the ctx holds. -> ``(pack_rows, packs_to_restore)``.
+
+        Each half keeps its own containment, the posture the block it was lifted
+        out of took: a Settings pane that cannot list its packs is not a reason
+        to fail anything. Safe off the frame thread -- it only reads
+        distribution metadata and the manifest.
+        """
         from ...service import packs as svc_packs
 
         try:
-            ctx.pack_rows = svc_packs.rows(self.svc)
+            rows = svc_packs.rows(self.svc)
         except Exception:
             log.exception("could not list the dependency packs")
-            ctx.pack_rows = []
+            rows = []
         try:
-            ctx.packs_to_restore = svc_packs.packs_to_restore(self.svc)
+            restore = svc_packs.packs_to_restore(self.svc)
         except Exception:
             log.exception("could not check for packs an upgrade removed")
-            ctx.packs_to_restore = []
+            restore = []
+        return rows, restore
+
+    def _adopt_pack_answers(self, answers: tuple[list[dict[str, Any]], list[str]]) -> None:
+        """Land :meth:`_read_pack_answers`' result. Frame thread only."""
+        ctx = self.app_ctx
+        ctx.pack_rows, ctx.packs_to_restore = answers
+
+    def _request_pack_answers(self) -> None:
+        """Re-read the pack answers on a task rather than on this frame.
+
+        The 2026-10-14 audit, finding service-gates-13: ``svc_packs.rows`` scans
+        every installed distribution's metadata (``installed_versions``), about
+        90 ms with 129 distributions here and slower in a packaged runtime, and
+        this refresh runs after every download, uninstall and LoRA import --
+        each completion stalled the frame loop for it. A request made while a
+        read is in flight is remembered and re-run when that one lands (the
+        answer it would give may predate the change that asked again).
+        """
+        from .tasks import PACK_ANSWERS_KEY
+
+        if not self.app_ctx.submit(PACK_ANSWERS_KEY, self._read_pack_answers):
+            self._pack_answers_stale = True
 
     # -- the loop ----------------------------------------------------------
 
@@ -960,9 +1004,30 @@ class App(
                 pygame.display.flip()
                 clock.tick(TARGET_FPS)
         finally:
-            # Two megabytes of decoded pixels, and the backend still holds the
-            # object under its GL name -- forget it before the release, or the
-            # next texture to be handed that name renders as this logo.
-            splash.release_logo(logo, self.imgui_renderer)
+            # The 2026-10-14 audit, finding shell-boot-02: the X button is the
+            # only exit this method used to wait the load out for. A loop that
+            # raised (an imgui or GL error, ``set_mode``, a Ctrl+C) fell
+            # through to ``run``'s teardown while ``setup_runtime`` was still
+            # on its thread, so ``Runtime.shutdown`` ran concurrently with
+            # ``Runtime.start`` -- the store, loop thread and any pack-restore
+            # child torn down mid-start, and an error from the load lost in
+            # ``Startup.error``. Whatever took the loop out, the load is asked
+            # to wind down and waited for here, before anything unwinds it.
+            try:
+                if not started.loaded:
+                    started.request_quit()
+                    self._cancel_startup_restore()
+                started.join()
+                if started.error is not None and sys.exc_info()[0] is not None:
+                    # Unwinding from the loop's own error: the load's is the
+                    # one ``raise_if_failed`` would have reported, and would
+                    # otherwise be lost.
+                    log.error("the startup load also failed", exc_info=started.error)
+            finally:
+                # Two megabytes of decoded pixels, and the backend still holds
+                # the object under its GL name -- forget it before the release,
+                # or the next texture to be handed that name renders as this
+                # logo.
+                splash.release_logo(logo, self.imgui_renderer)
         started.raise_if_failed()
         return not started.quit_requested

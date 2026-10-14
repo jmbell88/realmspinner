@@ -555,6 +555,7 @@ class Document(
             # feature whose whole point is that the split does not hold -- and
             # the cost of refusing is measured rather than assumed:
             # ``dev/measurements/2026-08-30-cel-z-below-cache.md``.
+            # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
             #
             # ``_below`` is cleared, not merely bypassed, so that turning the
             # last z back to 0 rebuilds it from the document rather than
@@ -888,13 +889,16 @@ class Document(
         which is one entry per track), so an unfiltered fold on a filtered stack
         would hang each surviving row's inherited visibility on whichever row
         happened to land at its index. Filtering it is enough to be *correct*
-        rather than merely convenient, because group compositing here is
-        pass-through: a group contributes nothing but a ``(visible, opacity)``
-        pair per leaf, so the leaves that survive inherit exactly what they
-        inherited in the full stack. If groups ever composite in isolation --
-        the v1 gap ``inker/groups.py`` names -- a subset that cut a group in
-        half would stop being expressible this way, which is why
-        :func:`sheetout.layer_splits` never cuts one.
+        rather than merely convenient for a pass-through group: it contributes
+        nothing but a ``(visible, opacity)`` pair per leaf, so the leaves that
+        survive inherit exactly what they inherited in the full stack. An
+        *isolated* group (``kernels/pixel/groups.py``) composites its members
+        on their own, and a subset that cut one in half would have no correct
+        picture -- which is why the span remap below keeps whole spans and
+        :func:`sheetout.layer_splits` never cuts one. (The 2026-10-14 audit,
+        finding inker-document-12: this said isolated compositing was a "v1
+        gap" -- it landed on 2026-08-31 -- and cited a module that is not
+        there.)
         """
         # ``detach``: this stack is flattened and thrown away, and without it
         # materialising another frame rewrote the opacity of the cel objects

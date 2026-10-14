@@ -1,8 +1,8 @@
 """Everything that touches a take's file on disk.
 
-The ``sirens_mode``/``sirens_io`` split, at the same seam: the mode is the
+Sirens' ``mode.py``/``fileio.py`` split, at the same seam: the mode is the
 controller and this is the I/O, so a reader looking for "what does Export write"
-has one file to open. ``muse_mode._read_track`` moves here for that reason, with
+has one file to open. ``mode._read_track`` moves here for that reason, with
 a re-export left behind -- it is not new code, it is code that was in the wrong
 file.
 
@@ -38,12 +38,12 @@ from .engine import loops as loops_mod
 log = logging.getLogger(__name__)
 
 #: Task keys. Prefixed for ``on_task_done``'s routing, exactly as
-#: ``muse_mode.LOAD_PREFIX`` is: a result delivered under a bare key is a result
+#: ``mode.LOAD_PREFIX`` is: a result delivered under a bare key is a result
 #: delivered nowhere.
 EXPORT_PREFIX = "muse-export:"
 FIND_PREFIX = "muse-loops:"
 
-#: ``muse_mode.precompute_loop``'s task key, one per job so a second region
+#: ``mode.precompute_loop``'s task key, one per job so a second region
 #: tweak before the first blend lands is refused rather than queued -- the
 #: newer call wins on the *next* settle, which is the loop-cache's existing
 #: "not invalidated eagerly" policy applied to when it is *filled* too.
@@ -53,7 +53,7 @@ CACHE_PREFIX = "muse-loopcache:"
 def read_track(path: Any) -> dict[str, Any]:
     """A take's WAV as ``int16`` frames, its rate, its envelope and its length.
 
-    Blocking; task work. ``soundfile`` rather than ``sirens/wavout.read_wav``,
+    Blocking; task work. ``soundfile`` rather than ``kernels/audio/wavout.read_wav``,
     which looks like the obvious reuse and is the wrong function: that one
     exists to feed a chip voice, so it mixes to **mono** unconditionally. This
     is a finished stereo track being played back as itself -- only the *rate*
@@ -62,7 +62,7 @@ def read_track(path: Any) -> dict[str, Any]:
     ``scipy.signal.resample_poly`` is used and is allowed to be: it retimes the
     in-memory buffer handed to the mixer, and nothing exported depends on it.
     That is precisely why this function lives out here rather than in
-    ``studio/muse/``, which bans scipy because what *it* computes ends up in a
+    ``muse/engine/``, which bans scipy because what *it* computes ends up in a
     file. ``REALMSPINNER 5/6`` now writes 44 100 Hz, so the resample is the
     already-written path for an older take rather than the normal one.
 
@@ -87,7 +87,7 @@ def read_track(path: Any) -> dict[str, Any]:
         data = resample_poly(data, target // g, rate // g, axis=0)
         rate = target
     # 32768.0, not 32767.0: ``soundfile`` normalises 16-bit PCM by dividing by
-    # the *negative* peak (2**15), the conventional reading ``sirens/wavout.py``'s
+    # the *negative* peak (2**15), the conventional reading ``kernels/audio/wavout.py``'s
     # own ``read_wav`` was hand-written to avoid for a file this app writes --
     # but this reads a file soundfile itself already decoded, so it has to
     # undo soundfile's own convention, not ``to_int16``'s. Re-quantising by
@@ -146,7 +146,7 @@ def _wav(pcm: Any, rate: int, loop: tuple[int, int] | None = None) -> bytes:
 def loop_cache_key(player: Any) -> tuple[int, int, int] | None:
     """``(start, end, fade)`` in samples -- the three numbers that decide the
     seam, and so the cache key both :func:`loop_body` and
-    ``muse_mode.precompute_loop`` key on. -> ``None`` with no usable region.
+    ``mode.precompute_loop`` key on. -> ``None`` with no usable region.
 
     Split out of ``loop_body`` so the precompute task can ask "is the cache
     already current" without paying for -- or risking -- the blend itself.
@@ -201,7 +201,7 @@ def compute_loop_cache(player: Any) -> tuple[tuple[int, int, int], Any] | None:
     -> ``None`` with no usable region. Task work: pure, safe on any thread.
 
     **incident-2026-09-05b**, a correction to muse-03. The first pass at that
-    finding had ``muse_mode.precompute_loop`` submit ``loop_body`` itself as
+    finding had ``mode.precompute_loop`` submit ``loop_body`` itself as
     the task -- which moved the *blend* off the frame thread, but the blend
     was never the whole story: ``loop_body`` also writes
     ``player.loop_cache``/``loop_cache_key``, in two separate statements,
@@ -222,7 +222,7 @@ def compute_loop_cache(player: Any) -> tuple[tuple[int, int, int], Any] | None:
 
     The fix is not a lock; it is having only one thread ever write the pair.
     This function computes and returns it as a single value, touching nothing
-    on ``player``; ``muse_mode.on_task_done`` is what installs the result,
+    on ``player``; ``mode.on_task_done`` is what installs the result,
     and it does that on the frame thread -- the same thread ``_play_from``
     calls :func:`loop_body` from, so the two writers can never overlap with
     each other or with themselves.
@@ -237,7 +237,7 @@ def loop_body(player: Any) -> Any:
     """The crossfaded loop -- the *one* buffer both the audition and
     :func:`export_loop` play. -> ``None`` with no usable region.
 
-    **M09.** Before this, ``muse_mode``'s ``_play_from`` handed the mixer a raw
+    **M09.** Before this, ``mode.py``'s ``_play_from`` handed the mixer a raw
     slice of ``pcm`` while this function crossfaded independently on export, so
     the crossfade slider could be dragged to any value with no audible
     difference through the button the strip advertises for judging it -- an
@@ -259,7 +259,7 @@ def loop_body(player: Any) -> Any:
 
     **Frame-thread only (incident-2026-09-05b).** The two statements below
     are not atomic together, so this may be called from exactly one thread --
-    the frame thread, via ``muse_mode._play_from``. Neither ``export_loop``
+    the frame thread, via ``mode._play_from``. Neither ``export_loop``
     nor the muse-03 precompute task calls this any more; they call
     :func:`_blend`/:func:`compute_loop_cache`, which touch nothing on
     ``player``, for that reason.
@@ -492,7 +492,7 @@ def _save(ctx: Any, make: Any, default_name: str, title: str) -> None:
         data = make()
         if data is None:
             # **2026-09-16 audit.** Also ``None`` until now, indistinguishable
-            # from the cancel above -- ``muse_mode.on_task_done`` had no
+            # from the cancel above -- ``mode.on_task_done`` had no
             # branch for either, but even once it grew one there is a real
             # difference between "the user said no" (silence is the right
             # answer) and "the write did not happen for some other reason"

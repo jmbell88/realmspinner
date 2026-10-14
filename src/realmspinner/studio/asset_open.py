@@ -173,7 +173,7 @@ def destination(job: Any) -> str:
     """Where :func:`open_asset` will land, as words for a tooltip.
 
     Derived from :func:`route` rather than a second table, so the sentence under
-    an Open button cannot say Create while the button goes to Poser.
+    an Open button cannot say Create while the button goes to Muse.
     """
     target = route(job)
     if target.mode == "create":
@@ -181,6 +181,20 @@ def destination(job: Any) -> str:
     if target.mode == "settings":
         return "Settings, Models"
     return target.mode.capitalize()
+
+
+def _show_in_library(ctx: Any, job_id: str, *, leave_create: bool = False) -> None:
+    """Select ``job_id`` and make sure the selection is visible somewhere.
+
+    ``leave_create`` also leaves Create for the Library: Create holds only the
+    loaded window, so a selection it cannot resolve is not visible there."""
+    from .modes.library.ui.panes import library
+    from .state import set_mode
+
+    library.select(ctx, job_id)
+    if ctx.state.mode != "library" and (leave_create or ctx.state.mode != "create"):
+        set_mode(ctx.state, "library")
+        ctx.state.library_scroll_to = job_id
 
 
 def open_asset(ctx: Any, job_or_id: Any, *, inspect_only: bool = False) -> None:
@@ -208,15 +222,20 @@ def open_asset(ctx: Any, job_or_id: Any, *, inspect_only: bool = False) -> None:
         # no library in it, so the press did nothing a reader could see. The
         # library is where a bare selection is visible, and it is the one
         # destination that is right for a row whose stage cannot be read.
-        from .state import set_mode
-
-        library.select(ctx, str(job_or_id))
-        if ctx.state.mode not in ("library", "create"):
-            set_mode(ctx.state, "library")
-            ctx.state.library_scroll_to = str(job_or_id)
+        _show_in_library(ctx, str(job_or_id))
         return
 
     target = route(job)
+    own_id = str(job.get("id") or "")
+    if target.mode == "create" and target.job_id != own_id and ctx.cache.get(target.job_id) is None:
+        # A follow-up row (rig, sprite_synthesis, retexture, remesh) routes to
+        # its *source*, and the source can be outside the loaded 200-row window
+        # (after a restart or ``reset_window``). Selecting an id the cache
+        # cannot resolve is the blank arrival this module exists to prevent
+        # (the 2026-10-14 audit, finding shell-49), so it takes the same floor
+        # as a row that has fallen off the page: the Library, on the source.
+        _show_in_library(ctx, target.job_id, leave_create=True)
+        return
     if target.mode == "settings":
         from .modes.settings.ui.panes import app_settings
         from .state import set_mode

@@ -25,6 +25,7 @@ import statistics
 from pathlib import Path
 from typing import Any
 
+from ..core.safeio import atomic
 from . import manifest as manifest_mod
 from . import runner as runner_mod
 from . import views as views_mod
@@ -208,7 +209,7 @@ def summarise(units: list[dict[str, Any]], names: list[str]) -> dict[str, Any]:
 
 def write_scores(run_dir: Path, doc: dict[str, Any]) -> Path:
     path = Path(run_dir) / FILENAME
-    path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    atomic.write_text(path, json.dumps(doc, indent=2))
     return path
 
 

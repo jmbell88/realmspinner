@@ -5,7 +5,7 @@ Two registries, deliberately, because two different things were being called a
 
 * An :class:`Archetype` is a **body plan**. It owns the rig skeleton key, the
   clip library key, the attachment sockets and the material region names --
-  everything a pose, a clip and a sprite sheet are expressed in terms of. There
+  everything a pose and a clip are expressed in terms of. There
   are four of them and adding a fifth is a rig template plus a clip library plus
   a generator, which is a programme and not a parameter.
 * A :class:`Family` is a **species**: one row of generator parameters, one set of
@@ -1017,7 +1017,12 @@ _FAMILIES: dict[str, Family] = {
     "elemental": Family(
         key="elemental", version=1, label="Elemental", archetype="amorphous",
         silhouette="crystal",
-        aliases=("elemental", "elementals", "fire elemental", "earth elemental", "golem core"),
+        # No "fire elemental" / "earth elemental" / "golem core": an alias that names
+        # a look is eaten whole by the family span, so the look word never reaches
+        # ``theme`` and the species' first look (fire) wins whatever was typed. The
+        # words resolve as a species plus a look instead (the 2026-10-14 audit,
+        # finding poser-characters-03).
+        aliases=("elemental", "elementals"),
         height_m=1.80,
         channel_defaults={
             "bulk": 0.20, "viscosity": 0.65, "lobe": -0.20, "ripple": 0.45, "crown": 0.55,

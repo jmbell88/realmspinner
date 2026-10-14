@@ -157,13 +157,26 @@ class GenerateOps:
 
                 params["control_hint"] = await asyncio.to_thread(_draw)
             else:
+                # With a start picture the frame is that picture's own, fitted
+                # (``control.fit_init_frame``), and the hint must be drawn at
+                # exactly that frame: the 2026-10-14 audit, finding
+                # pipelines-image-03, found a square letterbox beside a
+                # (1024, 640) frame, so the structure lock traced a distorted
+                # copy of the reference with its bars. Without one, the
+                # spec's square is the frame, as it always was.
+                hint_size: int | tuple[int, int] = spec.image_size
+                if init:
+                    from PIL import Image
+
+                    with Image.open(ref) as im:
+                        hint_size = control.fit_init_frame(*im.size)
                 params["control_hint"] = await asyncio.to_thread(
                     functools.partial(
                         control.write_hint,
                         ref,
                         control_image,
                         kind=cn.preprocessor,
-                        size=spec.image_size,
+                        size=hint_size,
                     )
                 )
 
@@ -1094,6 +1107,7 @@ class GenerateOps:
                 # ended with the app refusing its own follow-up job at 94%
                 # commit
                 # (dev/measurements/2026-08-22-trampoline-child-pids.md).
+                # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
                 #
                 # The import is still guarded, and still names the extra: the
                 # client is import-light, but the child it spawns is not, and a

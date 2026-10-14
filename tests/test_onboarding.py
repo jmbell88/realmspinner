@@ -251,7 +251,7 @@ def _gated_ctx(*, model_rows=(), pack_rows=(), total=0):
 
 
 _MISSING_CREATE_ROWS = [
-    {"row_key": "engine:trellis_gguf", "present": False, "size_gib": 16.1},
+    {"row_key": "engine:trellis_gguf", "present": False, "size_gib": 15.34},
     {"row_key": "engine:trellis_runtime", "present": False, "size_gib": 0.68},
     {"row_key": "base:sdxl_cfg", "present": False, "size_gib": 6.5},
 ]

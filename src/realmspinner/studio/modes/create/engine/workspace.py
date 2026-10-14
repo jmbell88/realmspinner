@@ -12,9 +12,20 @@ from typing import Any
 
 WORKSPACE_PARAM = "create_workspace"
 LEGACY_ROOTS = ("job:", "group:")
-ASSET_KINDS = frozenset({"text", "image", "tile_sheet", "character"})
+#: Job kinds that start a creation. ``character`` was listed here and is not a job
+#: kind at all -- a character is a model row whose ``params["asset_type"]`` says so
+#: (the 2026-10-14 audit, finding service-kinds-03).
+ASSET_KINDS = frozenset({"text", "image", "tile_sheet"})
+#: Kinds whose row is a follow-up of another row and never a result of its own: the
+#: live follow-ups (``asset_open.FOLLOWUP_STAGES``) plus the retired sheet kinds a
+#: library may still hold (``retired.RETIRED_KINDS``), which still group into their
+#: source's family. Written out because this package may import neither of those
+#: (``tests/modes/create/test_create_engine_imports.py`` pins the outward set);
+#: ``tests/modes/create/test_audit_2026_10_14_f28.py`` pins the equality both ways,
+#: so a fifth follow-up added to the stage table fails there rather than showing up
+#: as a result row.
 FOLLOWUP_KINDS = frozenset(
-    {"rig", "sheet", "pixel_sheet", "sprite_synthesis", "charsheet", "retexture", "remesh"}
+    {"rig", "sprite_synthesis", "retexture", "remesh", "sheet", "pixel_sheet", "charsheet"}
 )
 
 

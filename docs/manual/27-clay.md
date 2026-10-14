@@ -193,10 +193,11 @@ about. Left to right it holds:
   newest marked, and a click on one goes there. Undo and Redo are greyed when there is nothing to take back
   or put back, hovering one says why, and they do exactly what `Ctrl+Z` and `Ctrl+Y` do. The history jump
   is refused in the middle of a drag, as the chords are.
-- The **mode switch**: **Shape**, **Points**, **Edges**, **Faces**. Shape is the whole-object mode; the
-  other three are vertex, edge and face editing, on the keys `1`, `2` and `3`, and `4` is Shape. Hovering a
-  segment names its key. When the window is narrow the words shorten to **S**, **P**, **E** and **F**, and
-  the switch is never folded into a menu, because a mode picker you cannot see is no use.
+- The **mode switch**: **Shape**, **Points**, **Edges**, **Faces** and **Pose**. Shape is the whole-object mode;
+  the next three are vertex, edge and face editing, on the keys `1`, `2` and `3`, and `4` is Shape. **Pose**
+  (`5`) is the rig's own mode, described under [Pose mode](#pose-mode). Hovering a segment names its key. When
+  the window is narrow the words shorten to **S**, **P**, **E**, **F** and **O**, and the switch is never folded
+  into a menu, because a mode picker you cannot see is no use.
 - The **shading switch**: **Flat**, **Lit**, **Wire**. *Lit* is the lit render — what the object will look
   like. *Flat* is the colours with no lighting, and it is what you model in: it shows silhouette and
   topology without a highlight sitting on the vertex you are dragging. *Wire* replaces the surface with
@@ -370,7 +371,7 @@ a box and `L` between them reach what a low-poly model needs.
 | Faces | Inset Faces (`I`) | Shrinks each face in place and rings it with the rim it vacated. The key starts a drag for the thickness. With *treat selection as one region* on, the cap's texture shrinks with the geometry and the rim gets the band of texture between the old edge and the new one, as a per-face inset always did. |
 | Edges | Bevel Edges... (`Ctrl+B`) | Replaces each selected edge with a flat strip the width you give and rebuilds the corners where beveled edges meet: bevel one edge of a box and the two faces at that edge's ends become pentagons, bevel all twelve and the box has 26 faces. One flat segment, not a rounded profile, and a bevel wider than the feature it sits on stops just short of the middle of each edge it slides along, so it flattens the feature without folding it or leaving two corners on one point. The key starts a drag for the width; a width typed below 0.001 m is raised to 0.001 m. An edge on a boundary, or one that three faces share, is refused with the reason; so is a selection that touches more than 10,000 corners (half that on a mesh with UVs), which would freeze the window. |
 | Edges | Loop Cut... (`Ctrl+R`) | With exactly one edge picked, rings the strip of quads that edge belongs to with a new loop of edges, cut at the position you give along each rung (0.5 is the middle; the field takes 0.01 to 0.99, because 0 or 1 would only duplicate a point). The ring stops at the first triangle, n-gon, open border or edge shared by three faces it meets, so a partial ring is normal; a face at the end of a stopped ring takes the new point into its outline and becomes an n-gon rather than leaving a crack. Texture coordinates are interpolated along each cut, so a cut across a seam leaves the seam where it was. The new ring is left selected. Refused above 400,000 corners on one object. |
-| Edges | Edge Slide... (`Ctrl+Shift+R`) | Moves the picked edges sideways along the faces either side of them, each end of an edge along its own two sideways rails, so a loop you have just cut can be put where the form wants it. The field runs from -1 to 1: 0 does not move anything and 1 would put an end on its neighbour, so the field stops just short of it at 0.99. Which direction is negative depends on the mesh's own point numbering, so try the other sign if it went the wrong way. Only positions move; topology, texture coordinates and materials are untouched. A point with no sideways edge outside the selection is refused by name. Refused above 65,536 points. |
+| Edges | Edge Slide... (`Ctrl+Shift+R`) | Moves the picked edges sideways along the faces either side of them, each end of an edge along its own two sideways rails, so a loop you have just cut can be put where the form wants it. The field runs from -1 to 1: 0 does not move anything (and leaves no undo step) and 1 would put an end on its neighbour, so the field stops just short of it at 0.99. Which direction is negative depends on the mesh's own point numbering, but it is the same direction all along a loop, so try the other sign if the whole loop went the wrong way. Only positions move; topology, texture coordinates and materials are untouched. A point with no sideways edge outside the selection is refused by name. Refused above 65,536 points, or when one point has more than 8,192 sideways edges (a degenerate fan hub). |
 | Faces | Subdivide | Splits each face into quads without changing the shape. |
 | Faces | Flip Normals | Reverses the winding of the selected faces. |
 | Faces | Assign Material... | Paints the selected faces with one palette slot, given by its number in the Colour card's palette, and leaves the object's default slot alone. See [Texturing](#texturing). |
@@ -574,7 +575,8 @@ already dragging, and the size of a uniform scale.
 Several operations act on the whole selection at once, and all of them are one undo step however
 many objects or copies they touch. **Duplicate** (`Ctrl+J`) makes a copy under a new name, counting
 up — `Box`, `Box.001`, `Box.002`. Duplicating or mirror-copying a group copies its children too; the copies sit under
-the copied group.
+the copied group. A weighted mesh duplicated together with every bone it is weighted to is bound to the copied
+bones; duplicated alone, it stays on the original skeleton.
 
 **Drop to Ground** rests each selected object's own world box on `y=0`, one at a time rather than as a
 group, so an object already on the ground and one floating three metres up both land correctly in the
@@ -622,7 +624,8 @@ switched off while the filter box has something in it: the rows on screen are th
 no honest answer for where a drop between two of them lands in the real list.
 
 Right-clicking a row that is not selected selects it; the menu offers **Rename**, **Duplicate**, **Solo** and
-**Delete**. The **...** button at the end of every row opens the same menu without a right-click. There is no
+**Delete**, then the rig rows: **Mark as Bone** (or **Unmark Bone**, for a bone) and, for a weighted mesh,
+**Unbind Skin**. The **...** button at the end of every row opens the same menu without a right-click. There is no
 trash button on the row: Delete is in that menu, on the Inspector and on the `Delete` key. When the row is part
 of the selection, Duplicate, Solo and Delete all act on the whole selection (Delete is one undo step); otherwise
 on that row alone. Double-clicking a name renames it in place. The name box takes the keyboard straight away;
@@ -647,7 +650,7 @@ so what you can do to the thing in front of you is always in front of you. Its b
 | You have selected | The Inspector shows |
 | --- | --- |
 | Nothing | **What do you want to make?**: four shape cards, a **More shapes** list, **Next shape's colour**, and the **Model** card |
-| One shape | Its name and colour, then **Size**, **Shape settings** (when it has any), **Colour**, **Duplicate** and **Delete**, and three closed folds |
+| One shape | Its name and colour, then **Size**, **Shape settings** (when it has any), **Colour**, **Duplicate** and **Delete**, and four folds: three closed, and **Bone & rig**, which opens for a bone or a weighted shape |
 | Several shapes | **Colour**, **Duplicate** and **Delete**, and the actions for several shapes; no size |
 | Points, edges or faces | **Editing points** (or edges, or faces) with a **Done** button, then a **Select** row, what is picked and its median, **Shape it**, right after an operation with numbers **Last action**, and the **Colour** card |
 
@@ -683,11 +686,17 @@ press `Enter`), and the colour it wears. Under that:
 - **Duplicate** and **Delete** run the same operations as `Ctrl`+`J` and `Delete`. A refused one is
   greyed and says why on hover.
 
-Then three folds, closed until you open them (the Inspector remembers which are open):
+Then four folds. Three are closed until you open them; **Bone & rig** starts open for a bone or a weighted
+shape, where it is the point of the selection, and closed for anything else (the Inspector remembers which are open):
 
 - **Position & turn** holds the position and rotation boxes, and a fold of its own, **Advanced**, with
   scale -- the shape compared with the mesh as first made, which Size makes unnecessary for nearly everything.
+  A shape weighted to a skeleton has these boxes (and Size) greyed, with the reason, because moving it alone would
+  carry it away from its bones; move its bones instead.
 - **Group & parent** holds the parent choice and **Clear parent**; see [Parents and groups](#parents-and-groups).
+- **Bone & rig** holds the **bone** checkbox, two lines saying what the shape is bound to (it is a bone, it is
+  weighted to these bones, it moves with that bone, or it is not bound), **Unbind Skin** for a weighted mesh and,
+  once the document has a bone, **Weight with Blender...**; see [Bones and rigs](#bones-and-rigs).
 - **More actions** lists every whole-object operation, generated from the same table as the right-click menu,
   in groups: Transform, Set Origin, Mirror, Parent, Rig, Join, Shading, Clean Up, Smooth, Separate and UV. Each button
   says what it does on hover, with its key, and is greyed with the plain reason when it cannot run. An
@@ -755,6 +764,11 @@ topmost selected object. Nothing moves when you do it — the child keeps exactl
 and from then on moving the parent moves the whole subtree. **Clear Parent** frees an object again,
 also without moving it.
 
+A bone that has animation keys keeps its keys with its place: reparenting it, clearing its parent, grouping it,
+deleting its parent or moving its parent's origin re-expresses the keys in the same undo step, so the animation
+plays where it did. If a scaled parent sits between the two frames so that the keys would shear, Clay refuses and
+asks you to clear the bone's keys first.
+
 Moving a rotated shape under a non-uniformly scaled parent would shear it, and Clay cannot store a shear
 as a position, rotation and scale. So it bakes the shear into that shape's own geometry and carries the
 shape's children with it: each child keeps exactly the place it had, however many generations down, and a
@@ -773,8 +787,9 @@ parented to it, only the topmost of them is parented to the empty, so the hierar
 it was. The empty has no geometry of its own — it draws
 nothing and exports as a bare node — so it is purely a handle for moving a set of things as one. Drop to Ground,
 Mirror, Origin to Bounds or Base, Box Unwrap, Pack UV Islands, Separate Loose Parts, Recalculate Normals, Simplify,
-Smooth and Shade Smooth or Flat tell you so when only groups
-are selected. **Ungroup** dissolves it and leaves the children where they stand. Duplicate and Delete are greyed out,
+Smooth and Shade Smooth or Flat tell you so when only groups, or only bones with no shape of their own, are
+selected. **Ungroup** dissolves it and leaves the children where they stand. A bone is never a group: Ungroup is
+not offered for a joint that has bones under it. Duplicate and Delete are greyed out,
 with a reason, when the only objects selected are hidden.
 
 Deleting a parent never takes its children with it: they attach to the parent's own parent, keeping
@@ -883,7 +898,7 @@ object changes, and an empty group is as good a bone as a box is.
 **Mark as Bone** and **Unmark Bone** are in the right-click menu's Rig group, in the outliner row menu, in the
 palette and on the Inspector's **Bone & rig** card, whose **bone** checkbox does the same. A bone wears a bone
 glyph in the outliner and the Model card counts them ("2 bones"). A document holds at most 64 bones, the number
-the viewer's skinning and the skeleton editor already hold; marking a 65th is refused.
+the viewer's skinning already holds; marking a 65th is refused.
 
 **Add Bone** makes a bone with no shape of its own, for a joint that is only a joint. With one bone selected the new
 one is added under it, a step above, so repeating it grows a chain upward like a spine; otherwise it is added at the
@@ -898,9 +913,10 @@ There are two ways a shape is bound to a bone, and only one of them is stored.
 - **Weighted** binding is a per-point weight against several bones, which Clay does not paint: it arrives with an
   imported rig, or from Blender's automatic weights. A weighted mesh wears a link glyph, and the card names its
   bones. Moving its points is fine and keeps the weights. Anything that changes how many points it has (extruding,
-  subdividing, welding, bevelling), joining it and separating it are refused with a sentence naming **Unbind
-  Skin**, which drops the weights and keeps the shape; so is deleting or unmarking a bone it is weighted to. Its
-  own position is ignored by every game engine, so dragging it with `G`, `R` or `S` is refused too: move its bones.
+  subdividing, welding, bevelling), joining it, separating it and mirroring a mesh weighted to more than one bone
+  are refused with a sentence naming **Unbind Skin**, which drops the weights and keeps the shape; so is deleting or
+  unmarking a bone it is weighted to. Its own position is ignored by every game engine, so dragging it with `G`, `R`
+  or `S` is refused too: move its bones.
 
 A rig is saved with the document (`.rblk` format 5, which an older build refuses rather than open with the rig
 gone) and exported with it. **Export GLB** and **Export to the library** write the skin the way Blender writes its
@@ -917,7 +933,9 @@ a joint whose parent in the file is a helper node, not a bone, are carried acros
 bone's own frame. A smoothed (cubic spline) channel is turned into linear keys at the frame rate, which Clay
 says on opening; channels that drive anything but a bone are left out and counted. The frame rate is guessed
 from the smallest gap between keys and rounded to 12, 24, 30 or 60. A clip past 64 animations, 4,096 keys on
-one channel or 600 seconds is refused by name rather than trimmed.
+one channel or 600 seconds is refused by name rather than trimmed; a smoothed channel counts the keys its
+resampling would make, so it is refused from about 136 seconds at 30 fps (bake it to linear keys first). A clip
+that moves no bone is left out and counted in the notice.
 
 ## Pose mode
 
@@ -934,27 +952,33 @@ Bones are drawn in every mode so a rig can be seen while it is built, and they a
 joint hidden inside a body is a joint nobody can pick: a small cross at each pivot, a line to the bone above it
 and, for a bone with nothing below it, a short tick along its own Y. A selected bone is drawn in the accent
 colour. In Pose mode a click picks the nearest bone within a few pixels of the pointer; a click on a shape picks
-the bone that moves it, so a leg is grabbed by the leg.
+the bone that moves it, so a leg is grabbed by the leg. A click on a weighted mesh picks where the mesh is drawn,
+posed, and `F` and the hover outline follow it there.
 
 **Posing a bone** is the ordinary Move, Turn and Resize: the gizmo, or `G`, `R` and `S`. The gizmo sits on the
 bone's pivot, not the middle of its shape, because a joint turns about its own origin, and a bone under a posed
-parent is moved in the parent's frame. Nothing about the bone's rest transform is written. With **auto-key** on
-(the default) the drag keys the playhead, for only what you changed (a Move keys position, a Turn rotation), and
-creates an animation first if there is none; the whole drag is one undo step, **Pose**. With it off, the pose is
-held without a key until you key it or move the playhead, and `Esc` during a drag puts back whatever was held
-before it. Selecting something that is not a bone, and dragging it, says so rather than doing nothing.
+parent is moved in the parent's frame. Nothing about the bone's rest transform is written, which is why the
+Inspector's Position & turn and Scale boxes show a selected bone's posed values greyed while Pose is on, with a
+sentence saying so: leave Pose mode to edit the rest transform. A bone cannot be scaled to zero on an axis. With
+**auto-key** on (the default) the drag keys the playhead, for only what you changed (a Move keys position, a Turn
+rotation), and creates an animation first if there is none; the whole drag is one undo step, **Pose**. With it off,
+the pose is held without a key until you key it or move the playhead, and `Esc` during a drag puts back whatever was
+held before it. Selecting something that is not a bone, and dragging it, says so rather than doing nothing.
 
-Four operations in the Rig group work on the selected bones in Pose mode:
+Four operations in the Rig group work in Pose mode. The first three act on the selected bones; the fourth acts on
+the whole pose:
 
 - **Insert Key** (`I`) keys position, rotation and size as they are posed at the playhead.
 - **Delete Key** removes the selected bones' keys at the playhead.
 - **Reset Pose** poses each bone at its rest transform, keyed or held like any other pose.
-- **Apply Pose as Rest** makes the pose the rest pose: each posed bone takes its posed transform, every weighted
-  mesh is re-shaped to where the pose carries it, and nothing on screen moves. Keys are absolute transforms and
-  are left as they are, so an animation that returned to the old rest will now move the model.
+- **Apply Pose as Rest** takes no selection. It makes the whole pose the rest pose: each posed bone takes its posed
+  transform, every weighted mesh whose bones the pose moves, directly or through a posed parent, is re-shaped to
+  where the pose carries it, and nothing on screen moves. It is greyed until something is posed. Keys are absolute
+  transforms and are left as they are, so an animation that returned to the old rest will now move the model.
 
 **Export Posed GLB...** (in the Export menu once there is a rig and an animation) writes the pose the viewport is
-showing, the selected animation at the playhead, with no animation in the file: the joints carry the pose and the
+showing, the selected animation at the playhead or a pose you are holding without a key, with no animation in the
+file: the joints carry the pose and the
 meshes stay as they were bound, which is how a skinned file shows one.
 
 ## The timeline
@@ -964,18 +988,22 @@ three parts.
 
 The **top row** is the transport, then the animation list, then the playhead's position. The transport is
 **|<** (to the start, `Home`), **<** and **>** (one frame back and on, `Left` and `Right`), **Play** (`Space`) and
-**>|** (to the last key, `End`); Play is greyed until some bone has a key, and a one-shot animation that has
-reached its end starts again from the beginning when you press it. **New**, **Copy**, **Rename**, **Import** and
-**Delete** are the animation list: a document holds up to 64 animations, each with its own keys, and the one named
-in the combo below is the one the strip edits, the viewport shows and Export GLB writes first. Import is
+**>|** (to the last key, `End`); Play is greyed until some bone has a key after 0 s (with every key at 0 s it says
+to key a second time, further along), and a one-shot animation that has reached its end starts again from the
+beginning when you press it. **New**, **Copy**, **Rename**, **Import** and **Delete** are the animation list: a
+document holds up to 64 animations, each with its own keys, and the one named in the combo below is the one the
+strip edits and the viewport shows; Export GLB writes every animation, in the order of the list. Import is
 [described below](#importing-an-animation). Deleting an animation, like every other change here, is one undo step.
 
 The **second row** is the animation's own settings. The combo picks which animation is selected. **fps** is the
-frame rate the strip counts in and the file is written at: 12, 24, 30 or 60. **Loop** plays the animation round
-and round; with it off the animation is a one-shot, which stops on its last key and is exported marked as one.
-The interpolation is **Linear**, which blends between keys (rotation takes the shorter way round), or **Step**,
-which holds each key until the next. **Auto-key** is the switch the section on posing describes: on, a posed bone
-is keyed at the playhead; off, the pose is held until you press `I`. The (?) opens this section.
+frame rate the strip counts and snaps keys in: 12, 24, 30 or 60. It is saved with the model, but the exported file
+stores key times in seconds and carries no rate, so a game or Blender plays it at its own. **Loop** plays the
+animation round and round (a playhead you have parked past the last key shows the last key, so the frame you are
+about to key is the one you see); with it off the animation is a one-shot, which stops on its last key and is
+exported marked as one. The interpolation is **Linear**, which blends between keys (rotation takes the shorter way
+round), or **Step**, which holds each key until the next. **Auto-key** is the switch the section on posing
+describes: on, a posed bone is keyed at the playhead; off, the pose is held until you press `I`. The (?) opens this
+section.
 
 Below is the **dope sheet**: a ruler in seconds, and a row for every bone that has a key or is selected, with a
 diamond at each time that bone is keyed. A diamond stands for all of the bone's keys at that time, whichever of
@@ -1014,13 +1042,17 @@ shapes and the bones' old rest poses back.
 
 Things to know. A skeleton has **one root**: if the document has two bones with no bone above them, the button names
 them and refuses until you parent one under the other. Blender welds points that coincide before it weights, so the
-weighted mesh can have fewer points than the shapes you merged. A shape you change or delete while Blender is working
-is noticed at the end, and the weights are **not** applied then (the weighted mesh is still in the Library, and
-pressing the button again weights the new shapes). If the run fails or is cancelled the document is untouched and the
-merged mesh stays in the Library for you to delete. A weighted mesh cannot have points added or taken away (see
-[Bones and rigs](#bones-and-rigs)); **Unbind Skin** is the way back to a plain mesh.
+weighted mesh can have fewer points than the shapes you merged. Blender also triangulates what it exports, so the
+weighted mesh comes back as triangles: its quads are gone, and face selections, extrudes and loops that depended on
+them have to be redone. Faces keep the direction they faced, so an inside-out room stays inside-out. A shape you
+change or delete while Blender is working is noticed at the end, and the weights are **not** applied then (the
+weighted mesh is still in the Library, and pressing the button again weights the new shapes); a bone you moved,
+unmarked or deleted in the meantime stops them landing too, and the message names it. If Blender fell back from heat
+weights to envelope weights, Clay says so in a warning. If the run fails or is cancelled the document is untouched
+and the merged mesh stays in the Library for you to delete. A weighted mesh cannot have points added or taken away
+(see [Bones and rigs](#bones-and-rigs)); **Unbind Skin** is the way back to a plain mesh.
 
-A library asset that has a rig opens in Clay with it. **Edit in Clay** on a rigged row opens the document you
+A library asset that has a rig opens in Clay with it. **Open in Clay** on a rigged row opens the document you
 built it from if there is one; failing that it opens the row's rig file, so its joints are bones, its weighted
 meshes keep their weights and any animations come across; failing that, the bare mesh. A rig that cannot be held
 here (more than 64 joints) opens the bare mesh and says why.
@@ -1035,8 +1067,9 @@ bone.
 Bones are matched **by name**, loosely: case, separators and a `mixamorig:` prefix do not matter, and the side may be
 written `.L`, `_L`, `Left` or `L`, before or after the rest, so `LeftArm`, `arm.L` and `mixamorig:LeftArm` are one
 bone. A name that two bones answer to, or two names for one bone, is left alone and named in a toast, because a guess
-between them is how the left arm gets the right arm's wave. Every animation in the file comes in as its own
-animation, named as the file names it (`Walk`, `Walk.001` when that is taken), and the first is selected. It is one
+between them is how the left arm gets the right arm's wave. Every animation in the file that moves at least one of
+this document's bones comes in as its own animation, named as the file names it (`Walk`, `Walk.001` when that is
+taken), and the first is selected; an animation that moves none of them is left out. It is one
 undo step. A toast says how many animations and bones landed and lists the animated nodes in the file that matched
 no bone, which is the thing to fix in the file or in the bone's name.
 
@@ -1437,9 +1470,10 @@ that key existed still opens, and simply gets framed.
 
 ### Files from an older Clay
 
-A `.rblk` is saved in format 4. Clay used to have more — a stack of non-destructive **modifiers** on
-each object, collision shapes, seam marks, tags, locks and a richer material — and a file written by
-those builds (format 3) still opens. What the new Clay does with the parts it no longer has:
+A `.rblk` is saved in format 5 (a document with no rig differs from format 4 by the number alone). Clay used to
+have more — a stack of non-destructive **modifiers** on each object, collision shapes, seam marks, tags, locks and
+a richer material — and a file written by those builds (format 3) still opens. What the new Clay does with the parts
+it no longer has:
 
 - **Modifiers are applied.** Each object's enabled modifiers are baked into its mesh, in stack order,
   the way the viewport showed them, so the model looks the same. An object the bake changed becomes a
@@ -1458,7 +1492,7 @@ Whenever any of that happened, Clay says so once, in one toast. When something w
 removed it is a warning you can read and close, listing those sentences first and at most three in
 all, with "and N more" for the rest; the full list is in the log. A format-4 file that names a shape
 Clay no longer builds gets the same treatment for that shape. Nothing is
-written back until you save, and a save writes format 4: **a document opened this way and saved is no
+written back until you save, and a save writes format 5: **a document opened this way and saved is no
 longer readable by the older builds.** Keep the original file if you may need to go back. A file from
 a *newer* Realmspinner than yours is refused by name rather than opened half-understood.
 
@@ -1473,7 +1507,7 @@ too), with a line naming the last file written. There is no separate file panel.
 
 **Export to the library** puts the *exact* geometry in the library as an ordinary asset. It is a
 finished model row from the moment it lands, so it inherits everything the rest of the app does to a
-mesh: rigging, posing, sprite sheets, the triangle retarget, and the STL, OBJ, FBX, collision and
+mesh: rigging, posing, the triangle retarget, and the STL, OBJ, FBX, collision and
 texture exports. Use it when the shape you modelled is the shape you meant. If you switch to another tab while an
 Export to library is running, the new card appears without a thumbnail.
 
@@ -1494,8 +1528,9 @@ replaces a file it did not write: if `barrel.mtl` or `barrel_2.png` already exis
 previous Clay export, the export is refused by name before anything is written. Exporting an OBJ again under the same
 name removes the texture files the earlier export wrote and the new one no longer needs; it never touches a file Clay
 did not name in its own material library.
-None of them touches the library, and none counts as saving the document. There is no `.blend` export:
-Clay no longer hands anything to Blender.
+None of them touches the library, and none counts as saving the document. There is no `.blend` export,
+and the only thing Clay hands to Blender is [Weight with Blender](#rigging-with-blender-weights), which sends
+the merged shapes out and takes the weights back.
 
 **Save screenshot** saves a lit PNG of the document from the angle you are looking at it, 2048
 pixels square, with no grid, gizmos or selection outlines. Place objects with the gizmos or the
@@ -1564,8 +1599,8 @@ become objects); a mesh whose every point follows one joint alone becomes a chil
 skinned mesh keeps its per-point weights, which move with its bones. A file saved in a pose is imported in
 that pose, and the bones are placed where the file shows them. More than 64 joints is refused by name, as is
 a bone sheared relative to the one above it. A weighted mesh can have its points moved freely, but an edit
-that changes their number, joining it or separating it is refused with a sentence naming **Unbind Skin**,
-which drops its weights.
+that changes their number, joining it, separating it or mirroring a mesh weighted to more than one bone is
+refused with a sentence naming **Unbind Skin**, which drops its weights.
 
 A mesh past two million triangles is refused, because the editor holds every mesh twice per undo step. Past
 two hundred thousand it asks first, since every edit rebuilds the whole mesh and you should know that before

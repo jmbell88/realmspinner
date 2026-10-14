@@ -61,7 +61,7 @@ depth controls, off until you ask for it, and it is the one to reach for on a tw
 ghosting every layer of one turns the canvas into soup at exactly the moment you need to see a single
 limb clearly.
 
-The controls are depth before, depth after, and fade. Behind a **More** popover: separate tints for
+The controls are depth before and after (0 to 5 frames each), and fade. Behind a **More** popover: separate tints for
 past and future, a falloff exponent, whether ghosts draw in front of or behind your work, and
 whether the ghosting wraps inside the current tag rather than running off its end.
 
@@ -70,7 +70,10 @@ whether the ghosting wraps inside the current tag rather than running off its en
 Two independent ways to play, and they are not the same thing.
 
 **The transport's play** moves the document's own playhead. `Enter` starts and stops it, and `.` and
-`,` step one frame forward and back. What you see is the document at real speed.
+`,` step one frame forward and back. What you see is the document at real speed — unless the
+**FPS** box on the onion-skin row (it shows while onion skinning is on) is set, which plays every
+frame at that one rate, from 1 to 120, in both this and the preview pane; **0** goes back to the
+durations the document stores.
 
 **The preview pane** has a *second* playhead of its own, with a speed ladder from 0.25× to 4× and a
 scope of either the whole clip or just the active tag. It never touches the document's playhead, so
@@ -100,9 +103,9 @@ and an atlas packer inside the drawing tool would be a second, worse one.
 
 ## Getting animation in from elsewhere
 
-The **Open in Inker** buttons on generated sheets bring an existing sheet in as an animation, sliced
-on the rectangles the generator recorded rather than on rectangles guessed from the pixels. A
-character sheet arrives with its tags already made.
+The **Open in Inker** buttons on sprite-sheet drafts bring a generated sheet in as an animation, sliced
+on the rectangles the generator recorded rather than on rectangles guessed from the pixels. A sheet
+of an action arrives with its tags already made.
 
 That is the intended shape of the work: let the pipeline produce the frames, then fix them by hand
 here.

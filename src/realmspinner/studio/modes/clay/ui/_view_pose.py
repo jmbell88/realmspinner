@@ -29,6 +29,7 @@ import numpy as np
 
 from .....kernels.mesh import pick as bp
 from .....kernels.mesh import rig
+from .....kernels.mesh.elements import OpError
 from ....viewer.bonelines import ACTIVE, IDLE, BoneLines
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -41,6 +42,42 @@ GLYPH_FRACTION = 0.03
 MIN_GLYPH = 0.02
 #: A leaf bone's tick, as a multiple of the glyph.
 TICK = 3.0
+
+
+def _same_pose_value(prop: str, value: Any, was: Any) -> bool:
+    """Whether a drag left ``prop`` where the press found it. A rotation is compared as a *turn*:
+    the drag recomposes the pose through ``decompose``, which returns the opposite-sign quaternion
+    for a stored ``w < 0``, so the 2026-10-14 audit (finding clay-view-05) found a pure Move of such
+    a bone keyed a rotation too. ``q`` and ``-q`` are the same turn."""
+    a = np.asarray(value, dtype="f8")
+    b = np.asarray(was, dtype="f8")
+    if prop == "rotation":
+        return bool(np.allclose(a, b, atol=1e-9) or np.allclose(a, -b, atol=1e-9))
+    return bool(np.allclose(a, b, atol=1e-9))
+
+
+class _Skinned:
+    """One weighted object's CPU-skinned positions for one ``(mesh, rev, pose_rev)``.
+
+    ``positions`` is ``None`` for a pose that could not be skinned (a singular palette), so the
+    refusal is remembered rather than asked again by every pick. ``bvh`` is built on the first
+    ray, not on the frame that posed the mesh.
+    """
+
+    __slots__ = ("stamp", "mesh", "positions", "bvh", "bvh_ready")
+
+    def __init__(self, stamp: tuple[Any, ...], mesh: Any, positions: Any) -> None:
+        self.stamp = stamp
+        self.mesh = mesh  # pinned, so the ``is`` test below cannot meet a recycled id
+        self.positions = positions
+        self.bvh: Any = None
+        self.bvh_ready = False
+
+
+def _skinned_cache(view: Any) -> dict[int, _Skinned]:
+    # Lazily on the instance: ``view.py`` declares ``_skin_stamps`` and this beside it would be
+    # tidier, but a fake view in a test carries only what the method under test reads.
+    return view.__dict__.setdefault("_skinned_pose", {})
 
 
 class PoseOps:
@@ -125,8 +162,6 @@ class PoseOps:
     def _pose_drag_commit(self: ClayView, doc: Any) -> None:
         """Release: pose only the properties the drag changed, keyed or held as the auto-key
         switch says, as one step."""
-        from .....kernels.mesh.elements import OpError
-
         order = {"translation": 0, "rotation": 1, "scale": 2}
         poses: dict[int, dict[str, Any]] = {}
         for uid, was in self._drag_start.items():
@@ -135,7 +170,7 @@ class PoseOps:
                 changed = {
                     prop: value
                     for prop, value in held.items()
-                    if not np.allclose(value, was[order[prop]], atol=1e-9)
+                    if not _same_pose_value(prop, value, was[order[prop]])
                 }
                 if changed:
                     poses[uid] = changed
@@ -166,11 +201,53 @@ class PoseOps:
         frame uploads the rest geometry and the object is never missing for one."""
         if doc.pose_mode:
             return
+        _skinned_cache(self).clear()
         for uid in list(self._skin_stamps):
             del self._skin_stamps[uid]
             entry = self._cache.pop(uid, None)
             if entry is not None:
                 entry.gpu.release()
+
+    def _skinned_positions(
+        self: ClayView, doc: Any, obj: Any, index: dict[int, Any] | None = None
+    ) -> _Skinned | None:
+        """Where a weighted mesh *is* in Pose mode, in its own space; ``None`` when it is at rest.
+
+        The 2026-10-14 audit, finding clay-view-02: the viewport draws a weighted mesh at its
+        skinned positions, but a click, the hover outline and the framing box all read the rest
+        mesh, so with a bone keyed six metres along X a click on the drawn box hit nothing and
+        a click on the empty rest position hit the box. Those three ask here for the geometry
+        the eye sees. :meth:`_pose_skin` fills the same cache with the positions it uploads, so
+        a frame that was drawn is not skinned a second time.
+        """
+        if not doc.pose_mode or obj.skin is None or obj.mesh.joints is None:
+            return None
+        cache = _skinned_cache(self)
+        stamp = (id(obj.mesh), doc.rev, doc.pose_rev)
+        got = cache.get(obj.uid)
+        if got is None or got.stamp != stamp or got.mesh is not obj.mesh:
+            by_uid = index if index is not None else self._uid_index(doc)
+            try:
+                palette = doc.skin_palette(obj, doc.pose_overrides(), by_uid)
+            except OpError:
+                got = _Skinned(stamp, obj.mesh, None)  # ``_pose_skin`` says why, once
+            else:
+                got = _Skinned(
+                    stamp,
+                    obj.mesh,
+                    np.asarray(
+                        rig.skin_positions(
+                            obj.mesh.positions,
+                            obj.mesh.joints,
+                            obj.mesh.weights,
+                            palette,
+                            doc._world_in(obj.uid, by_uid),
+                        ),
+                        dtype="f8",
+                    ),
+                )
+            cache[obj.uid] = got
+        return None if got.positions is None else got
 
     def _pose_skin(self: ClayView, doc: Any) -> None:
         """Skin every visible weighted mesh to the pose.
@@ -197,7 +274,16 @@ class PoseOps:
                 if overrides is None:
                     overrides = doc.pose_overrides()
                     by_uid = self._uid_index(doc)
-                palette = doc.skin_palette(obj, overrides, by_uid)
+                try:
+                    palette = doc.skin_palette(obj, overrides, by_uid)
+                except OpError as error:
+                    # The 2026-10-14 audit, finding clay-document-05: a bone scaled to zero on an
+                    # axis has no inverse rest pose, and this runs from the viewport draw on the
+                    # frame thread with nothing around it. The mesh stays at rest, the reason is
+                    # said once (the stamp keeps the next frames from asking again).
+                    self._skin_stamps[obj.uid] = token
+                    self._toast(str(error))
+                    continue
                 positions = rig.skin_positions(
                     obj.mesh.positions,
                     obj.mesh.joints,
@@ -207,10 +293,18 @@ class PoseOps:
                 )
                 self._preview_positions(doc, obj.uid, positions)
                 self._skin_stamps[obj.uid] = token
+                _skinned_cache(self)[obj.uid] = _Skinned(
+                    (id(obj.mesh), doc.rev, doc.pose_rev),
+                    obj.mesh,
+                    np.asarray(positions, dtype="f8"),
+                )
         # A weighted object hidden or deleted while posed is no longer stamped; ``sync`` has
         # already dropped its entry, so only the stamp needs to go.
         for uid in [u for u in self._skin_stamps if u not in current]:
             del self._skin_stamps[uid]
+        skinned = _skinned_cache(self)
+        for uid in [u for u in skinned if u not in current]:
+            del skinned[uid]
 
     # -- bone glyphs ---------------------------------------------------------------------------
 

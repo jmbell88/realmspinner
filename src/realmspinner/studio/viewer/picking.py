@@ -568,7 +568,7 @@ def screen_scale(camera, point: np.ndarray, pixels: float, viewport_height: int)
     An orthographic camera has no depth term: its frustum is ``distance *
     tan(fov / 2)`` tall everywhere (``Camera.projection``), so the 2026-10-03
     audit's create-41 -- a joint nearer or farther than the target got a gizmo
-    larger or smaller than ``pixels`` in the orthographic Poser views, and the
+    larger or smaller than ``pixels`` in the orthographic views, and the
     hit test scaled with it -- is closed by using that same distance.
     """
     if getattr(camera, "orthographic", False):

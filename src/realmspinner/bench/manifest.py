@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import provenance
+from ..core.safeio import atomic
 from ..pipelines import recon
 
 MANIFEST_VERSION = 1
@@ -114,7 +115,9 @@ def _model_fingerprints(config: Any, recipe: Any) -> dict[str, str]:
 def write_manifest(run_dir: Path, manifest: dict[str, Any]) -> Path:
     run_dir.mkdir(parents=True, exist_ok=True)
     path = run_dir / FILENAME
-    path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    # Staged (the 2026-10-14 audit, finding pipelines-24): an in-place write left a
+    # truncated manifest.json when the process died mid-write.
+    atomic.write_text(path, json.dumps(manifest, indent=2))
     return path
 
 

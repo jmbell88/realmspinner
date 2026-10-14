@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import leases, models
+from . import control
 from .prompt import (
     PROMPT_TEMPLATE as PROMPT_TEMPLATE,
 )
@@ -45,6 +46,8 @@ from .prompt import (
 )
 
 log = logging.getLogger(__name__)
+
+_MASK_WITH_CONTROL = "a mask and a ControlNet cannot be combined; drop one"
 
 # Flux2KleinPipeline's own tokenizer_max_length, restated rather than read off
 # the pipe: it is the number ``_sample_flux2`` must pass to both the negative
@@ -551,7 +554,8 @@ class Text2Image:
             # the trigger words are still prepended, so the output does change
             # when a style is picked; it just is not the adapter doing it.
             #
-            # Measured on FLUX.2 klein (dev/measurements/2026-08-10-pixel-art
+            # Measured on FLUX.2 klein (dev/measurements/2026-08-10-pixel-art [lost; re-measure to
+            # change]
             # -klein.md): three weights after a no-LoRA run came back
             # byte-identical to each other, and none of them matched the same
             # weight run first. Nothing is family-specific about it -- this is
@@ -596,6 +600,11 @@ class Text2Image:
                 f"{self.spec.label} cannot take conditioning; "
                 f"it is not an SDXL-family checkpoint"
             )
+        if cond.uses_mask and cond.uses_control:
+            # Belt and braces behind ``_generate``'s own check (finding
+            # pipelines-image-07), for a caller that reaches this directly:
+            # still above the ControlNet load below, never after it.
+            raise RuntimeError(_MASK_WITH_CONTROL)
         target = self._pipe
         extra: dict[str, Any] = {}
         teardown_control = False
@@ -775,10 +784,6 @@ class Text2Image:
                             else StableDiffusionXLImg2ImgPipeline
                         )
                     target = cls.from_pipe(self._pipe, torch_dtype=torch.bfloat16)
-                elif cond.uses_mask:
-                    raise RuntimeError(
-                        "a mask and a ControlNet cannot be combined; drop one"
-                    )
                 with Image.open(cond.init_image) as im:
                     extra["image"] = im.convert("RGB")
                 extra["strength"] = float(cond.strength)
@@ -806,6 +811,16 @@ class Text2Image:
                 # Onto the target: diffusers explicitly supports loading an
                 # IP-Adapter onto a ControlNet pipeline, and the adapter's
                 # attention processors have to live on the pipe being called.
+                #
+                # The flag is raised *before* the call, not after it returns
+                # (the 2026-10-14 audit, finding pipelines-image-05):
+                # diffusers registers the ~1.2 GB image encoder before the UNet
+                # weights are read, so a load that raises part-way has already
+                # attached something, and a flag set only on success made
+                # teardown skip the one call that detaches it. The unload is
+                # suppressed in teardown, so attempting it after a load that
+                # never attached anything costs nothing.
+                teardown_ip = True
                 target.load_ip_adapter(
                     str(root),
                     subfolder=spec.subfolder,
@@ -813,7 +828,6 @@ class Text2Image:
                     image_encoder_folder=spec.encoder_folder,
                     local_files_only=True,
                 )
-                teardown_ip = True
                 target.set_ip_adapter_scale(float(cond.ip_scale))
                 with Image.open(cond.ip_image) as im:
                     extra["ip_adapter_image"] = im.convert("RGB")
@@ -1067,6 +1081,13 @@ class Text2Image:
                 f"{self.spec.label} cannot take conditioning; "
                 f"it is not an SDXL-family checkpoint"
             )
+        if conditioning and conditioning.uses_mask and conditioning.uses_control:
+            # The 2026-10-14 audit, finding pipelines-image-07: this refusal
+            # depends on ``conditioning`` alone but used to fire inside
+            # ``_conditioned``, after the ~2.5 GB ControlNet load and its
+            # ``from_pipe`` -- the same shape as the tile and family refusals
+            # above, and moved for the same reason.
+            raise RuntimeError(_MASK_WITH_CONTROL)
         self.load(on_state)
         assert self._pipe is not None
         # load()/download() have no interruption point of their own; check
@@ -1078,6 +1099,11 @@ class Text2Image:
             if on_state is not None:
                 on_state("condition")
             target, extra, teardown = self._conditioned(conditioning, cancel_event)
+            try:
+                self._fit_init(conditioning, extra, size)
+            except BaseException:
+                teardown()
+                raise
         else:
             target, extra, teardown = self._pipe, {}, _noop
         # The try starts here, not at the pipeline call. Everything between the
@@ -1200,6 +1226,43 @@ class Text2Image:
                                         conditioning, chunks, tile, size)
         self.last_recipe.update(generation_type=generation_type, prompt_policy=prompt_policy)
         return output_path
+
+    def _fit_init(
+        self, conditioning: Any, extra: dict[str, Any], size: tuple[int, int] | None
+    ) -> None:
+        """Fit an init picture (and its mask, and a ControlNet hint beside it)
+        into the model's working range, in place in ``extra``.
+
+        The 2026-10-14 audit, finding pipelines-image-01: ``_init_frame`` took
+        the reference's own size with no ceiling and no floor, ``ref.png`` is
+        only PNG-re-encoded, so a 4000x4000 start image sampled and VAE-decoded
+        at 4000x4000 with the checkpoint resident (admission prices the spec's
+        1024 square), and a 64x64 one drew at 64x64. The plain img2img class
+        ignores width/height, so the *picture* is resized here, not just the
+        frame number.
+
+        Only when no caller chose a frame (``size is None``): seam erase and
+        the sheet kinds pass ``size`` and slice what comes back on their own
+        grid, which a resize would break. A hint that is not already the frame
+        is resized to it too, the last line behind ``_q_generate`` drawing it
+        at the frame (finding pipelines-image-03).
+        """
+        if size is not None or not getattr(conditioning, "uses_init", False):
+            return
+        init = extra.get("image")
+        if init is None:
+            return
+        from PIL import Image
+
+        frame = control.fit_init_frame(*init.size)
+        for key in ("image", "mask_image", "control_image"):
+            im = extra.get(key)
+            if im is None:
+                continue
+            if im.size != frame:
+                extra[key] = im.resize(
+                    frame, Image.NEAREST if key == "mask_image" else Image.LANCZOS
+                )
 
     def _init_frame(
         self, conditioning: Any | None, extra: dict[str, Any], size: tuple[int, int] | None

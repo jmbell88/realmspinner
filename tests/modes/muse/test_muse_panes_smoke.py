@@ -229,13 +229,15 @@ def test_the_tray_shows_only_this_modes_rows(tmp_path):
     Not a drawing assertion: ``plan_for`` is the filter, and asserting it
     directly is what makes the claim readable.
     """
+    # ``ctx.cache.jobs`` is newest-first, as ``JobStore.list`` orders it (the
+    # 2026-10-14 audit, finding muse-mode-01: ``plan_for`` no longer reverses).
     ctx = _ctx(
         tmp_path,
         [
             {"id": "m", "kind": "text", "status": "done"},
-            _take("a"),
-            {"id": "r", "kind": "rig", "status": "done"},
             _take("b"),
+            {"id": "r", "kind": "rig", "status": "done"},
+            _take("a"),
         ],
     )
     assert [job["id"] for job in muse_results.plan_for(ctx)] == ["b", "a"]
@@ -243,9 +245,10 @@ def test_the_tray_shows_only_this_modes_rows(tmp_path):
 
 
 def test_the_tray_is_newest_first(tmp_path):
-    # ``ctx.cache.jobs`` is oldest-first, and a results tray that showed the
-    # first take you ever made at the top would bury every press.
-    ctx = _ctx(tmp_path, [_take("old"), _take("new")])
+    # ``ctx.cache.jobs`` is newest-first, as ``JobStore.list`` orders it, and a
+    # results tray that showed the first take you ever made at the top would
+    # bury every press (the 2026-10-14 audit, finding muse-mode-01).
+    ctx = _ctx(tmp_path, [_take("new"), _take("old")])
     assert [job["id"] for job in muse_results.plan_for(ctx)] == ["new", "old"]
 
 

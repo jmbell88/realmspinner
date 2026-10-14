@@ -75,6 +75,14 @@ class _Item:
         self.last: str | None = None
         monkeypatch.setattr(imgui, "is_item_activated", lambda: self._at(self.begin))
         monkeypatch.setattr(imgui, "is_item_deactivated", lambda: self._at(self.end))
+        # imgui keeps ``ActiveId`` set on every frame of a held drag, the
+        # release frame excepted (probed against imgui_bundle: ``is_any_item_active``
+        # is true on the activation frame and each frame after it, false on the
+        # release frame). ``controls._reap_stale_gesture`` -- the 2026-10-14 audit,
+        # finding shell-widgets-03 -- reads it to close a gesture whose item
+        # stopped being drawn, so a fake that reports none turns every drag here
+        # into N steps.
+        monkeypatch.setattr(imgui, "is_any_item_active", self.dragging)
         # A test that fails mid-gesture must not leak it into the next.
         monkeypatch.setattr(controls, "_gesture", None)
 

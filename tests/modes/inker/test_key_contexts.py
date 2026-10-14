@@ -93,9 +93,11 @@ def test_the_registry_can_only_name_a_context_the_table_can_return():
 def test_the_modal_arms_read_the_context_rather_than_the_state():
     import inspect
 
-    from realmspinner.studio.modes.inker import mode as inker_mode
+    # The body is ``keys._handle_key`` since the 2026-10-14 audit's inker-mode-08 (F30):
+    # ``handle_key`` is a thin wrapper that watches ``set_tool`` around it.
+    from realmspinner.studio.modes.inker import keys as inker_keys
 
-    source = inspect.getsource(inker_mode.handle_key)
+    source = inspect.getsource(inker_keys._handle_key)
     assert "inker_state.key_context(state, tab)" in source
     # The three-branch ladder is gone from the key handler itself.
     assert "if state.transforming:" not in source
@@ -141,9 +143,11 @@ def test_every_bound_op_is_reachable_by_its_own_chord():
 def test_the_key_handler_asks_the_registry_before_its_own_branches():
     import inspect
 
-    from realmspinner.studio.modes.inker import mode as inker_mode
+    # The body is ``keys._handle_key`` since the 2026-10-14 audit's inker-mode-08 (F30):
+    # ``handle_key`` is a thin wrapper that watches ``set_tool`` around it.
+    from realmspinner.studio.modes.inker import keys as inker_keys
 
-    source = inspect.getsource(inker_mode.handle_key)
+    source = inspect.getsource(inker_keys._handle_key)
     registry = source.index("inker_ops.by_key")
     fallback = source.index("_ctrl_key(")
     assert registry < fallback

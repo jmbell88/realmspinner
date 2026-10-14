@@ -25,12 +25,12 @@ import pytest
 
 from realmspinner.mcp import protocol as p
 
-# --- encode / decode -----------------------------------------------------------
+# --- encode -----------------------------------------------------------
 
 
-def test_encode_decode_round_trip() -> None:
+def test_encode_round_trips_through_json_loads() -> None:
     message = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
-    assert p.decode(p.encode(message)) == message
+    assert json.loads(p.encode(message)) == message
 
 
 def test_encode_is_one_newline_terminated_utf8_line() -> None:
@@ -38,49 +38,6 @@ def test_encode_is_one_newline_terminated_utf8_line() -> None:
     assert frame.endswith(b"\n")
     assert frame.count(b"\n") == 1
     json.loads(frame.decode("utf-8"))  # does not raise
-
-
-def test_decode_refuses_a_frame_over_max_frame() -> None:
-    huge = b"{" + b" " * (p.MAX_FRAME + 1) + b"}"
-    with pytest.raises(ValueError):
-        p.decode(huge)
-
-
-def test_an_oversized_frame_is_refused_without_the_message_being_parsed() -> None:
-    """The size check runs before `json.loads` -- proven here by handing decode
-    an oversized frame that is not even valid JSON. If parsing ran first, this
-    would fail with a "malformed JSON" message instead of the frame-size one."""
-    huge_and_invalid = b"not json at all, and also " + b"x" * p.MAX_FRAME
-    with pytest.raises(ValueError, match="MAX_FRAME"):
-        p.decode(huge_and_invalid)
-
-
-def test_decode_refuses_non_object_json() -> None:
-    with pytest.raises(ValueError):
-        p.decode(b"[1, 2, 3]\n")
-    with pytest.raises(ValueError):
-        p.decode(b'"just a string"\n')
-
-
-def test_decode_refuses_junk_bytes() -> None:
-    with pytest.raises(ValueError):
-        p.decode(b"{not json")
-    with pytest.raises(ValueError):
-        p.decode(b"\xff\xfe\x00\x01")  # not valid UTF-8
-
-
-def test_decode_refuses_deeply_nested_json_instead_of_raising_recursion_error() -> None:
-    """The 2026-09-14 audit (agents-02): a deeply nested JSON array, well
-    under MAX_FRAME, is otherwise well-formed -- but json.loads's C scanner
-    recurses one Python stack frame per nesting level, so decode()'s own
-    `except (UnicodeDecodeError, json.JSONDecodeError)` let a RecursionError
-    straight through, contradicting this function's own docstring promise
-    of "raises ValueError on anything unusable"."""
-    depth = 20000
-    nested = (b"[" * depth) + (b"]" * depth) + b"\n"
-    assert len(nested) < p.MAX_FRAME
-    with pytest.raises(ValueError):
-        p.decode(nested)
 
 
 # --- content helpers -----------------------------------------------------------
@@ -814,7 +771,12 @@ def test_server_discover_shape() -> None:
         {"name": "realmspinner", "version": "1.2.3"}
     )
     assert result["instructions"] == "Clay measures in metres."
-    assert state.era == "modern"
+    # A bare discover decides nothing: it advertises the legacy revisions too,
+    # so the `initialize` a client picks from that list must still be served
+    # (the 2026-10-14 audit, finding agents-protocol-04). A discover that
+    # itself carries a modern version does lock the era -- pinned in
+    # test_audit_2026_10_14_f20.py.
+    assert state.era is None
 
 
 def test_modern_era_is_entered_by_a_meta_version_with_no_discover_call() -> None:

@@ -857,8 +857,8 @@ def _transfer_action(
     )
     if loop == "auto" and closed and len(per_frame_bones) > 1:
         # The would-be duplicate closing sample: drop it, matching the seam
-        # rule ``sheet.interpolate``'s own docstring states for a two-key
-        # cycle.
+        # rule ``sheet.interpolate_clip``'s own docstring states for a
+        # closed cycle.
         per_frame_bones = per_frame_bones[:-1]
         per_frame_roots = per_frame_roots[:-1]
     elif loop == "on":

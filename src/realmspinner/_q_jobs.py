@@ -169,12 +169,6 @@ class JobOps:
             "template": params.get("rig_template") or self.config.rig_template,
             "auto": True,
         }
-        if params.get("rig_joints"):
-            # Only where the job asked for it, so an ordinary auto-rig is the
-            # byte-identical rig it always was. A character reference asks: it is a
-            # constrained T-pose, and measuring joints off the vertex cloud is
-            # what stops the A-pose template mis-fitting one.
-            rig_params["joints"] = params["rig_joints"]
         try:
             rig_id = await asyncio.to_thread(
                 self.store.create, "rig", job["prompt"], rig_params, None
@@ -464,7 +458,12 @@ class JobOps:
             # in place, and the worker deletes it after a finished generate, so
             # the only way one survives is a cancel or a kill landing after the
             # sampler wrote it.
-            for name in ("track.wav", "track_input_params.json"):
+            #
+            # ``.track.wav.tmp`` is ``_q_music._stage_rolled_wav``'s staging
+            # name. It removes its own temp on a *failure*, but a kill or a
+            # cancel mid-roll never reaches that handler, and the temp is about
+            # one take (the 2026-10-14 audit, finding service-kinds-07).
+            for name in ("track.wav", ".track.wav.tmp", "track_input_params.json"):
                 with contextlib.suppress(OSError):
                     (job_dir / name).unlink(missing_ok=True)
             return

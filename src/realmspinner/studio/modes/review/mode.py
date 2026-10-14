@@ -74,6 +74,7 @@ produced the ``bg_removal`` signal was unblinded and single-reviewer, which is
 why the campaign's rule is a small blind confirm before anything is leaned
 on -- the pre-registration in ``dev/measurements/2026-08-09-rebaseline.md``,
 whose confirm is the one that ran and failed against its own rule.
+(Document lost with the 2026-09-20 backup; re-measure before changing this.)
 ``blind`` is therefore a property of the *session*, not of a sweep: it renames
 every unit to a neutral id prefix and presents them in an order derived from a
 stable digest of the job id. Hiding the label alone would not be blinding at
@@ -124,6 +125,7 @@ SOURCE = verdicts_mod.SOURCE_HUMAN
 # ``dev/measurements/`` document first --
 # ``dev/measurements/2026-08-09-judge-threshold.md`` is that document, and it
 # says exactly what the run must produce before a cut may be adopted.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 # The ``(job_id, source, stage)`` seam is already built and tested, so
 # the day that measurement exists this is one call.
 SOURCE_AI = "ai:dino-probe"
@@ -189,6 +191,13 @@ class SweepForm:
     base: dict[str, Any] = field(default_factory=dict)
     base_note: str = ""
     submitting: bool = False
+    # The 2026-10-14 audit, finding shell-review-settings-10: the field names
+    # whose last refusal carried registry rows or packs, so the form can draw the
+    # Install button under them. The form draws no control for a base model, a
+    # LoRA or a pack, and ``ctx.state.field_error_rows`` is shared with every
+    # other mode -- a Create refusal must not grow a button here -- so launch
+    # records which addresses *it* put there.
+    offer_fields: tuple[str, ...] = ()
 
 
 @dataclass
@@ -254,6 +263,13 @@ class JudgingPass:
     # pass is open, alongside ``filed`` for the same reason.
     accepted: int = 0
     rejected: int = 0
+    # The 2026-10-14 audit, finding shell-review-settings-08: the job ids this
+    # pass itself filed. ``record`` used to read any previous verdict as "this
+    # pass's own", so a unit judged before the pass opened, stepped back onto and
+    # re-graded, took ``accepted`` (or ``rejected``) down by one for a filing the
+    # pass never counted -- the closing card read "0 filed this pass - -1
+    # accepted". Only a unit in this set moves between the two buckets.
+    filed_ids: set[str] = field(default_factory=set)
     # Bucket ids with work to do when the pass started, RECENT_ID first and then
     # sweeps in list order. Fixed at the start rather than recomputed: a bucket
     # that gains a unit mid-pass (a job finishing) would otherwise extend a pass
@@ -330,6 +346,13 @@ class ReviewState:
     # ``_window_generation`` shape ``jobs_cache.py`` already uses for a
     # stale-async-result race.
     scan_generation: int = 0
+    # The 2026-10-14 audit, finding shell-review-settings-11: which sweeps each
+    # removal in flight was asked to take, keyed by its task key. "Remove N
+    # reviewed sweeps" removes sweeps other than the open one, yet
+    # ``on_task_done`` forgot the open sweep for every removal alike and the
+    # rescan fell back to the first bucket. A key absent here (a landing with no
+    # submit before it) keeps the old rule.
+    removing: dict[str, frozenset[str]] = field(default_factory=dict)
     # The 2026-10-03 audit, finding shell-35: the path ``_review_load`` pinned
     # because its file did not exist yet (a unit viewed while still generating),
     # and when it last looked. Without them the early return on
@@ -587,6 +610,7 @@ def delete(ctx: Any, sweep_id: str, *, drop_retained: bool = False) -> bool:
 
     if sweep_id == RECENT_ID:
         return False
+    ensure(ctx).removing[DELETE_KEY] = frozenset({str(sweep_id)})
     if drop_retained:
         return bool(
             ctx.submit(DELETE_KEY, sweeps_mod.cleanup_sweep, ctx.svc, sweep_id)
@@ -655,6 +679,7 @@ def remove_reviewed(
     ids = [str(sweep_id) for sweep_id in sweep_ids if sweep_id != RECENT_ID]
     if not ids:
         return False
+    ensure(ctx).removing[REMOVE_KEY] = frozenset(ids)
     return bool(
         ctx.submit(
             REMOVE_KEY,
@@ -885,7 +910,20 @@ def on_task_done(ctx: Any, done: Any) -> None:
         # *past*, and clearing the id there sent the rescan's fallback to the
         # first bucket -- which is how a pass ended up parked on an emptied
         # recent bucket with two units still outstanding elsewhere.
-        if state.judging is None and state.sweep_id not in (None, RECENT_ID):
+        #
+        # shell-review-settings-11 (the 2026-10-14 audit): and only when the
+        # open sweep is one of the sweeps this removal took. The bulk "Remove N
+        # reviewed sweeps" takes sweeps *other than* the open one, and clearing
+        # the id for every removal threw a reviewer mid-sweep back to "Recent,
+        # unreviewed". The set is read off what ``delete``/``remove_reviewed``/
+        # ``auto_cleanup`` recorded at submit; a landing with none keeps the
+        # old rule.
+        removed = state.removing.pop(done.key, None)
+        if (
+            state.judging is None
+            and state.sweep_id not in (None, RECENT_ID)
+            and (removed is None or state.sweep_id in removed)
+        ):
             state.sweep_id = None
         scan(ctx)
         return
@@ -998,6 +1036,7 @@ def on_task_failed(ctx: Any, done: Any) -> None:
         state.scanning = False
     if done.key == LAUNCH_KEY:
         state.form.submitting = False
+    state.removing.pop(done.key, None)
     if done.key == DELETE_KEY:
         ctx.toast("Could not delete that sweep.", "error")
     if done.key == CLEANUP_KEY:
@@ -1261,13 +1300,24 @@ def record(ctx: Any, grade: int, tags: Any = ()) -> None:
         # tells a first filing from a re-grade: only the first counts toward
         # ``filed``, and a re-grade that changed its mind moves the unit
         # between the accepted/rejected buckets instead of inflating either.
+        #
+        # shell-review-settings-08 (the 2026-10-14 audit): ``previous_verdict``
+        # alone cannot say *whose* filing it was -- a verdict from last week is
+        # "previous" too. A re-grade moves the buckets only for a unit this pass
+        # itself filed (``filed_ids``); an older verdict re-graded here is
+        # neither a new filing (``filed`` would exceed ``total``) nor a bucket
+        # to take a count out of.
         if previous_verdict is None:
             state.judging.filed += 1
+            state.judging.filed_ids.add(str(unit["job_id"]))
             if unit["verdict"] == "accept":
                 state.judging.accepted += 1
             elif unit["verdict"] == "reject":
                 state.judging.rejected += 1
-        elif previous_verdict != unit["verdict"]:
+        elif (
+            str(unit["job_id"]) in state.judging.filed_ids
+            and previous_verdict != unit["verdict"]
+        ):
             if previous_verdict == "accept":
                 state.judging.accepted -= 1
             elif previous_verdict == "reject":
@@ -1286,6 +1336,22 @@ def record(ctx: Any, grade: int, tags: Any = ()) -> None:
         _pump_judging(ctx, state)
     elif state.sweep_id is not None and _todo_of(state, state.sweep_id) == 0:
         auto_cleanup(ctx, state.sweep_id)
+
+
+def grade_help(judging: bool) -> str:
+    """The Grade field's help line, a pure function of whether a pass is open.
+
+    The 2026-10-14 audit, finding shell-review-settings-06: the help said "press
+    R first for a negative grade" in a guided pass too, where R is *Reject* and
+    files -3 at once -- a reviewer who followed it and then pressed 5 filed -3 on
+    the unit on screen and +5 on the next. Outside a pass R still arms the sign.
+    """
+    if judging:
+        return (
+            "A digit files that grade. R rejects (-3) at once; for any other "
+            "negative grade press its button."
+        )
+    return "A digit grades; press R first for a negative grade."
 
 
 def _recount(state: ReviewState) -> None:
@@ -1472,6 +1538,7 @@ def auto_cleanup(ctx: Any, sweep_id: str) -> bool:
     # Captured now and carried on the tag, because by the time this lands the
     # rescan will have dropped the row this label came from.
     named = bucket_label(state, entry or {"id": sweep_id})
+    state.removing[CLEANUP_KEY] = frozenset({str(sweep_id)})
     return bool(
         ctx.submit(
             CLEANUP_KEY, sweeps_mod.cleanup_sweep, ctx.svc, sweep_id, tag=named
@@ -1653,7 +1720,7 @@ def pump_judge(ctx: Any) -> None:
 def next_thumbnail(labels: LabelPass) -> dict[str, Any] | None:
     """The next row whose thumbnail may be uploaded this frame, or None.
 
-    **One per frame**, which is ``viewer/sheet.StripRender``'s lesson at a larger
+    **One per frame**, which is the retired direction-strip preview's lesson at a larger
     scale: a draw plus a synchronous upload, sixteen times in one frame, is a
     visible freeze, and this grid is a hundred cells. The already-uploaded ones
     keep drawing from the cache; the rest simply appear over the next second.
@@ -1821,6 +1888,18 @@ def capture_base(ctx: Any) -> dict[str, Any]:
         base["bg_removal"] = form_3d["bg_removal"]
     if form_3d.get("profile"):
         base["profile"] = form_3d["profile"]
+        if form_3d["profile"] == "custom":
+            # The 2026-10-14 audit, finding shell-review-settings-03: "custom"
+            # is a profile *name* whose count lives in ``custom_triangles``.
+            # Capturing the name alone made planning call resolve_profile
+            # with no count and refuse "custom triangles must be 5000-250000"
+            # for a field the sweep form never draws. Only in range, the same
+            # bar the optimizer holds it to, so an untouched 0 stays omitted.
+            from ....pipelines import optimize
+
+            custom = int(form_3d.get("custom_triangles") or 0)
+            if optimize.CUSTOM_MIN <= custom <= optimize.CUSTOM_MAX:
+                base["custom_triangles"] = custom
     if float(form_3d.get("lowpoly_triangles") or 0) > 0:
         base["lowpoly_triangles"] = int(form_3d["lowpoly_triangles"])
     if float(form_3d.get("size_m") or 0) > 0:
@@ -1932,6 +2011,29 @@ def build_plan(state: ReviewState) -> Any:
     )
 
 
+def _note_refusal(
+    ctx: Any, field_name: str, message: str, rows: tuple[str, ...], packs: tuple[str, ...]
+) -> None:
+    """Record a sweep refusal on the control it names, with its install offer.
+
+    ``shell/tasks.py``'s task-failure path does the same three steps for every
+    other door -- ``needed_gib`` for the size, then ``note_field_error`` with the
+    rows and packs -- so the figure is computed the same way here. The sizing is
+    a courtesy and must not cost the user the button.
+    """
+    state = ensure(ctx)
+    gib = 0.0
+    if rows:
+        try:
+            from ....service import downloads as svc_downloads
+
+            gib = svc_downloads.needed_gib(ctx.svc, list(rows))
+        except Exception:
+            log.exception("could not size a sweep refusal's install")
+    if ctx.state.note_field_error(field_name, message, rows, gib, packs) and (rows or packs):
+        state.form.offer_fields = (str(field_name),)
+
+
 def launch(ctx: Any) -> bool:
     """Validate and queue the form's sweep. -> whether it was submitted.
 
@@ -1952,6 +2054,7 @@ def launch(ctx: Any) -> bool:
     state = ensure(ctx)
     if state.form.submitting or state.scanning:
         return False
+    state.form.offer_fields = ()
     try:
         plan = build_plan(state)
     except ValueError as exc:
@@ -1969,6 +2072,24 @@ def launch(ctx: Any) -> bool:
         # the only place the rest of the story is.
         ctx.toast(f"That sweep could not be planned: {exc}", "error", action="log")
         return False
+    if plan.stage == "model":
+        # The 2026-10-14 audit, finding shell-review-settings-04: every unit of
+        # a model-stage sweep draws its SDXL reference and then dies at
+        # "trellis-server not found" on a host with no engine, up to 64 error
+        # rows and their GPU minutes. ``check_weights`` leaves the engine rows
+        # out (its comment said a startup banner covers them; the engine has been
+        # a Settings download since 2026-09-10) and Review is never rail-gated,
+        # so this is the only door. Create's own sentence, from its own function:
+        # the lazy import is the documented sibling-mode reach, as in
+        # ``ui/workspace._review_form``.
+        from ..create.engine import mesh as create_mesh
+
+        missing = create_mesh.engine_problem(getattr(ctx, "model_rows", None))
+        if missing is not None:
+            sentence = f"{missing}"
+            _note_refusal(ctx, "stage", sentence, tuple(missing.rows), ())
+            ctx.toast(sentence, "error")
+            return False
     try:
         units = sweeps_mod.validate_sweep(ctx.svc, plan)
     except ServiceError as exc:
@@ -1981,7 +2102,19 @@ def launch(ctx: Any) -> bool:
         # through ``forms.Form("review-sweep", errors=...)``. The toast stays
         # too -- it is the only copy of the message for a field this form
         # does not draw a control for (``stage``).
-        ctx.state.note_field_error(getattr(exc, "field", ""), exc.message)
+        #
+        # The 2026-10-14 audit, finding shell-review-settings-10: and the
+        # refusal's ``rows``/``packs`` too. A missing base model, LoRA or pack
+        # is refused with exactly those, and this used to drop them, so Create
+        # got its Install button from the task-failure path and Review got a
+        # toast and nothing to press.
+        _note_refusal(
+            ctx,
+            getattr(exc, "field", ""),
+            exc.message,
+            tuple(getattr(exc, "rows", ()) or ()),
+            tuple(getattr(exc, "packs", ()) or ()),
+        )
         ctx.toast(exc.message, "error")
         return False
     state.form.submitting = True
@@ -2018,7 +2151,7 @@ AXIS_HELP: dict[str, str] = {
     "reference_prep": (
         "Whether the reference image is normalised (recentred and rescaled to "
         "a target occupancy) before the engine sees it. Off by default: the "
-        "vendored exe very likely does its own, in which case doing it here "
+        "engine very likely does its own, in which case doing it here "
         "over-zooms. true/false."
     ),
     "resolution": (
@@ -2409,6 +2542,7 @@ def mesh_lines(unit: dict[str, Any]) -> list[str]:
         # (``dev/measurements/2026-08-09-rebaseline.md``). A low figure is
         # still what a solid slab measures, which is why the caveat below is
         # about the *direction of inference* rather than about either number.
+        # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
         worst = audit.get("worst")
         if isinstance(worst, (int, float)):
             lines.append(f"see-through at worst view: {float(worst) * 100:.1f}%")

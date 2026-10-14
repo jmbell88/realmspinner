@@ -2,11 +2,12 @@
 
 **Everything here is a periodic function of ``t``, and the frames are samples of
 it.** That is the design decision the rest follows from. A keyframe table would
-need a seam rule -- Poser's clips have one (``closed``, and no segment landing on
-its far key) because a table has no choice but to say what happens between the
+need a seam rule -- a flag saying the loop is closed, and no segment landing on
+its far key -- because a table has no choice but to say what happens between the
 last key and the first. A function of phase has no seam to get wrong: ``pose(0)``
 and ``pose(1)`` are the same call with the same answer, and the test that says so
-is checking arithmetic rather than a convention.
+is checking arithmetic rather than a convention. (The 2026-10-14 audit, finding
+inker-mode-17: this paragraph used to argue by contrast with a mode that is gone.)
 
 **The target is clamped, never the bones.** ``two_bone`` shortens what it is
 reaching for until the leg can reach it, so a stride past the leg's span comes

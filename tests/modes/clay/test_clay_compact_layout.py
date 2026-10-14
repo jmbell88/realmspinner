@@ -51,7 +51,7 @@ class _Ctx:
 
 
 def _tab(doc: bd.ClayDoc, *, saving: bool = False) -> Any:
-    return SimpleNamespace(doc=doc, saving=saving, uid="t1", job_id="")
+    return SimpleNamespace(doc=doc, saving=saving, uid="t1", job_id="", pending_rig=None)
 
 
 @pytest.fixture

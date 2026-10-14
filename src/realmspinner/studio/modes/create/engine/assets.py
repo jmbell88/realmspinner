@@ -35,14 +35,15 @@ _ORDERED = (
         sheet_type="sprite",
     ),
     # **Last, and it is not an SDXL type at all.** Every entry above compiles a
-    # text-to-image request; this one builds a mesh from the character registry,
-    # rigs it and renders the cells. It is in this registry because it is a
-    # thing the Create selector offers -- but its ``output`` is its own word,
-    # not one of ``create_job``'s three, precisely so that no arm of that door
-    # can be reached with it. ``generation.GENERATION_TYPES`` deliberately does
-    # *not* grow a sixth entry: that tuple is the SDXL-backed set, and the
-    # tileset arm already established that a type with its own door belongs
-    # here and not there.
+    # text-to-image request; this one builds a mesh from the character registry
+    # and rigs it -- it ends at the rigged mesh, since eed32549 removed the cell
+    # rendering (the 2026-10-14 audit, finding create-brief-02). It is in this
+    # registry because it is a thing the Create selector offers -- but its
+    # ``output`` is its own word, not one of ``create_job``'s three, precisely
+    # so that no arm of that door can be reached with it.
+    # ``generation.GENERATION_TYPES`` deliberately does *not* grow a sixth
+    # entry: that tuple is the SDXL-backed set, and the tileset arm already
+    # established that a type with its own door belongs here and not there.
     AssetType("character", "Character", "character", "Create character", "character"),
 )
 
@@ -144,10 +145,13 @@ def sync_legacy_fields(form: dict[str, Any]) -> AssetType:
         form["sheet_layout"] = form.get("sheet_layout") or "turnaround"
         form["projection"] = "top_down"
     elif spec.key == "character":
-        # ``sheet_type="sprite"`` because a character *is* a sprite sheet by
-        # the time it reaches the user -- the legacy field is read by the
-        # library's and Review's stage-keyed tables, and leaving it on the
-        # inherited "tile" would file a rendered character under tiles.
+        # ``sheet_type="sprite"`` is a leftover of the sprite-sheet character:
+        # the legacy field was read by the library's and Review's stage-keyed
+        # tables so a rendered character was not filed under tiles. A character
+        # ends at a rigged mesh now (the 2026-10-14 audit, finding
+        # create-brief-02), and :func:`legacy_asset_type` reads ``sheet_type``
+        # only for ``output == "sheet"``, so the value is inert; it is kept
+        # because tests/modes/create/test_create_assets.py pins it.
         form["sheet_type"] = "sprite"
         form["sheet_layout"] = form.get("sheet_layout") or "turnaround"
         form["projection"] = "top_down"

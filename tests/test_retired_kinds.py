@@ -333,19 +333,31 @@ def test_the_service_has_no_door_left_that_makes_or_exports_a_sheet():
         assert importlib.util.find_spec(f"realmspinner.service.{module}") is None, module
     assert importlib.util.find_spec("realmspinner.pipelines.sheetcheck") is None
 
-    from realmspinner.service import _jobs_create, characters, export
+    from realmspinner.service import _jobs_create, characters
 
     assert "troupe" not in inspect.signature(_jobs_create.create_job).parameters
     for name in ("export_package", "export_frames", "sheet_preview_png", "_plan_cells"):
         assert not hasattr(characters, name), name
-    assert "has_sheets" not in characters.ASSET_FILTERS
-    assert set(export.CHARACTER_EXPORTS) == {"animated_glb", "godot_scene"}
+    # ``ASSET_FILTERS`` and ``CHARACTER_EXPORTS`` went with the character agent
+    # surface; ``test_audit_2026_10_14_c1_character_doors.py`` pins them gone.
 
 
 def test_the_character_options_carry_no_sheet_ladders(svc):
     from realmspinner.service import characters
 
-    assert "troupe" not in characters.character_options(svc)
+    options = characters.character_options(svc)
+    assert "troupe" not in options
+    # The key set the sheet's removal actually dropped. ``"troupe"`` was never a
+    # key of this dict, so asserting it absent alone proved nothing (the
+    # 2026-10-14 audit, finding poser-jobs-03); the exact set is pinned beside
+    # the other audit tests, in ``tests/service/test_audit_2026_10_14_f51.py``.
+    for ladder in (
+        "logical_sizes", "colors", "outline_modes", "reduce_modes", "directions",
+    ):
+        assert ladder not in options, ladder
+    for archetype in options["archetypes"]:
+        for sheet_key in ("clip_library", "regions", "sockets"):
+            assert sheet_key not in archetype, sheet_key
 
 
 def test_the_rig_store_keeps_the_qa_sheet_and_nothing_else_of_the_sheet_storage():

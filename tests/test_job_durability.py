@@ -293,8 +293,9 @@ def test_every_served_publish_commits_the_cancel_token(module, func, publish):
     committing and were never in ``PUBLISHERS`` at all, so this scan never
     looked at them. Six of the first eleven rows have shipped the bug this test
     exists to catch; the list now names every publishing stage in the tree as
-    of the 2026-10-03 audit (twelve, ``_lora_train`` being the one that had
-    gone missing a third time), and the comment above it is why it stays a
+    of the 2026-10-03 audit (nine, ``_lora_train`` being the one that had
+    gone missing a third time; this said twelve until the 2026-10-14 audit,
+    finding docs-C1-16, counted the table beside it), and the comment above it is why it stays a
     list instead of a scan of its own.
 
     ``_retexture`` in particular has no cheap end-to-end harness -- it wants a

@@ -883,6 +883,20 @@ class ClayView(CacheOps, BoundsOps, PickOps, OverlayOps, DragOps, OpDragOps, Pos
             obj.visible and obj.uid in doc.selection for obj in doc.objects
         ):
             return None
+        # The 2026-10-14 audit, finding clay-view-06: the rule above was applied to
+        # object mode only. In an element mode every picked object can be hidden (the
+        # outliner's eye, to see inside the shape being edited), ``element_centre`` is
+        # then None and nothing is drawn, yet the gizmo still hit-tested where it was
+        # last placed -- an invisible dead zone that swallowed the press (no pick, no
+        # orbit, no deselect). No eligible pick, no handle.
+        if doc.element_mode != "object" and self.element_centre(doc) is None:
+            return None
+        # The same rule for Shape mode (the 2026-10-14 audit, finding clay-view-01): a selection
+        # whose centre cannot be placed -- a group's empty, a bone before it had a pivot to
+        # place by -- is not drawn, and must not be hit-tested where a gizmo last stood or at
+        # the world origin, where it never was.
+        if doc.element_mode == "object" and self.selection_centre(doc) is None:
+            return None
         return {
             "translate": self.translate_gizmo,
             "rotate": self.rotate_gizmo,

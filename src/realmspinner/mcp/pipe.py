@@ -44,6 +44,15 @@ authenticating and that test fails loudly rather than this drifting quietly.
 Closing the connection on timeout is the part that actually matters -- it
 unblocks the abandoned thread, which is what stops the handle leaking into the
 next `start()`.
+
+**The pipe is not owner-only, and nothing here pretends it is.** CPython creates
+the Windows pipe with a default security descriptor that grants Everyone and
+Anonymous read access (the 2026-10-14 audit, finding agents-protocol-01, read it
+back: `D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;<user>)(A;;FR;;;WD)(A;;FR;;;AN)`).
+Such a peer can open the pipe but holds no write access, so it can never answer
+the challenge and never gets a connection; what it *could* do was occupy the
+serial accept loop. The defence is therefore the token plus concurrent,
+bounded handshakes (:class:`Server`), not the DACL.
 """
 
 from __future__ import annotations
@@ -52,9 +61,12 @@ import contextlib
 import hashlib
 import multiprocessing.connection as mpconn
 import os
+import queue
 import secrets
 import sys
 import threading
+import time
+from collections import OrderedDict
 from pathlib import Path
 
 _FAMILY = "AF_PIPE" if sys.platform == "win32" else "AF_UNIX"
@@ -69,6 +81,26 @@ never going to answer" territory rather than "the machine is briefly busy".
 The cost of it being wrong in the slow direction is only that one legitimate
 bridge on a badly loaded box has to dial again; the cost of having no bound at
 all was an agent server any local process could switch off for good."""
+
+MAX_PENDING_HANDSHAKES = 16
+"""How many peers may be mid-handshake at once; past it the *oldest* is dropped.
+
+The 2026-10-14 audit (finding agents-protocol-01) reproduced that two peers
+holding only the read access CPython's default pipe security descriptor grants
+Everyone could starve the serial accept loop for ten seconds. Handshakes now
+run side by side, and this bound keeps a flood of silent peers from becoming a
+thread-per-connection leak. Oldest-first because a live peer answers in
+microseconds, so the longest-waiting one is the likeliest never to."""
+
+ACCEPT_RETRY_DELAY = 0.05
+ACCEPT_RETRY_CAP = 1.0
+"""Backoff, in seconds, between accept attempts after a transient failure from a
+live listener (the 2026-10-14 audit, finding agents-protocol-06)."""
+
+CLOSE_WAKE_TIMEOUT = 1.5
+"""The most `Server.close()` spends waiting for the acceptor thread to leave
+`Listener.accept()`. It runs on the frame thread, so it is a deadline and never
+a join; a healthy close is over in a few milliseconds."""
 
 
 def address_for(home: Path) -> str:
@@ -174,7 +206,21 @@ def _clear_stale_socket(home: Path) -> None:
 class Server:
     """The app's side of the pipe: one listener, which hands back each
     authenticated connection in turn. Admitting only one *session* of them is
-    the host's job (see the module docstring), not this class's."""
+    the host's job (see the module docstring), not this class's.
+
+    **The accepting is done on a thread this class owns, and the handshakes
+    run concurrently.** The 2026-10-14 audit (finding agents-protocol-01)
+    reproduced that the pipe grants Everyone and Anonymous read access by
+    CPython's default security descriptor, and that the old accept loop vetted
+    one peer at a time with a five-second budget each: two peers that could
+    open the pipe and never answer starved every legitimate bridge for the sum
+    of their timeouts. Now the acceptor thread only *accepts* -- it hands each
+    raw connection to its own vetting thread and goes straight back to the
+    next -- and :meth:`accept` waits on a queue of the connections that passed.
+    The set of vetting threads in flight is bounded (:data:`MAX_PENDING_HANDSHAKES`),
+    and the **oldest** is dropped when it is full, because a legitimate peer
+    answers in microseconds: the oldest in-flight peer is the likeliest to be
+    one that never will."""
 
     def __init__(self, home: Path) -> None:
         self._home = home
@@ -182,6 +228,14 @@ class Server:
         # Held rather than handed to the Listener: this class runs the
         # challenge itself, on a clock -- see the module docstring.
         self._authkey: bytes | None = None
+        # Everything below is guarded by `_lock`. It is never held across a
+        # blocking call: the acceptor parks in `Listener.accept` outside it.
+        self._lock = threading.Lock()
+        self._closed = threading.Event()
+        self._closed.set()  # not started is closed
+        self._ready: queue.SimpleQueue[mpconn.Connection | None] = queue.SimpleQueue()
+        self._pending: OrderedDict[int, mpconn.Connection] = OrderedDict()
+        self._acceptor: threading.Thread | None = None
 
     def start(self) -> None:
         authkey = write_token(self._home)
@@ -201,112 +255,207 @@ class Server:
             # until the next successful `start()` overwrites it.
             clear_token(self._home)
             raise
-        self._authkey = authkey
-        self._listener = listener
+        with self._lock:
+            self._authkey = authkey
+            self._listener = listener
+            self._closed.clear()
+            self._ready = queue.SimpleQueue()
+            self._pending.clear()
+            acceptor = threading.Thread(
+                target=self._accept_loop,
+                args=(listener,),
+                name="realmspinner-mcp-accept",
+                daemon=True,
+            )
+            self._acceptor = acceptor
+        acceptor.start()
 
     def close(self) -> None:
-        if self._listener is not None:
-            address = self._listener.address
-            self._listener.close()
-            self._listener = None
+        with self._lock:
+            listener = self._listener
             # Cleared here, *before* the self-dial below, not after it. The
             # 2026-09-26 audit (agents-protocol-05) found the old code set
-            # this after the dial (down where the unconditional clear at the
-            # bottom of this method used to be the only place it happened),
-            # while the comment beside the dial already claimed it was
-            # "already cleared" by then -- a real race, not just a stale
-            # comment: the listener thread's own `_handshake`, running
-            # concurrently on the self-dialled connection, reads
-            # `self._authkey` and only takes its fast "key is None: closed
-            # underneath us" reject path once this is genuinely `None`.
-            # Cleared after, `_handshake` could still read the live key and
-            # walk the self-dial through the full crypto exchange instead --
-            # which the self-dial's own bare `Client` call never answers --
-            # costing up to `HANDSHAKE_TIMEOUT` before that thread notices,
-            # instead of the immediate reject this ordering guarantees.
+            # this after the dial, while the comment beside the dial already
+            # claimed it was "already cleared" by then -- a real race: a
+            # vetting thread reads `self._authkey` and only takes its fast
+            # "key is None: closed underneath us" reject path once this is
+            # genuinely `None`. Cleared after, it could walk the self-dial
+            # through the full crypto exchange, which the self-dial's own
+            # bare `Client` call never answers.
+            self._listener = None
             self._authkey = None
+            self._closed.set()
+            # Everything still being vetted, and everything vetted but not yet
+            # collected, belongs to a server that no longer exists.
+            doomed = list(self._pending.values())
+            self._pending.clear()
+            while True:
+                try:
+                    stranded = self._ready.get_nowait()
+                except queue.Empty:
+                    break
+                if stranded is not None:
+                    doomed.append(stranded)
+            acceptor = self._acceptor
+            # Wakes every caller blocked in `accept()`, now and later.
+            self._ready.put(None)
+        if listener is not None:
+            for conn in doomed:
+                with contextlib.suppress(OSError):
+                    conn.close()
             if sys.platform == "win32":
-                # The mid-handshake peer (module docstring above) is not the
-                # only way `accept()` gets stuck: if *no* peer has ever
-                # dialled in, the listener thread is parked inside
-                # `ConnectNamedPipe`'s wait, and closing the handle from this
-                # thread does not reliably release that wait the way it does
-                # once a first connection has already been accepted once.
-                # Measured: 5/5 trials left the thread alive past `stop()`'s
-                # own join, holding the pipe's `FILE_FLAG_FIRST_PIPE_INSTANCE`
-                # handle, so the next `start()` failed with `PermissionError`
-                # -- the same failure shape the docstring above describes,
-                # from a trigger it does not cover. Dialling in ourselves
-                # completes the pending `ConnectNamedPipe`, so the blocked
-                # `accept()` call returns instead of hanging until the
-                # process exits. `self._authkey` is already cleared above,
-                # before this connection can reach `_handshake` in the
-                # listener thread, so it is rejected there immediately and
-                # never mistaken for a real bridge.
-                with contextlib.suppress(Exception):
-                    mpconn.Client(address, family=_FAMILY).close()
-        self._authkey = None
+                self._wake_acceptor(listener.address, acceptor)
+            # Last, not first: see `_wake_acceptor` for why the stdlib
+            # listener must outlive the thread that is calling into it.
+            listener.close()
         # Cleared even if start() was never called: idempotent close is what
         # lets AgentHost.stop() be idempotent too, per its own contract.
         clear_token(self._home)
 
-    def accept(self) -> mpconn.Connection | None:
-        """The next *authenticated* bridge connection, or `None` once
-        `close()` has run.
+    @staticmethod
+    def _wake_acceptor(address: str, acceptor: threading.Thread | None) -> None:
+        """Get the acceptor thread out of `Listener.accept()` and wait for it to leave.
 
-        A `Listener.accept()` blocked in another thread raises `OSError` (not
-        some clean sentinel) when `close()` tears down the underlying handle
-        from under it, on both platforms -- so `None` here covers the normal
-        "we are shutting down" case as well as "never started".
+        A thread parked in `ConnectNamedPipe` is not reliably released by
+        closing the handle from another thread (measured: 5/5 trials left it
+        alive past `stop()`'s own join, holding the pipe's
+        `FILE_FLAG_FIRST_PIPE_INSTANCE` handle, so the next `start()` failed
+        with `PermissionError`). Dialling in ourselves completes the pending
+        connect, and the acceptor -- which sees the server closed -- drops the
+        connection and exits.
 
-        **A peer that fails the challenge is refused, not fatal, and the loop
-        is what makes that true.** `AuthenticationError` does not inherit from
-        `OSError` -- it is a `ProcessError` -- so an `except OSError` around
-        `accept()` does not catch it, and the first process to dial this pipe
-        with a stale or wrong token would otherwise have raised straight out
-        through the host's accept loop and taken the listener down for the
-        session. One bad guess must not be a way to switch the feature off:
-        a rejected peer is dropped and the next `accept()` is issued here,
-        which is also why this returns a connection rather than a status --
-        the caller has nothing to decide.
-
-        **That guard was written for this hazard and named only two of its
-        shapes.** The exchange also raises `EOFError` -- neither an
-        `OSError` nor a `ProcessError` -- when a peer disconnects part-way
-        through it, which is what an MCP client does every time it is killed
-        or restarted while its bridge is still dialling in. Measured, that
-        escaped here and ended the listener thread, leaving Settings still
-        showing the pipe address for a server that had stopped answering.
-        :meth:`_handshake` now owns every failure the exchange can produce,
-        so this loop sees one bool and cannot be surprised by a third
-        exception type the next CPython invents.
-
-        **`self._listener` is read exactly once per iteration, into a
-        local.** The 2026-09-26 audit (agents-protocol-02) found the old
-        shape -- `while self._listener is not None: conn =
-        self._listener.accept()` -- reading the attribute *twice*: once for
-        the guard, once more to call `.accept()` on it. A `close()` landing
-        on another thread in the gap between those two reads (a real
-        GIL-scheduling gap, not a contrived one -- they are separate
-        bytecode instructions) sets `self._listener = None` after the guard
-        had already passed, so the second read saw `None` and
-        `None.accept()` raised `AttributeError` -- not the `OSError` this
-        loop is written to catch -- ending the accept thread outright.
-        Reading it once into `listener` closes that gap: whatever `close()`
-        does concurrently, this iteration keeps working from the reference
-        it already had.
+        **Three properties the audit asked for, each from a measured incident.**
+        The dial is bounded: `mpconn.Client` retries a busy pipe for twenty
+        seconds, and `close()` runs on the frame thread, so the dial is made
+        from a helper we are willing to abandon (agents-protocol-02: 4.5 s of
+        frozen frames when the old code dialled while a peer was mid-handshake
+        and no instance was free). It is repeated until the acceptor is really
+        gone, because a `close()` can land before the thread has reached
+        `ConnectNamedPipe` and the first dial then finds nothing to connect to.
+        And the stdlib listener is closed only *afterwards* (agents-protocol-05,
+        reproduced as a restart that raised `PermissionError`): its finalizer
+        closes the handles in its queue exactly once, so a thread still inside
+        `PipeListener.accept()` when that ran appended a fresh pipe instance
+        that nothing would ever close, and CPython opens the next `start()`'s
+        pipe with FILE_FLAG_FIRST_PIPE_INSTANCE.
         """
+        deadline = time.monotonic() + CLOSE_WAKE_TIMEOUT
+        first = True
+        while first or (
+            acceptor is not None and acceptor.is_alive() and time.monotonic() < deadline
+        ):
+            first = False
+            dial = threading.Thread(
+                target=Server._self_dial,
+                args=(address,),
+                name="realmspinner-mcp-wake",
+                daemon=True,
+            )
+            dial.start()
+            dial.join(0.25)
+            if acceptor is not None:
+                acceptor.join(0.05)
+
+    @staticmethod
+    def _self_dial(address: str) -> None:
+        with contextlib.suppress(Exception):
+            mpconn.Client(address, family=_FAMILY).close()
+
+    def _accept_loop(self, listener: mpconn.Listener) -> None:
+        """The acceptor thread: take raw connections and hand each to a vetting thread.
+
+        **`listener` is the one reference this thread works from.** The
+        2026-09-26 audit (agents-protocol-02) found the old loop reading
+        `self._listener` twice, so a `close()` between the reads made it call
+        `None.accept()`. And stdlib's own `Listener.accept` reads its inner
+        listener twice, so any failure here is caught as a whole rather than
+        by type.
+
+        **A failure from a live listener is retried, not read as shutdown.**
+        The 2026-10-14 audit (finding agents-protocol-06) injected
+        ECONNABORTED and found every `OSError` mapped to "closed", which the
+        host reads as "stop listening" -- one failed accept (EMFILE on POSIX,
+        a failed `CreateNamedPipe` on Windows) switched the feature off while
+        Settings still showed the pipe address. Only `close()` ends this
+        thread; anything else backs off and tries again.
+        """
+        delay = ACCEPT_RETRY_DELAY
         while True:
-            listener = self._listener
-            if listener is None:
-                return None
+            with self._lock:
+                if self._listener is not listener:
+                    return
             try:
                 conn = listener.accept()
-            except OSError:
-                return None
-            if self._handshake(conn):
-                return conn
-            # Refused, and already closed -- take the next peer.
+            except Exception:  # noqa: BLE001 -- see the docstring
+                with self._lock:
+                    live = self._listener is listener
+                if not live or self._closed.wait(delay):
+                    return
+                delay = min(delay * 2, ACCEPT_RETRY_CAP)
+                continue
+            delay = ACCEPT_RETRY_DELAY
+            self._begin_vetting(conn, listener)
+
+    def _begin_vetting(self, conn: mpconn.Connection, listener: mpconn.Listener) -> None:
+        evicted: list[mpconn.Connection] = []
+        with self._lock:
+            live = self._listener is listener
+            if live:
+                while len(self._pending) >= MAX_PENDING_HANDSHAKES:
+                    evicted.append(self._pending.popitem(last=False)[1])
+                self._pending[id(conn)] = conn
+        # Closing an evicted peer is what releases its vetting thread.
+        for old in evicted:
+            with contextlib.suppress(OSError):
+                old.close()
+        if not live:  # closed while this connection was being accepted
+            with contextlib.suppress(OSError):
+                conn.close()
+            return
+        threading.Thread(
+            target=self._vet,
+            args=(conn, listener),
+            name="realmspinner-mcp-vet",
+            daemon=True,
+        ).start()
+
+    def _vet(self, conn: mpconn.Connection, listener: mpconn.Listener) -> None:
+        try:
+            passed = self._handshake(conn)
+        finally:
+            with self._lock:
+                self._pending.pop(id(conn), None)
+        if not passed:
+            return  # `_handshake` already closed it
+        with self._lock:
+            live = self._listener is listener
+            if live:
+                self._ready.put(conn)
+        if not live:
+            with contextlib.suppress(OSError):
+                conn.close()
+
+    def accept(self) -> mpconn.Connection | None:
+        """The next *authenticated* bridge connection, or `None` once
+        `close()` has run (or if the server was never started).
+
+        **A peer that fails the challenge is refused, not fatal.**
+        `AuthenticationError` does not inherit from `OSError` -- it is a
+        `ProcessError` -- so the first process to dial this pipe with a stale
+        or wrong token once raised straight out through the host's accept loop
+        and took the listener down for the session; and the exchange also
+        raises `EOFError` when a peer disconnects part-way through, which is
+        what an MCP client does every time it is killed while its bridge is
+        still dialling in. :meth:`_handshake` owns every failure the exchange
+        can produce, so a refused peer never reaches this queue at all.
+        """
+        ready = self._ready
+        if self._listener is None or self._acceptor is None:
+            return None
+        conn = ready.get()
+        if conn is None:
+            ready.put(None)  # leave the sentinel for any other waiter
+        return conn
 
     def _handshake(self, conn: mpconn.Connection) -> bool:
         """Prove the peer holds the token, within `HANDSHAKE_TIMEOUT`.
@@ -367,7 +516,8 @@ class Server:
 
     @property
     def address(self) -> str:
-        return self._listener.address if self._listener is not None else ""
+        listener = self._listener
+        return listener.address if listener is not None else ""
 
 
 def connect(home: Path) -> mpconn.Connection:

@@ -43,6 +43,15 @@ HIT = 8.0
 DIAMOND = 5.0
 
 
+#: The 2026-10-14 audit, finding clay-rig-13: this said the file is "written at" the rate, but the
+#: GLB stores key times in seconds and never records one, so the rate only sets the strip's grid
+#: and what a key snaps to (it is saved with the model, so it comes back on opening it).
+FPS_TOOLTIP = (
+    "The frame rate the strip counts and snaps keys in. The exported file stores key times in "
+    "seconds, so it plays at whatever rate the game or Blender runs at"
+)
+
+
 def height(doc: Any) -> float:
     """The height the viewport reserves: the strip in Pose mode, nothing otherwise."""
     return sp(HEIGHT) if getattr(doc, "pose_mode", False) else 0.0
@@ -92,7 +101,7 @@ def _readout(doc: Any) -> str:
 def _transport(ctx: Any, tab: Any, doc: Any) -> None:
     animation = doc.animation()
     playable = tl.length(doc) > 0.0
-    why_play = "Key a bone first: there is nothing to play yet."
+    why_play = tl.play_reason(doc)
     label, glyph, tip = widgets.transport_label(doc.playing)
     saving = bool(tab.saving)
     items = [
@@ -215,7 +224,7 @@ def _settings(ctx: Any, tab: Any, doc: Any) -> None:
         "##clay-timeline-fps",
         str(doc.rig_state.fps),
         [(str(f), f"{f} fps") for f in tl.FPS_CHOICES],
-        tooltip="The frame rate the strip counts in and the file is written at",
+        tooltip=FPS_TOOLTIP,
     )
     if changed:
         _refuse(ctx, lambda: doc.set_fps(int(picked)))
@@ -285,8 +294,12 @@ def _sheet(ctx: Any, tab: Any, doc: Any) -> None:
     )
     tab.timeline_scroll = sheet.scroll
     # Diamonds that no longer exist (an undo, a deleted bone) are no longer picked.
-    live = {(r.uid, t) for r in rows for t in r.times}
-    tab.key_sel = [k for k in tab.key_sel if k in live]
+    # Only when something is picked: the set is every key of every row, and building it on
+    # an empty pick every frame was most of what was left once the rows were memoised (the
+    # 2026-10-14 audit, finding clay-rig-03).
+    if tab.key_sel:
+        live = {(r.uid, t) for r in rows for t in r.times}
+        tab.key_sel = [k for k in tab.key_sel if k in live]
 
     draw_list = imgui.get_window_draw_list()
     _paint(draw_list, doc, tab, rows, sheet)
@@ -332,7 +345,9 @@ def _paint(draw_list: Any, doc: Any, tab: Any, rows: list[Any], sheet: Any) -> N
     drag = tab.key_drag if tab.key_drag and tab.key_drag.get("mode") == "keys" else None
     shown = rows[sheet.scroll : sheet.scroll + sheet.rows_fit]
     picked = set(tab.key_sel)
-    delta = 0.0 if drag is None else drag["delta"]
+    # The slide the document will apply (every key by one clamped delta), not each key's own
+    # ``max(t + delta, 0)``: the 2026-10-14 audit, finding clay-rig-11.
+    delta = 0.0 if drag is None else doc.slide_delta(tab.key_sel, drag["delta"])
     for slot, row in enumerate(shown):
         top = sheet.row_top(slot)
         mid = top + sheet.row_h * 0.5
@@ -355,7 +370,7 @@ def _paint(draw_list: Any, doc: Any, tab: Any, rows: list[Any], sheet: Any) -> N
             colour = col("ACCENT") if chosen else col("TEXT", 1.0 if at_head else 0.75)
             if chosen and drag is not None and delta:
                 _diamond(draw_list, sheet.to_x(time), mid, col("MUTED", 0.4), sp(DIAMOND))
-                _diamond(draw_list, sheet.to_x(max(time + delta, 0.0)), mid, colour, sp(DIAMOND))
+                _diamond(draw_list, sheet.to_x(time + delta), mid, colour, sp(DIAMOND))
             else:
                 _diamond(draw_list, sheet.to_x(time), mid, colour, sp(DIAMOND))
     # The playhead, over everything.
@@ -367,6 +382,17 @@ def _paint(draw_list: Any, doc: Any, tab: Any, rows: list[Any], sheet: Any) -> N
         (head, sheet.y0 + sp(8.0)),
         col("ACCENT"),
     )
+
+
+def _landed_selection(
+    doc: Any, selection: list[tuple[int, float]], delta: float
+) -> list[tuple[int, float]]:
+    """*selection* where a slide by *delta* put its keys: every key by the one delta the document
+    clamped (:meth:`~ClayDoc.slide_delta`), never each key's own ``max(t + delta, 0)``. The
+    2026-10-14 audit, finding clay-rig-11: sliding keys at 0.5 s and 2.0 s by -1 s landed them
+    at 0.0 and 1.5 but re-selected 0.0 and 1.0, a pick that is not live and was dropped."""
+    landed = doc.slide_delta(selection, delta)
+    return [(uid, round(time + landed, 6)) for uid, time in selection]
 
 
 def _interact(ctx: Any, tab: Any, doc: Any, rows: list[Any], sheet: Any) -> None:
@@ -394,9 +420,7 @@ def _interact(ctx: Any, tab: Any, doc: Any, rows: list[Any], sheet: Any) -> None
             tab.key_drag = None
             if drag["delta"] and not tab.saving:
                 _refuse(ctx, lambda: doc.move_bone_keys(tab.key_sel, drag["delta"]))
-                tab.key_sel = [
-                    (uid, round(max(time + drag["delta"], 0.0), 6)) for uid, time in tab.key_sel
-                ]
+                tab.key_sel = _landed_selection(doc, tab.key_sel, drag["delta"])
 
 
 def _begin(
@@ -420,5 +444,5 @@ def _begin(
             tab.key_sel = [*tab.key_sel, key]
     elif key not in tab.key_sel:
         tab.key_sel = [key]
-    tl.go_to(doc, key[1])
+    tl.go_to_key(doc, key[1])
     return {"mode": "keys", "anchor": key[1], "delta": 0.0}

@@ -5,7 +5,7 @@ is a real pixel-art and painting program, not a touch-up panel bolted to a gener
 no GPU and no model weights — everything in this chapter works on a bare install.
 
 It has two jobs in this app. One is drawing from nothing. The other is fixing what the generators
-produced, which is why references, sprite sheets and character sheets all have an **Open in Inker**
+produced, which is why references and sprite-sheet drafts both have an **Open in Inker**
 button on them.
 
 This chapter covers still images. The timeline gets [its own chapter](06-animating.md) next.

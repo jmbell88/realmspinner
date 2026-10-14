@@ -29,6 +29,7 @@ one model rather than about moving where anybody looks for it.
 from __future__ import annotations
 
 import logging
+import re
 import xml.etree.ElementTree as ET
 from typing import Any
 
@@ -1085,7 +1086,13 @@ def read_tsj(data: bytes, image: np.ndarray) -> Tileset:
     entry = json.loads(data.decode("utf-8"))
     if not isinstance(entry, dict):
         raise ValueError("a .tsj holds a tileset object")
-    return tileset_from_json(entry, image)
+    try:
+        return tileset_from_json(entry, image)
+    except (TypeError, AttributeError, OverflowError, IndexError, KeyError) as exc:
+        # The 2026-10-14 audit, finding plotter-map-12: a member of a JSON
+        # document can be any type or absent, and the open doors frame only
+        # ``ValueError``. ``read_tmj`` makes the same translation for the map.
+        raise ValueError(f"this tileset holds a malformed value: {exc}") from exc
 
 
 def tsj_source(data: bytes) -> str:
@@ -1262,14 +1269,36 @@ def tsx_element(
     return root
 
 
+#: Everything XML 1.0 does not allow in a document: the C0 controls bar tab,
+#: newline and carriage return, the surrogate block, and U+FFFE/U+FFFF.
+_XML_FORBIDDEN = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
+
+
 def to_bytes(root: ET.Element) -> bytes:
     """One element tree as the bytes of a file, indented and declared.
 
     Shared by both writers so a ``.tmx`` and a ``.tsx`` are formatted the same
     way, and so the declaration is spelled once.
+
+    **Refuses a character XML 1.0 forbids.** The 2026-10-14 audit (finding
+    plotter-map-16) found ``ElementTree`` writing a layer named
+    ``"bad" + chr(11) + "name"`` straight into an attribute, and this build's own
+    reader (``xmlguard``, on expat) then refusing the file it had just exported
+    -- "not well-formed (invalid token)" -- with nothing at the writer to say
+    why. The name is reachable from a ``.rmap`` string or a paste. Refused here,
+    as the writers' own kind of refusal, so the save toast names the cause
+    before any file is written.
     """
     ET.indent(root, space=" ")
     body = ET.tostring(root, encoding="unicode")
+    bad = _XML_FORBIDDEN.search(body)
+    if bad is not None:
+        raise TiledUnsupported(
+            "a control character in a name or property",
+            f"U+{ord(bad.group()):04X} near "
+            f"{body[max(0, bad.start() - 20) : bad.end() + 20]!r}",
+            exporting=True,
+        )
     return f'<?xml version="1.0" encoding="UTF-8"?>\n{body}\n'.encode()
 
 

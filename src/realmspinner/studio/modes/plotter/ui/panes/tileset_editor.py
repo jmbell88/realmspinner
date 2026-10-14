@@ -911,10 +911,19 @@ def remove_wang_colour(state: Any, tab: Any, index: int, at: int, colour: int) -
     _write_wangsets(
         tab, index, _swapped(sets, at, wanglib.without_colour(wangset, int(colour)))
     )
-    # The hand holds a 1-based colour number, and the numbers just moved.
-    state.tileset_wang_colour = min(
-        int(state.tileset_wang_colour), len(wangset.colours) - 1
-    )
+    # The hand holds a 1-based colour number, and the numbers just moved: only
+    # clamped, a hand on the third colour stayed on "3" after the first was
+    # removed and painted a colour the user had not picked (the 2026-10-14
+    # audit, finding plotter-mode-17). Colours above the removed one shift down
+    # by one; the removed colour's own hand goes back to the first; unset stays.
+    remaining = len(wangset.colours) - 1
+    in_hand = int(state.tileset_wang_colour)
+    removed = int(colour) + 1
+    if in_hand == removed:
+        in_hand = 1
+    elif in_hand > removed:
+        in_hand -= 1
+    state.tileset_wang_colour = min(in_hand, remaining)
 
 
 def set_wang_colour(

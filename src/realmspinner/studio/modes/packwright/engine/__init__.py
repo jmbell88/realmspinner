@@ -1,6 +1,6 @@
 """Packwright -- the atlas packer's engine.
 
-Pure in the way ``studio/inker/``, ``studio/clay/`` and ``studio/plotter/`` are:
+Pure in the way ``kernels/pixel/``, ``kernels/mesh/`` and ``modes/plotter/engine/`` are:
 no imgui, no moderngl, no pygame, no ``service``. It reaches outward exactly
 eight times, across six modules: ``document.py`` for :mod:`realmspinner.core.undo`
 (the shared history engine); ``layout.py`` for :mod:`realmspinner.kernels.sheet`

@@ -1,6 +1,5 @@
 """Regression tests for the 2026-09-26 audit's wave-6 MCP findings:
-create_rig's "never replaces" check racing its own insert (agents-character-03,
-the service door half that outlived the character tool surface), a stale test
+a stale test
 citation in agent_prompts.py (agents-clay-03), and agent_prompts.render
 stringifying a wrong-typed argument straight into served prompt text
 (agents-clay-04). The character tool surface's own findings (agents-character-01,
@@ -11,19 +10,15 @@ from __future__ import annotations
 
 import inspect
 import json
-import threading
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from realmspinner.kernels.rig import store
 from realmspinner.service import rig as svc_rig
-from realmspinner.service.errors import Conflict
 from realmspinner.studio import agent_prompts
 
-# --- agents-character-03: create_rig's atomic "never replaces" check ---
+# --- agents-character-03: what outlived the character tool surface ---
 
 
 def _finished_mesh_job(svc: Any) -> str:
@@ -34,23 +29,13 @@ def _finished_mesh_job(svc: Any) -> str:
     return job_id
 
 
-def test_create_rig_refuse_existing_conflicts_with_an_existing_rig(svc: Any) -> None:
-    job_id = _finished_mesh_job(svc)
-    job_dir = svc.job_dir(job_id)
-    (job_dir / "rig.json").write_text(
-        json.dumps({"template": "humanoid"}), encoding="utf-8"
-    )
-    with pytest.raises(Conflict, match="never replaces"):
-        svc_rig.create_rig(svc, job_id, refuse_existing=True)
-
-
-def test_create_rig_without_refuse_existing_still_lets_library_and_poser_rerig(
+def test_create_rig_still_replaces_an_existing_rig_for_library_and_create(
     svc: Any,
 ) -> None:
-    """refuse_existing defaults to False -- Library's "Rig this mesh again"
-    and Poser's re-rig (modes/poser/mode.py:rerig) both call this same door
-    to replace an existing rig on purpose, so the new parameter must not
-    narrow what they can do."""
+    """Library's "Rig this mesh again" and Create's Rig stage both call this door
+    to replace an existing rig on purpose. The ``refuse_existing`` opt-out that
+    sat beside that behaviour left with the character agent surface (the
+    2026-10-14 audit, finding docs-E-17); this pins what remains."""
     job_id = _finished_mesh_job(svc)
     job_dir = svc.job_dir(job_id)
     (job_dir / "rig.json").write_text(
@@ -58,81 +43,6 @@ def test_create_rig_without_refuse_existing_still_lets_library_and_poser_rerig(
     )
     out = svc_rig.create_rig(svc, job_id, template="quadruped")
     assert out["template"] == "quadruped"
-
-
-def test_create_rig_refuse_existing_is_checked_inside_the_same_lock_as_the_insert(
-    svc: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The agent's "never replaces an existing rig" check used to be a bare
-    store.read_rig(job_dir) read outside create_rig's convert_lock -- the
-    same TOCTOU shape the
-    2026-09-20 audit (finding agents-03) already fixed for rig_in_flight two
-    lines below it. Widened deterministically like that test's own sibling
-    (tests/test_character_agent_doors.py): store.read_rig is patched to
-    pause, once, right after the *first* create_rig(refuse_existing=True)
-    call reads it from inside the lock -- so a second call attempted in that
-    exact gap is proven to block on the lock itself, rather than reach its
-    own read the way the pre-fix outer check could.
-    """
-    monkeypatch.setattr(
-        "realmspinner.doctor.blender_check", lambda: SimpleNamespace(ok=True, detail="")
-    )
-    job_id = _finished_mesh_job(svc)
-
-    real_read_rig = store.read_rig
-    checked = threading.Event()
-    release = threading.Event()
-    armed = True
-
-    def spy_read_rig(job_dir):
-        nonlocal armed
-        result = real_read_rig(job_dir)
-        if armed:
-            armed = False
-            checked.set()
-            assert release.wait(5), "the first call's paused check never resumed"
-        return result
-
-    monkeypatch.setattr(store, "read_rig", spy_read_rig)
-
-    results: list = []
-    errors: list = []
-
-    def call() -> None:
-        try:
-            results.append(svc_rig.create_rig(svc, job_id, refuse_existing=True))
-        except Conflict as exc:
-            errors.append(exc)
-
-    first = threading.Thread(target=call)
-    first.start()
-    assert checked.wait(5), "the first call's read_rig check never ran"
-
-    second = threading.Thread(target=call)
-    second.start()
-    # Pre-fix, refuse_existing did not exist at all (a TypeError, proving the
-    # gap outright) and the "never replaces" read ran outside any lock, so a
-    # second caller's own read could land in this exact gap. Post-fix, the first call already holds
-    # convert_lock(job_id, "rig") before it ever calls store.read_rig, so the
-    # second call blocks on that same lock instead of racing a read of its
-    # own -- giving it a moment here is what makes that deterministic rather
-    # than sleep-dependent.
-    second.join(timeout=1.0)
-
-    release.set()
-    first.join(5)
-    second.join(5)
-    assert not first.is_alive()
-    assert not second.is_alive()
-
-    assert len(results) == 1
-    assert len(errors) == 1
-    rig_rows = [
-        r
-        for r in svc.store.list(limit=1000, kind="rig")
-        if (r["params"] or {}).get("source_job") == job_id
-    ]
-    assert len(rig_rows) == 1
 
 
 # --- agents-clay-03: agent_prompts.py's stale test citation ----------------

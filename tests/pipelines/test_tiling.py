@@ -232,7 +232,7 @@ def test_an_attached_controlnet_is_patched_too(stub_t2i, monkeypatch, tmp_path):
     monkeypatch.setattr(
         t2i, "_conditioned", lambda cond, cancel_event=None: (pipe, {}, lambda: None)
     )
-    cond = SimpleNamespace(as_dict=lambda: {})
+    cond = SimpleNamespace(as_dict=lambda: {}, uses_mask=False, uses_control=True)
 
     t2i.generate("brick wall", tmp_path / "a.png", conditioning=cond, tile=True)
 

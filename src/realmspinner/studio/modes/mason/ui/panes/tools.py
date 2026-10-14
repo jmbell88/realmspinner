@@ -37,12 +37,13 @@ file describing a document that never existed.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
 from imgui_bundle import imgui
 
-from ..... import controls, icons, widgets
+from ..... import controls, docmodes, icons, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
 from ... import assets as mason_assets
@@ -114,6 +115,7 @@ def _snap(ctx: Any, state: Any) -> None:
     if changed:
         state.snap = value
     imgui.begin_disabled(not state.snap)
+    kept = (float(state.snap_translate), float(state.snap_rotate))
     widgets.field_label("grid (m)")
     _, state.snap_translate = controls.input_float(
         "##masongrid", state.snap_translate, 0.25, 0.0, "%.3f"
@@ -123,8 +125,15 @@ def _snap(ctx: Any, state: Any) -> None:
         "##masonangle", state.snap_rotate, 5.0, 0.0
     )
     imgui.end_disabled()
-    state.snap_translate = max(0.0, float(state.snap_translate))
-    state.snap_rotate = max(0.0, float(state.snap_rotate))
+    # The 2026-10-14 audit, finding mason-mode-03: ``max(0.0, x)`` passes +inf (imgui
+    # hands back inf for a typed ``1e999``), and a snap step of inf made a drag
+    # write NaN onto the node -- the release then raised from ``set_transform``
+    # with the drag already cleared, leaving a node Ctrl+Z could not restore and
+    # a scene that would not reopen. A non-finite entry is dropped for the value
+    # the field held.
+    typed = (float(state.snap_translate), float(state.snap_rotate))
+    state.snap_translate = max(0.0, typed[0] if math.isfinite(typed[0]) else kept[0])
+    state.snap_rotate = max(0.0, typed[1] if math.isfinite(typed[1]) else kept[1])
     # A separate switch from the grid, ``mason_state``'s own reason: it
     # answers "put it on the surface below" rather than "put it on round
     # numbers", and a row of props wants both together as often as either
@@ -330,7 +339,9 @@ def _over_max_placed(doc: md.MasonDoc, node: nd.Node, copies: int) -> int | None
     door it is guarding agree.
     """
     per_copy = len(list(nd.walk([node])))
-    total = len(doc.all_nodes()) + copies * per_copy
+    # The 2026-10-14 audit, finding mason-mode-08: the tree alone, where the
+    # engine's own check (and the reader) also count every prefab template.
+    total = doc.placed_total() + copies * per_copy
     return total if total > scene.MAX_PLACED else None
 
 
@@ -411,19 +422,7 @@ def _array(ctx: Any, state: Any, doc: md.MasonDoc) -> None:
         )
         and node
     ):
-        over = _over_either_ceiling(doc, node, _PENDING["count"] - 1)
-        if over is not None:
-            ctx.toast(
-                f"That array would bring this scene to {over} nodes, past "
-                f"the {scene.MAX_PLACED} limit -- refusing rather than "
-                "building it.",
-                "error",
-            )
-        else:
-            trs_list = mops.array_linear(
-                _PENDING["count"], _PENDING["offset"], base_trs=node.trs()
-            )
-            _spawn_array(ctx, doc, node, trs_list[1:])
+        _build_array(ctx, doc, node, radial=False)
 
     widgets.field_label("degrees")
     _, degrees = controls.input_float("##masonarraydegrees", float(_PENDING["degrees"]), 5.0)
@@ -435,35 +434,60 @@ def _array(ctx: Any, state: Any, doc: md.MasonDoc) -> None:
         )
         and node
     ):
-        over = _over_either_ceiling(doc, node, _PENDING["count"] - 1)
-        if over is not None:
-            ctx.toast(
-                f"That array would bring this scene to {over} nodes, past "
-                f"the {scene.MAX_PLACED} limit -- refusing rather than "
-                "building it.",
-                "error",
-            )
-        else:
-            # The 2026-09-26 audit's mason-mode-04: this used to read
-            # ``node.translation`` -- exactly ``node.trs()``'s own
-            # translation, the ``base_trs`` passed below -- so
-            # ``array_radial``'s ``t0 - centre`` was zero for every copy and
-            # all of them landed on top of the original. ``base_trs`` is in
-            # the node's *parent* space (``_spawn_array`` adds every copy
-            # under that same parent), so the origin of that space -- the
-            # parent's own pivot -- is the centre that actually spins the
-            # node's own offset from it around a circle, the way a fence post
-            # a few metres from a hub spins around the hub rather than in place.
-            centre = (0.0, 0.0, 0.0)
-            trs_list = mops.array_radial(
-                _PENDING["count"],
-                centre=centre,
-                axis=(0.0, 1.0, 0.0),
-                degrees=_PENDING["degrees"],
-                base_trs=node.trs(),
-            )
-            _spawn_array(ctx, doc, node, trs_list[1:])
+        _build_array(ctx, doc, node, radial=True)
     del state
+
+
+def _build_array(ctx: Any, doc: md.MasonDoc, node: nd.Node, *, radial: bool) -> None:
+    """One press of "Array (linear)" or "Array (radial)": refuse what cannot be
+    built, otherwise build the copies and attach them as one step.
+
+    The 2026-10-14 audit, finding mason-mode-02 (was High): a typed ``1e999`` in
+    the offset or degrees field (imgui hands back +inf) was checked nowhere --
+    ``array_linear`` returned inf translations that ``add_nodes`` attached, and a
+    non-finite ``degrees`` raised ``math domain error`` out of the button press.
+    The scene saved and journalled normally and then refused to reopen ("a node
+    in this mason scene has a translation that is not finite"). Refused here,
+    naming the field, before any copy is built; ``_spawn_array`` and ``add_nodes``
+    check the finished transforms too, for a finite offset that still overflows.
+    """
+    field, values = (
+        ("degrees", [_PENDING["degrees"]]) if radial else ("offset", list(_PENDING["offset"]))
+    )
+    if not all(math.isfinite(float(v)) for v in values):
+        docmodes.refuse(ctx, f"The array {field} must be a finite number -- nothing was built.")
+        return
+    over = _over_either_ceiling(doc, node, _PENDING["count"] - 1)
+    if over is not None:
+        ctx.toast(
+            f"That array would bring this scene to {over} nodes, past "
+            f"the {scene.MAX_PLACED} limit -- refusing rather than "
+            "building it.",
+            "error",
+        )
+        return
+    if not radial:
+        trs_list = mops.array_linear(_PENDING["count"], _PENDING["offset"], base_trs=node.trs())
+    else:
+        # The 2026-09-26 audit's mason-mode-04: this used to read
+        # ``node.translation`` -- exactly ``node.trs()``'s own
+        # translation, the ``base_trs`` passed below -- so
+        # ``array_radial``'s ``t0 - centre`` was zero for every copy and
+        # all of them landed on top of the original. ``base_trs`` is in
+        # the node's *parent* space (``_spawn_array`` adds every copy
+        # under that same parent), so the origin of that space -- the
+        # parent's own pivot -- is the centre that actually spins the
+        # node's own offset from it around a circle, the way a fence post
+        # a few metres from a hub spins around the hub rather than in place.
+        centre = (0.0, 0.0, 0.0)
+        trs_list = mops.array_radial(
+            _PENDING["count"],
+            centre=centre,
+            axis=(0.0, 1.0, 0.0),
+            degrees=_PENDING["degrees"],
+            base_trs=node.trs(),
+        )
+    _spawn_array(ctx, doc, node, trs_list[1:])
 
 
 def _spawn_array(ctx: Any, doc: md.MasonDoc, node: nd.Node, trs_list: list[Any]) -> None:
@@ -472,6 +496,11 @@ def _spawn_array(ctx: Any, doc: md.MasonDoc, node: nd.Node, trs_list: list[Any])
     parent_uid = doc.parent_uid_of(node.uid)
     copies = []
     for translation, rotation, scale in trs_list:
+        # A finite offset can still overflow on the way to a copy (1e308 * 3).
+        parts = (translation, rotation, scale)
+        if not all(np.isfinite(np.asarray(v, dtype="f8")).all() for v in parts):
+            ctx.toast("Could not build that array: an offset is too large.", "error")
+            return
         copy = nd.copy_subtree(node, fresh_uids=True)
         copy.translation = np.asarray(translation, dtype="f8")
         copy.rotation = np.asarray(rotation, dtype="f8")

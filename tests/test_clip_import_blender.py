@@ -5,8 +5,8 @@ that word is reserved for triangle-budget re-optimisation in this codebase.
 "Import clip" brings a Mixamo/Rigify animation onto a Realmspinner template rig;
 this file is Blender SAMPLES only -- it proves the worker reads an external
 file's world bone transforms correctly, picks the right armature, and reports
-the Realmspinner template's own rest frames the same way ``op_armature`` builds
-them. The pure math that converts one onto the other is a later step
+the Realmspinner template's own rest frames the same way ``_build_armature``
+builds them. The pure math that converts one onto the other is a later step
 (``cliptransfer.py``) and is not exercised here.
 
 The fixture below is a synthetic Mixamo-named armature -- built, keyframed and
@@ -253,7 +253,7 @@ def test_clip_sample_reports_the_realmspinner_target_rest_frames_from_the_armatu
     expected_names = {b["name"] for b in template.bones}
     assert set(result["target"]["bones"]) == expected_names
 
-    # Build the same reference the worker's op_armature preview builds, in a
+    # Build the same reference the worker's ``_build_armature`` builds, in a
     # scene of our own, and check the two constructions agree exactly -- the
     # whole point of sharing _build_armature is that there is one definition
     # of a bone's roll, not two that can drift apart.

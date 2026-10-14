@@ -84,11 +84,81 @@ def test_there_are_modules_to_check():
     assert len(_modules()) >= 4
 
 
+def _imported_names(path: Path, node: ast.ImportFrom, package_dir: Path = PACKAGE_DIR) -> list[str]:
+    """Every absolute dotted name one ``from ... import ...`` statement reaches.
+
+    The 2026-10-14 audit, finding familiar-core-09: the pin used to
+    ``continue`` on every relative import on the premise that one "can only
+    reach a sibling". That is true of level 1 alone. ``from ..service import x``
+    climbs out of ``familiar/`` into a peer layer, ``from ... import queue``
+    out of the whole package, and neither was ever looked at -- the pin would
+    have passed a banned dependency spelled with dots. A relative import is
+    resolved against the file's own package (``realmspinner.familiar`` plus the
+    sub-directories under it), and ``from pkg import name`` is expanded to
+    ``pkg.name`` as well, because ``from realmspinner import service`` reaches
+    the same module ``import realmspinner.service`` does and ``node.module``
+    alone names only ``realmspinner``.
+    """
+    if node.level:
+        package = ["realmspinner", "familiar", *path.parent.relative_to(package_dir).parts]
+        if node.level - 1 > len(package):
+            return [""]  # climbs out of the distribution; nothing resolvable to ban
+        if node.level > 1:
+            package = package[: -(node.level - 1)]
+        base = ".".join([*package, *([node.module] if node.module else [])])
+    else:
+        base = node.module or ""
+    return [base, *(f"{base}.{alias.name}" for alias in node.names)]
+
+
+def _violations(path: Path, package_dir: Path = PACKAGE_DIR) -> list[str]:
+    """Banned imports in one module, as messages (empty when it is clean)."""
+    found: list[str] = []
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    module_body_ids = {id(n) for n in tree.body}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            names = _imported_names(path, node, package_dir)
+        else:
+            continue
+
+        at_module_scope = id(node) in module_body_ids
+        for name in names:
+            root = name.split(".")[0]
+            if root == "httpx" and path.name in HTTPX_ALLOWED:
+                continue
+            if root in BANNED:
+                found.append(f"{path.name} imports banned root {name!r}")
+                continue
+
+            hit = next(
+                (m for m in BANNED_MODULES if name == m or name.startswith(m + ".")),
+                None,
+            )
+            if hit is None:
+                continue
+            if (
+                hit == "realmspinner.studio.modes.clay.agent.dispatch"
+                and path.name in LAZY_AGENT_CLAY_ALLOWED
+            ):
+                if at_module_scope:
+                    found.append(
+                        f"{path.name} imports {name!r} at module scope -- "
+                        "agent_clay is only allowed lazily, inside a function body"
+                    )
+                continue
+            found.append(f"{path.name} imports banned module {name!r}")
+    return found
+
+
 def test_the_familiar_package_imports_no_window_service_or_network():
     """No imgui, moderngl, pygame, ``realmspinner.service``, ``realmspinner.queue``,
     or the three GL-adjacent studio modules -- at module scope, anywhere
-    under ``realmspinner/familiar/``. httpx is the same, except for
-    ``llama_client.py`` (see :data:`HTTPX_ALLOWED`).
+    under ``realmspinner/familiar/``, however the import is spelled (absolute,
+    relative at any level, or ``from pkg import name``). httpx is the same,
+    except for ``llama_client.py`` (see :data:`HTTPX_ALLOWED`).
 
     A function-body import is allowed *only* for ``realmspinner.studio.modes.clay.agent.dispatch``
     in ``contract.py`` (see :data:`LAZY_AGENT_CLAY_ALLOWED`); every other
@@ -101,45 +171,8 @@ def test_the_familiar_package_imports_no_window_service_or_network():
     for path in _modules():
         if path.name == "__init__.py":
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        module_body_ids = {id(n) for n in tree.body}
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                if node.level:
-                    # A relative import inside this package can only reach a
-                    # sibling module of the pure package itself -- there is
-                    # nothing to climb out to here that isn't already listed
-                    # in BANNED_MODULES by its absolute name.
-                    continue
-                names = [node.module or ""]
-            else:
-                continue
-
-            at_module_scope = id(node) in module_body_ids
-            for name in names:
-                root = name.split(".")[0]
-                if root == "httpx" and path.name in HTTPX_ALLOWED:
-                    continue
-                assert root not in BANNED, f"{path.name} imports banned root {name!r}"
-
-                hit = next(
-                    (m for m in BANNED_MODULES if name == m or name.startswith(m + ".")),
-                    None,
-                )
-                if hit is None:
-                    continue
-                if (
-                    hit == "realmspinner.studio.modes.clay.agent.dispatch"
-                    and path.name in LAZY_AGENT_CLAY_ALLOWED
-                ):
-                    assert not at_module_scope, (
-                        f"{path.name} imports {name!r} at module scope -- "
-                        "agent_clay is only allowed lazily, inside a function body"
-                    )
-                    continue
-                raise AssertionError(f"{path.name} imports banned module {name!r}")
+        problems = _violations(path)
+        assert not problems, problems[0]
 
 
 def test_familiar_no_longer_needs_pure_packages_to_prove_this():

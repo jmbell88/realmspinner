@@ -55,37 +55,40 @@ def draw(ctx: Any) -> None:
             icons.BONE, "No mesh selected.", "Pick a finished mesh; the skeleton fits to it."
         )
         return
+    rigged = "rig.glb" in (job.get("files") or [])
     if not ctx.rigging_available:
         # The stage is still *enterable* without Blender -- the rail says why
         # rather than hiding the segment -- so this pane answers the same
-        # question again for anyone who arrived from a library card.
+        # question again for anyone who arrived from a library card. Only the
+        # template fit is Blender's: "Rig by hand in Clay" below is not, and the
+        # 2026-10-14 audit, finding shell-29, found it hidden by an early
+        # return here, so a machine without Blender had no way to a rig at all.
         widgets.muted("Rigging needs Blender, which is not installed.")
-        return
+    else:
+        _skeleton_picker(ctx)
 
-    _skeleton_picker(ctx)
-
-    rigged = "rig.glb" in (job.get("files") or [])
-    if rigged:
-        widgets.muted("This mesh is rigged. Rigging it again replaces the rig.")
-    # S138, and it stays said here: rigging is a real queued job -- Blender out
-    # of process, behind whatever the serial worker is already doing -- and a
-    # bare button looked like something that happens now.
-    widgets.cost_note(
-        "Rigging is queued like a generation: it runs Blender in a separate "
-        "process and waits behind anything already running."
-    )
-    key = rig_key(job)
-    label = "Rig this mesh again" if rigged else "Rig this mesh"
-    if widgets.disabled_button(
-        label, not ctx.busy(key), reason="This mesh is already being rigged."
-    ):
-        # The 2026-09-05 audit, finding create-05: a new submit is judged on
-        # its own -- remesh_panel/retarget_panel's rule, and the half this
-        # pane's bare widgets.field_error() could not supply by itself.
-        ctx.state.clear_field_errors()
-        ctx.submit(key, svc_rig.create_rig, ctx.svc, job["id"], template=skeleton(ctx))
+        if rigged:
+            widgets.muted("This mesh is rigged. Rigging it again replaces the rig.")
+        # S138, and it stays said here: rigging is a real queued job -- Blender out
+        # of process, behind whatever the serial worker is already doing -- and a
+        # bare button looked like something that happens now.
+        widgets.cost_note(
+            "Rigging is queued like a generation: it runs Blender in a separate "
+            "process and waits behind anything already running."
+        )
+        key = rig_key(job)
+        label = "Rig this mesh again" if rigged else "Rig this mesh"
+        if widgets.disabled_button(
+            label, not ctx.busy(key), reason="This mesh is already being rigged."
+        ):
+            # The 2026-09-05 audit, finding create-05: a new submit is judged on
+            # its own -- remesh_panel/retarget_panel's rule, and the half this
+            # pane's bare widgets.field_error() could not supply by itself.
+            ctx.state.clear_field_errors()
+            _rig(ctx, job, key)
     if not rigged:
-        imgui.same_line()
+        if ctx.rigging_available:
+            imgui.same_line()
         if widgets.ghost_button(
             "Rig by hand in Clay",
             tooltip=(
@@ -96,6 +99,42 @@ def draw(ctx: Any) -> None:
             from ..modes.clay import mode as clay_mode
 
             clay_mode.edit_asset_in_clay(ctx, job)
+
+
+#: Said in the confirm when the rig about to be replaced is one Clay wrote.
+CLAY_RERIG_WARNING = (
+    "This rig was built by hand in Clay. Rigging again replaces its bones and "
+    "binding with a template fit, and the hand-built rig cannot be brought back."
+)
+
+
+def _rig(ctx: Any, job: Any, key: str) -> None:
+    """Queue the rig, asking first when it would replace one Clay wrote.
+
+    The 2026-10-14 audit, finding create-panes-06: "Rig this mesh again" threw
+    away a rig authored in Clay (its bones and its rigid or Blender-weighted
+    binding) for a template fit, with no warning -- the same press the Pose
+    panel's "Apply joint positions" already confirms. Function-scope import:
+    ``pose_panel`` imports this module.
+    """
+    from .. import dialogs
+    from . import pose_panel
+
+    def queue() -> None:
+        ctx.submit(key, svc_rig.create_rig, ctx.svc, job["id"], template=skeleton(ctx))
+
+    if not pose_panel.clay_authored(job["id"]):
+        queue()
+        return
+    ctx.confirms.ask(
+        dialogs.Confirm(
+            title="Replace this rig?",
+            message=CLAY_RERIG_WARNING,
+            confirm_label="Rig again",
+            cancel_label="Keep",
+            on_confirm=queue,
+        )
+    )
 
 
 def skeleton_field(ctx: Any, form: dict[str, Any], *, help_text: str | None = None) -> None:

@@ -117,8 +117,8 @@ knew at startup.
 
 ## Rigging is unavailable
 
-**What you see.** The rig controls are simply not there: no rig checkbox on the generate form, no
-sprite sheets, and the FBX export button explains itself with "needs Blender". The **Pose** panel
+**What you see.** The rig controls are simply not there: no rig checkbox on the generate form, and
+the FBX export button explains itself with "needs Blender". The **Pose** panel
 is not hidden, though — it says "Posing needs Blender, which is not installed." **Settings →
 Health** names the failing check, "Blender (rigging)", and prints its detail; `realmspinner doctor` says
 the same thing in a terminal.
@@ -128,13 +128,15 @@ else `uv sync --extra rig` installs nothing at all and the probe finds no `bpy`.
 a missing skeleton template directory, which the check names explicitly.
 
 **Fix.** Create the environment on Python 3.13 and run `uv sync --extra rig`. The check is non-fatal
-either way: everything except rigging, posing and sheets works exactly as before.
+either way: everything except rigging, posing and Clay's Weight with Blender works exactly as before.
 
 **Not an error.** A rig that reports envelope weights instead of bone-heat weights has not failed.
 Bone-heat weighting gives up outright on the kind of non-manifold geometry a reconstruction sometimes
 produces; the worker catches that, falls back to envelope weights, and records which was used in
-`rig.json` rather than failing the job. The result is cruder around joints, not broken. See
-[When rigging is unavailable](23-generating-meshes.md#when-rigging-is-unavailable).
+`rig.json` rather than failing the job. The result is cruder around joints, not broken. If even the envelope
+fallback reaches none of the mesh's points (a shape no bone's radius touches), the job fails with "Blender could not
+weight this mesh to the skeleton" instead of publishing a rig that deforms nothing; move the bones inside the shape.
+See [When rigging is unavailable](23-generating-meshes.md#when-rigging-is-unavailable).
 
 ## The GPU worker stopped
 
@@ -280,8 +282,8 @@ profile. When something needs investigating, these are the places to look:
 - `~/.realmspinner/assets/session.marker` — present only while the app is running; left behind by a
   crash, which is what produces the unclean-shutdown warning above.
 - `~/.realmspinner/assets/jobs.sqlite` — the job store: every job row, its parameters and its status.
-- `~/.realmspinner/assets/` plus the job id — the job's own directory, with its images, meshes, rigs,
-  poses and sheets.
+- `~/.realmspinner/assets/` plus the job id — the job's own directory, with its images, meshes, rigs
+  and poses.
 - `~/.realmspinner/MIGRATED.txt` — written once, if an older install's data was moved here out of the
   project folder. It records what came from where.
 

@@ -353,17 +353,29 @@ def _log_level(raw: str | None) -> int:
     ``basicConfig`` accepts only the upper-case names and raises on anything
     else, and ``run`` calls :func:`_setup_logging` outside every ``try`` -- so
     ``debug``, the way most people type it, killed the app before the window
-    existed (shell-15, the 2026-10-03 audit). The fallback is said once, on the
-    log the new level opens, rather than refused.
+    existed (shell-15, the 2026-10-03 audit). The fallback is refused softly and
+    said once, on the log the new level opens.
+
+    **Silent on purpose** (the 2026-10-14 audit, finding shell-boot-04): this
+    used to warn from here, which ``_setup_logging`` evaluates as an argument of
+    ``basicConfig(..., handlers=handlers, force=True)`` -- before any handler is
+    on the root logger -- so the sentence went to ``logging.lastResort`` (stderr,
+    the null device under ``pythonw``) and never reached ``realmspinner.log``.
+    :func:`_log_level_problem` says it, after the handlers are installed.
     """
     name = (raw or "INFO").strip().upper()
     level = logging.getLevelName(name)
     if isinstance(level, int):
         return level
-    logging.getLogger(__name__).warning(
-        "REALMSPINNER_LOG_LEVEL=%r is not a log level name; using INFO", raw
-    )
     return logging.INFO
+
+
+def _log_level_problem(raw: str | None) -> str | None:
+    """The sentence to log when *raw* names no level, else ``None``."""
+    name = (raw or "INFO").strip().upper()
+    if isinstance(logging.getLevelName(name), int):
+        return None
+    return f"REALMSPINNER_LOG_LEVEL={raw!r} is not a log level name; using INFO"
 
 
 def _setup_logging() -> None:
@@ -424,12 +436,18 @@ def _setup_logging() -> None:
     # basicConfig() before dispatching here, which left the root logger with a
     # handler and made this call a silent no-op -- realmspinner.log was created on
     # every launch and never written to on the one path anybody actually uses.
+    raw_level = os.environ.get("REALMSPINNER_LOG_LEVEL")
     logging.basicConfig(
-        level=_log_level(os.environ.get("REALMSPINNER_LOG_LEVEL")),
+        level=_log_level(raw_level),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         handlers=handlers,
         force=True,
     )
+    # After the handlers are installed, so it lands in the file and not on
+    # ``lastResort`` (shell-boot-04, the 2026-10-14 audit).
+    problem = _log_level_problem(raw_level)
+    if problem:
+        logging.getLogger(__name__).warning("%s", problem)
 
 
 _crash_log: Any = None
@@ -545,10 +563,25 @@ def _note_previous_session() -> None:
     try:
         data = json.loads(raw)
         pid = int(data.get("pid", 0))
-    except (ValueError, TypeError, AttributeError):
+    except Exception:
+        # Any exception, not the three a malformed value usually raises: a
+        # pathologically nested marker raises ``RecursionError`` from
+        # ``json.loads``, and this call sits before ``_run_locked``'s ``try`` --
+        # it escaped ``run()`` with no dialog, and the marker was never cleared,
+        # so every later launch failed the same way (the 2026-10-14 audit,
+        # finding shell-boot-05). An unreadable marker is just an unreadable
+        # marker, as the docstring promised.
         log.warning("previous session marker is unreadable: %r", raw[:200])
         return
-    if _pid_alive(pid) and pid != os.getpid():
+    try:
+        alive = _pid_alive(pid)
+    except Exception:
+        # A pid too large for the OS call raises ``ctypes.ArgumentError`` or
+        # ``OverflowError``, neither an ``OSError``: the same marker-escapes-
+        # ``run()`` failure as an unparseable one (shell-boot-05).
+        log.warning("previous session marker names an impossible pid: %r", pid)
+        return
+    if alive and pid != os.getpid():
         # Unreachable in an ordinary launch since the single-instance lock went
         # in: a live second instance is refused before this runs. What can still
         # reach it is a *recycled* pid -- the marker names a process that died

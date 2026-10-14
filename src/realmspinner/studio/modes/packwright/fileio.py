@@ -231,11 +231,14 @@ def save_as(ctx: Any, tab: PackTab | None = None) -> None:
     tab = tab or active(ctx)
     if tab is None or tab.saving:
         return
+    state = ensure(ctx)
     head = tab.doc.history.head
     snap = rpack.snapshot(tab.doc)
     stem = Path(tab.title).stem or "atlas"
 
     def run() -> dict[str, Any] | None:
+        from ....service.errors import Conflict
+
         path = dialogs.save_file(
             "Save the atlas document", f"{stem}{packwright_state.RPACK_SUFFIX}", RPACK_FILTER
         )
@@ -243,6 +246,21 @@ def save_as(ctx: Any, tab: PackTab | None = None) -> None:
             return None
         typed, path = path, path.with_suffix(packwright_state.RPACK_SUFFIX)
         _refuse_unconfirmed_overwrites(typed, {path: b""})
+        # The 2026-10-14 audit, finding packwright-02: ``open_path`` focuses a
+        # document that is already open ("two tabs over one path would race on
+        # save"), but a Save As onto a path another tab holds replaced that tab's
+        # file and left two tabs overwriting each other on every later save --
+        # the confirmed name passes ``_refuse_unconfirmed_overwrites`` because
+        # the picker did confirm it. Refused before the write, as Clay's Save As
+        # is (the 2026-10-10 audit's clay-49). A read of ``state.docs`` from the
+        # task thread, the same one ``find_path`` does on the frame thread.
+        other = state.find_path(path)
+        if other is not None and other is not tab:
+            raise Conflict(
+                f"{other.title} is already open on {path.name}. Pick another file "
+                "name, or close that tab first.",
+                field="path",
+            )
         _write({path: rpack.snapshot_bytes(snap)})
         return {"head": head, "path": str(path), "retitle": True}
 
@@ -291,12 +309,15 @@ def export_files(ctx: Any, tab: PackTab | None = None) -> None:
     if tab is None or tab.saving:
         return
     if tab.layout is None or tab.atlas is None:
-        ctx.toast("Nothing packed yet.", "error")
+        # A pack that failed outright leaves both None, and the reason it failed
+        # is what the user needs, not "nothing yet" (the 2026-10-14 audit,
+        # finding packwright-07; the disabled button already says it).
+        docmodes.refuse(ctx, tab.pack_error or "Nothing packed yet.")
         return
     if tab.pack_stale_why:
         # An export is a file another program will believe. See
         # ``PackTab.pack_stale_why``.
-        ctx.toast(tab.pack_stale_why, "error")
+        docmodes.refuse(ctx, tab.pack_stale_why)
         return
     if tab.pack_dirty or tab.packing:
         # The 2026-09-26 audit, packwright-mode-03: ``export_library`` already
@@ -306,9 +327,13 @@ def export_files(ctx: Any, tab: PackTab | None = None) -> None:
         # nothing live at all, and until now exported it regardless, so
         # "Atlas + JSON" wrote a PNG and a JSON sidecar for the atlas from
         # before the edit while the open document had already moved past it.
-        ctx.toast("Still packing your latest edits -- try again in a moment.", "error")
+        docmodes.refuse(ctx, "Still packing your latest edits -- try again in a moment.")
         return
     layout, atlas = tab.layout, tab.atlas
+    # (Every refusal above goes through ``docmodes.refuse``, not a bare
+    # ``ctx.toast``: the 2026-10-14 audit, finding packwright-mode-08 -- Ctrl+E
+    # held down while the pack catches up stacked a "Still packing" toast per
+    # press, the stacking ``refuse`` coalesces.)
     # Snapshotted here, with ``layout``/``atlas`` above, for the same reason
     # ``request_pack`` snapshots settings before its own task closure: a
     # setting read at run time reflects whatever the user changed while the
@@ -379,10 +404,12 @@ def export_library(ctx: Any, tab: PackTab | None = None) -> None:
     if tab is None or tab.saving:
         return
     if tab.atlas is None:
-        ctx.toast("Nothing packed yet.", "error")
+        # As ``export_files``: name the failed pack, not "nothing yet" (the
+        # 2026-10-14 audit, finding packwright-07).
+        docmodes.refuse(ctx, tab.pack_error or "Nothing packed yet.")
         return
     if tab.pack_stale_why:
-        ctx.toast(tab.pack_stale_why, "error")
+        docmodes.refuse(ctx, tab.pack_stale_why)
         return
     # Unlike :func:`export_files`, whose PNG and sidecar both derive from the
     # *landed* pack and so agree with each other, this pairs the landed atlas
@@ -392,7 +419,7 @@ def export_library(ctx: Any, tab: PackTab | None = None) -> None:
     # snapshotted, because the atlas that matches the current document does
     # not exist yet; the preview pane's pump repacks within a frame.
     if tab.pack_dirty or tab.packing:
-        ctx.toast("Still packing your latest edits -- try again in a moment.", "error")
+        docmodes.refuse(ctx, "Still packing your latest edits -- try again in a moment.")
         return
     # The atlas is the pack task's result and is replaced wholesale, never
     # written in place, so the reference is safe to encode off-thread --

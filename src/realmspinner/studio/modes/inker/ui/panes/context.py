@@ -801,6 +801,19 @@ def _field(ctx: Any, state: Any, tab: Any, key: str) -> Any:
         def draw(compact: bool) -> None:
             changed, value = controls.combo(f"##ctx/{key}", str(options[key]), choices)
             if changed:
+                # The 2026-10-14 audit, finding inker-panes-05: a combo's
+                # choice keys are strings, and ``shade_dir`` -- whose default
+                # and every other writer (``tools._shading``'s radios) is an
+                # int -- was stored as ``"-1"``. ``_coerce_preset_options``
+                # drops a string for an int-typed key, so a preset saved with
+                # Darker chosen on this bar came back Lighter after a relaunch.
+                # Stored in the type the option is declared in.
+                declared = inker_state.TOOL_OPTION_DEFAULTS.get(key)
+                if isinstance(declared, int) and not isinstance(declared, bool):
+                    try:
+                        value = int(value)
+                    except ValueError:
+                        return
                 options[key] = value
 
         # **A combo does not compact.** Its content is a word, and a combo

@@ -356,10 +356,15 @@ class _Writer:
                 raise ValueError("write_glb needs one row of four joints and weights per vertex")
             if len(joints) and (int(joints.min()) < 0 or int(joints.max()) > 255):
                 raise ValueError("write_glb writes joint indices 0..255 only")
+            weights = np.asarray(prim.weights, dtype="<f4")
+            # The 2026-10-14 audit, finding clay-io-03: a NaN or infinite weight was written
+            # as readily as it was read, so a rig that carried one round-tripped into a file
+            # whose skin no reader can evaluate (and that Clay then refuses to save). Refused
+            # by name here, as the non-finite bounds above are.
+            if not np.isfinite(weights).all():
+                raise ValueError("write_glb refuses a skin weight that is not a finite number")
             attributes["JOINTS_0"] = self.accessor(joints.astype("u1"), "VEC4", _UBYTE)
-            attributes["WEIGHTS_0"] = self.accessor(
-                np.asarray(prim.weights, dtype="<f4"), "VEC4", _FLOAT
-            )
+            attributes["WEIGHTS_0"] = self.accessor(weights, "VEC4", _FLOAT)
         doc: dict[str, Any] = {"attributes": attributes}
         if len(prim.indices):
             doc["indices"] = self.indices(prim.indices)
@@ -401,19 +406,39 @@ class _Writer:
         return doc
 
 
-def _animation(writer: _Writer, animation: gltf.Animation, node_count: int) -> dict[str, Any]:
+#: How far a rotation key's length may sit from one before it is refused rather than written. The
+#: spec says a rotation output MUST be unit length and the validator checks it to about 5e-6;
+#: inside this band the key is divided by its own length so that float32 storage cannot break
+#: that, and past it the file's rotation is not a rotation at all.
+_UNIT_BAND = 1e-3
+
+
+def _animation(
+    writer: _Writer, animation: gltf.Animation, node_count: int
+) -> dict[str, Any] | None:
     """One glTF animation: a sampler and a channel per entry, key times shared where equal.
 
     Every refusal is by name, because a half-written clip plays as a model that jitters rather
     than as a file that failed: a channel on a node the model does not have, a path or
-    interpolation outside the spec's, key counts that do not match their values, and any
-    non-finite number. Key times are written once per distinct array (the importer's channels
-    for one bone share them) with the ``min``/``max`` the spec requires of an animation input.
+    interpolation outside the spec's, key counts that do not match their values, any
+    non-finite number, key times that are negative, repeated or out of order (compared as the
+    float32 values that are stored, so 500.0 and 500.00001 collide), a rotation key that is not
+    a unit quaternion, a second channel on one property of one node, and a CUBICSPLINE channel
+    with fewer than two keys. Key times are written once per distinct array (the importer's
+    channels for one bone share them) with the ``min``/``max`` of the float32 values written,
+    which is what the spec requires of an animation input and what the validator recomputes.
+
+    **An animation with no channels is not written** (``None``): glTF gives ``samplers`` and
+    ``channels`` a minimum of one each, and Clay's New Animation makes exactly such a clip
+    before its first key. The 2026-10-14 audit, finding clay-io-02.
     """
     label = f"the animation {animation.name!r}" if animation.name else "an animation"
     samplers: list[dict[str, Any]] = []
     channels: list[dict[str, Any]] = []
     inputs: dict[int, int] = {}
+    seen: set[tuple[int, str]] = set()
+    if not animation.channels:
+        return None
     for channel in animation.channels:
         if not 0 <= channel.node < node_count:
             raise ValueError(
@@ -426,7 +451,7 @@ def _animation(writer: _Writer, animation: gltf.Animation, node_count: int) -> d
             raise ValueError(f"write_glb: {label} uses the interpolation {channel.interpolation!r}")
         times = np.asarray(channel.times, dtype="f8").reshape(-1)
         width = 4 if channel.path == "rotation" else 3
-        values = np.asarray(channel.values, dtype="f8")
+        values = np.array(channel.values, dtype="f8")  # a copy: rotation keys are normalised below
         rows = len(times) * (3 if channel.interpolation == "CUBICSPLINE" else 1)
         if len(times) == 0 or values.shape != (rows, width):
             raise ValueError(
@@ -435,11 +460,40 @@ def _animation(writer: _Writer, animation: gltf.Animation, node_count: int) -> d
             )
         if not (np.isfinite(times).all() and np.isfinite(values).all()):
             raise ValueError(f"write_glb: {label} has a key that is not a finite number")
+        # The 2026-10-14 audit, finding clay-io-06: each of these was written without complaint
+        # and is a file the glTF validator rejects. Clay's own ``anim.Channel`` stops most of
+        # them, but a GLB imported from elsewhere carries them straight through to export.
+        stored = times.astype("<f4")
+        if stored[0] < 0.0 or (np.diff(stored) <= 0.0).any():
+            raise ValueError(
+                f"write_glb: {label} has key times that are negative or not strictly increasing"
+            )
+        if channel.interpolation == "CUBICSPLINE" and len(times) < 2:
+            raise ValueError(
+                f"write_glb: {label} has a CUBICSPLINE channel with fewer than two keys"
+            )
+        if (channel.node, channel.path) in seen:
+            raise ValueError(
+                f"write_glb: {label} animates {channel.path} of node {channel.node} more than once"
+            )
+        seen.add((channel.node, channel.path))
+        if channel.path == "rotation":
+            keys = values[1::3] if channel.interpolation == "CUBICSPLINE" else values
+            lengths = np.linalg.norm(keys, axis=1)
+            if (np.abs(lengths - 1.0) > _UNIT_BAND).any():
+                raise ValueError(
+                    f"write_glb: {label} has a rotation key that is not a unit quaternion"
+                )
+            # ``keys`` is a view of ``values``, which is a private copy (below).
+            keys /= lengths[:, None]
         source = inputs.get(id(channel.times))
         if source is None:
-            source = writer.accessor(times.astype("<f4"), "SCALAR", _FLOAT)
-            writer.accessors[source]["min"] = [float(times.min())]
-            writer.accessors[source]["max"] = [float(times.max())]
+            source = writer.accessor(stored, "SCALAR", _FLOAT)
+            # The float32 array that is written, not the float64 it came from: 0.1 is stored
+            # as 0.10000000149 and a declared bound of 0.1 is ACCESSOR_MIN_MISMATCH.
+            # The 2026-10-14 audit, finding clay-io-05.
+            writer.accessors[source]["min"] = [float(stored.min())]
+            writer.accessors[source]["max"] = [float(stored.max())]
             inputs[id(channel.times)] = source
             writer._keep.append(channel.times)
         output = writer.accessor(
@@ -467,6 +521,8 @@ def _skin(writer: _Writer, skin: gltf.Skin, node_count: int) -> dict[str, Any]:
     joints = [int(j) for j in skin.joints]
     if not joints:
         raise ValueError("write_glb refuses a skin with no joints")
+    if len(set(joints)) != len(joints):
+        raise ValueError("write_glb: a skin names the same joint more than once")
     for joint in joints:
         if not 0 <= joint < node_count:
             raise ValueError(
@@ -559,7 +615,11 @@ def write_glb(model: gltf.Model) -> bytes:
     """
     writer = _Writer()
     skins = [_skin(writer, skin, len(model.nodes)) for skin in model.skins]
-    animations = [_animation(writer, a, len(model.nodes)) for a in model.animations]
+    animations = [
+        doc
+        for doc in (_animation(writer, a, len(model.nodes)) for a in model.animations)
+        if doc is not None
+    ]
     meshes = []
     # ``primitives`` has a minimum length of one in the spec, so a mesh that
     # wrote nothing -- an object whose geometry is empty, or whose every
@@ -619,7 +679,7 @@ def write_glb(model: gltf.Model) -> bytes:
         doc["accessors"] = writer.accessors
         doc["bufferViews"] = writer.buffer.views
     # Emitted **only when one exists**. Every other mode in this project --
-    # Clay, Poser, Troupe -- hands this function a model with neither, and
+    # Clay and the viewer's pose bridge -- hands this function a model with neither, and
     # ``tests/kernels/geom3d/test_glbwrite.py``'s digest pin is what says those files' bytes
     # did not move when Mason's scene export added these two arrays.
     if model.cameras:

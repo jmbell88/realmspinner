@@ -47,9 +47,9 @@ EXPORT_GLB_TOOLTIP = (
 )
 
 EXPORT_LIBRARY_TOOLTIP = (
-    "The exact geometry, as an ordinary asset. It picks up rigging, posing, "
-    "sprite sheets, the triangle retarget and every mesh export, because all "
-    "of those are functions of model.glb."
+    "The exact geometry, as an ordinary asset. It picks up rigging, the "
+    "triangle retarget and every mesh export, because all of those are "
+    "functions of model.glb."
 )
 
 SCREENSHOT_TOOLTIP = (

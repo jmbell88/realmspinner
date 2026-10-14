@@ -506,16 +506,10 @@ def test_the_pixel_palette_is_warm_and_keeps_darks_elevation_direction():
 
 
 # --- L104 / K93 --------------------------------------------------------------
-
-
-def test_the_strip_progress_comes_from_the_renderer():
-    """A tally kept by the pane would describe the *previous* run after a
-    cancel-and-restart."""
-    from realmspinner.studio.viewer_embed import Viewer
-
-    source = inspect.getsource(Viewer.strip_progress.fget)
-    assert "self._strip" in source
-    assert "len(strip.yaws)" in source
+#
+# ``test_the_strip_progress_comes_from_the_renderer`` lived here: the direction strip
+# and its ``Viewer.strip_progress`` were deleted on 2026-10-14 (the 2026-10-14 audit,
+# finding create-viewer-03).
 
 
 DENSE_PANES = (

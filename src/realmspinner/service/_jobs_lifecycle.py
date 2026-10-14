@@ -25,6 +25,7 @@ import shutil
 import time
 from typing import Any
 
+from .. import followups
 from . import evidence
 from . import verdicts as verdicts_mod
 from ._jobs_list import get_job
@@ -141,8 +142,7 @@ def clean_jobs(svc: RealmspinnerService) -> dict[str, Any]:
     afterwards. Do not "fix" this back into a retention check -- that is
     :func:`prune_jobs`, which is still there and still guards them.
 
-    What survives is everything that is not a job: the global pose library,
-    Inker's autosaves, the settings, the logs, and
+    What survives is everything that is not a job: Inker's autosaves, the settings, the logs, and
     ``jobs.sqlite`` itself -- dropping the database would take the verdicts
     corpus with it, and the corpus is the one thing here that cannot be
     regenerated at any price.
@@ -271,18 +271,42 @@ def worker_is_inside(svc: RealmspinnerService, job_id: str) -> bool:
 def dependent_jobs(svc: RealmspinnerService, job_id: str) -> list[str]:
     """Unfinished jobs that write into ``job_id``'s directory.
 
-    A rig or a sheet is a *separate* job row whose artifacts land beside the
-    ``model.glb`` they were made from -- the rig belongs to the mesh -- so
-    deleting the mesh while one runs lets ``finalize_rig`` rename into a
-    directory that no longer exists, and recreates it as an orphan. The target
-    job's own status says nothing about this: it is ``done``, which is exactly
-    why a rig could be queued for it.
+    A rig, a sprite sheet, a re-texture, a remesh or a stem split is a
+    *separate* job row whose artifacts land beside the file they were made
+    from -- the rig belongs to the mesh -- so deleting the mesh while one runs
+    lets ``finalize_rig`` rename into a directory that no longer exists, and
+    recreates it as an orphan. The target job's own status says nothing about
+    this: it is ``done``, which is exactly why a rig could be queued for it.
+    :func:`_dependents_phrase` names which of those the rows are.
     """
     return [
         job["id"]
         for job in svc.store.active_jobs()
         if (job.get("params") or {}).get("source_job") == job_id
     ]
+
+
+def _dependents_phrase(svc: RealmspinnerService, job_ids: list[str]) -> str:
+    """The refusal's subject: what is actually running, in ``followups.PRODUCTS``' nouns.
+
+    The 2026-10-14 audit, finding service-kinds-08: ``_refuse_if_busy`` always
+    said "a rig or sprite sheet for this asset is still running", but
+    ``dependent_jobs`` returns every active row carrying this ``source_job``,
+    which since the rework doors came includes a re-texture, a remesh and a stem
+    split -- so deleting a mesh whose remesh was running named a job that did
+    not exist. The nouns come from the one table the finished-job toast already
+    reads, so a seventh follow-up kind is named correctly the day it is added.
+    A row the store cannot produce (it finished between the two reads) or a
+    kind that table does not know falls back to the kind's own word.
+    """
+    nouns: list[str] = []
+    for dependent_id in job_ids:
+        row = svc.store.get(dependent_id) or {}
+        kind = str(row.get("kind") or "")
+        noun = followups.PRODUCTS.get(kind, kind.replace("_", " ") or "dependent").lower()
+        if noun not in nouns:
+            nouns.append(noun)
+    return " and ".join(f"a {noun} job" for noun in nouns)
 
 
 def retained_job_ids(svc: RealmspinnerService) -> set[str]:
@@ -336,8 +360,9 @@ def _refuse_if_busy(svc: RealmspinnerService, job_id: str) -> None:
     """Raise ``Conflict`` if anything is still writing into this job's dir."""
     if worker_is_inside(svc, job_id):
         raise Conflict("cancel the job before deleting it")
-    if dependent_jobs(svc, job_id):
-        raise Conflict("a rig or sprite sheet for this asset is still running")
+    blocking = dependent_jobs(svc, job_id)
+    if blocking:
+        raise Conflict(f"{_dependents_phrase(svc, blocking)} for this asset is still running")
 
 
 def trash_job(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:

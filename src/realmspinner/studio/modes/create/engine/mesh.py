@@ -159,9 +159,11 @@ def custom_budget_problem(
 
 #: The two download rows the reconstruction engine needs: the exe and its
 #: CUDA libraries, and the weights. ``service.validation.check_weights`` leaves
-#: both out on purpose (a host missing them has a red banner at startup), so
-#: the only place a Mesh press can learn they are absent *before* the cutout
-#: and the queue is here, against ``ctx.model_rows``.
+#: both out (the engine is a Settings download, not a startup-banner row, since
+#: 2026-09-10), so the only place a press can learn they are absent *before* the
+#: cutout and the queue is here, against ``ctx.model_rows``. Review's sweep
+#: launch asks the same function for the same reason (the 2026-10-14 audit,
+#: finding shell-review-settings-04), so it is the one home of the sentence.
 ENGINE_ROWS: tuple[str, ...] = ("engine:trellis_runtime", "engine:trellis_gguf")
 
 
@@ -184,7 +186,10 @@ def engine_problem(model_rows: Any) -> problems.Problem | None:
         return None
     labels = " and ".join(str(row.get("label") or row.get("row_key")) for row in missing)
     return problems.Problem(
-        f"The 3D engine ({labels}) is not downloaded. Install it in Settings."
+        f"The 3D engine ({labels}) is not downloaded. Install it in Settings.",
+        # The rows themselves, so a door that records the refusal (Review's
+        # sweep form) can offer an Install button that ticks exactly these.
+        rows=tuple(str(row.get("row_key")) for row in missing),
     )
 
 

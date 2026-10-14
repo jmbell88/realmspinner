@@ -246,6 +246,7 @@ def _rank_vectors(
     # Wilson sort with its confidence correction thrown away. Displayed always;
     # revisited when real spread exists, per
     # ``dev/measurements/2026-08-09-grade-scale.md``.
+    # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     #
     # A bucket with no grades sorts last among its ties rather than as 0.0 --
     # zero is a real grade here, and "unknown" is not a value at one end of a

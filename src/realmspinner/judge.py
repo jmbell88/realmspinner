@@ -33,6 +33,7 @@ verdicts are graded -5..+5 now rather than accept/reject
 (``dev/measurements/2026-08-09-grade-scale.md``), so the mesh probe becomes a
 grade *regression* rather than a binary classifier -- a strictly better fit for a
 corpus whose problem was the resolution of its labels rather than their number.
+(Document lost with the 2026-09-20 backup; re-measure before changing this.)
 The two image stages are untouched and stay binary, which is why nothing here
 needs to change: everything ``fit`` and ``score`` are used for today is an image
 question, and ``MIN_PER_CLASS`` is a rule about two classes because those are the
@@ -283,7 +284,11 @@ def load(path: Path, *, stage: str | None = None) -> Probe | None:
     was asked for.
     """
     path = Path(path)
-    if not path.exists():
+    # ``is_file`` and not ``exists`` (the 2026-10-14 audit, finding
+    # create-brief-07): a directory at ``probe-<stage>.npz`` passed the old
+    # guard, ``np.load`` raised, and ``log.exception`` fired on every call --
+    # ``service.judge.status`` and ``score_jobs`` call this repeatedly.
+    if not path.is_file():
         return None
     try:
         # allow_pickle stays off: a probe file is numbers and short strings, and

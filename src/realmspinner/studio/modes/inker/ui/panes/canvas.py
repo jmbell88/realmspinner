@@ -324,19 +324,30 @@ def seam_text(ctx: Any, tab: Any) -> tuple[int, str] | None:
     in ``pipelines/seam.py`` for false-alarming on exactly the flat-cell pixel
     art this editor produces (up to 20 of 24 seamless tiles misflagged); this
     surface had never been switched over.
+    (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     """
     if tab.tiled == "off":
         return None
     key = f"inker_seam:{tab.uid}"
     serial = tab.doc.history.head
+    # The 2026-10-14 audit, finding inker-panes-02: this took the worst of BOTH
+    # axes whatever ``tab.tiled`` was, so a strip texture that wraps sideways
+    # and was set to tile on X only read "seam x85" in the warning colour for
+    # the vertical edge nobody wraps -- and, the cache keyed on the serial
+    # alone, kept the stale number when the user switched the tiling mode.
+    # The mode rides on the tab (``_os_clip_fingerprint``'s precedent: a fact
+    # about this document, dropped with it) to leave the ``(serial, worst)``
+    # pair other readers unpack as it was.
     cached = ctx.state.preview.get(key)
-    if cached is None or cached[0] != serial:
+    if cached is None or cached[0] != serial or getattr(tab, "_seam_tiled", None) != tab.tiled:
         try:
-            worst = max(seam_dominance(tab.doc.flatten(matte=False)))
+            across = seam_dominance(tab.doc.flatten(matte=False))
         except ValueError:
             return None
-        cached = (serial, worst)
+        wrapped = [d for d, on in zip(across, axes_of(tab.tiled), strict=True) if on]
+        cached = (serial, max(wrapped))
         ctx.state.preview[key] = cached
+        tab._seam_tiled = tab.tiled
     worst = cached[1]
     colour = theme.WARN if worst > SEAM_DOMINANCE_MAX else theme.MUTED
     return (colour, f"seam x{worst:.1f}")
@@ -2731,10 +2742,12 @@ def _symmetry(state: Any, draw_list: Any, view: Any, origin, size) -> None:
     """The guide, drawn where the engine actually reflects.
 
     It used to draw at ``width / 2`` and ``height / 2`` unconditionally, which
-    was wrong twice over: ``brush._mirror`` reflects about ``(width - 1) / 2``
-    by default, and it honours ``state.symmetry_axis`` when the user has moved
-    it -- so a moved axis left the line pointing at the middle of the page while
-    the strokes came out somewhere else. ``brush.axis_or_default`` is now the
+    was wrong twice over: ``brush._mirror`` reflected about ``(width - 1) / 2``
+    by default (it reflects about ``width / 2`` now, in continuous image
+    coordinates -- the 2026-10-14 audit, finding inker-paint-01), and it honours
+    ``state.symmetry_axis`` when the user has moved it -- so a moved axis left
+    the line pointing at the middle of the page while the strokes came out
+    somewhere else. ``brush.axis_or_default`` is now the
     one answer both read. Radial had no guide at all and now gets the pivot,
     which is the only thing there is to show for it: its reflections are turns
     rather than lines.
@@ -3001,21 +3014,33 @@ def _pixel_cell(state: Any, tab: Any, draw_list: Any, origin) -> None:
     # not (the 2026-09-02 review, section 5). Dimmer, because they follow the
     # pointer rather than being it. Through the engine's own ``mirrors_of``, so
     # the outline cannot land somewhere the stroke will not.
+    faint = _u32(theme.TEXT, 0.35)
+    for cell in _mirror_twins(state, tab, point):
+        _cell_outline(view, origin, draw_list, cell, faint)
+
+
+def _mirror_twins(state: Any, tab: Any, point) -> list[tuple[int, int]]:
+    """The pixels a dab on the pixel ``point`` is also reflected onto.
+
+    ``point`` is a whole pixel index, and the engine reflects *positions* in
+    continuous image coordinates, where pixel ``i`` is centred on ``i + 0.5``
+    (``brush.default_axis``). The 2026-10-14 audit, finding inker-paint-01: this
+    used to hand the integer index straight to ``mirrors_of``, a different
+    convention from the one every real stroke arrives in, so the twin promised
+    a pixel the stroke did not paint. The pixel's centre is what a mouse over
+    it would produce, and what the stroke is mirrored from.
+    """
     from ......kernels.pixel import brush
 
     size = tab.doc.size
     twins = brush.mirrors_of(
-        (float(point[0]), float(point[1])),
+        (float(point[0]) + 0.5, float(point[1]) + 0.5),
         (int(size[0]), int(size[1])),
         state.symmetry,
         state.symmetry_axis,
         int(state.radial_count),
     )
-    faint = _u32(theme.TEXT, 0.35)
-    for twin in twins[1:]:
-        _cell_outline(
-            view, origin, draw_list, (int(math.floor(twin[0])), int(math.floor(twin[1]))), faint
-        )
+    return [(int(math.floor(twin[0])), int(math.floor(twin[1]))) for twin in twins[1:]]
 
 
 def _cell_outline(view: Any, origin: Any, draw_list: Any, point, colour: int) -> None:
@@ -3045,10 +3070,14 @@ def _footprint_box(state: Any, tab: Any, point) -> tuple[int, int, int, int] | N
     tip = state.tip_for(state.tool)
     at = (float(point[0]) + 0.5, float(point[1]) + 0.5)
     if tip is not None:
-        width, height = tip.size
-        left, top, _r, _b = brush.footprint(at, int(width), state.nib, stamp=True)
-        vertical = brush.footprint(at, int(height), state.nib, stamp=True)
-        return (left, vertical[1], left + int(width), vertical[1] + int(height))
+        # ``brush.stamp_rect`` is ``_image_dab``'s own placement, free or
+        # aligned. The 2026-10-14 audit, finding inker-paint-02: this used to
+        # ask ``footprint`` for a round brush's box twice, one per axis, which
+        # anchored an even tip a pixel right/down of where it paints and knew
+        # nothing of the aligned (pattern) lattice.
+        return brush.stamp_rect(
+            at, (int(tip.size[0]), int(tip.size[1])), getattr(state, "stamp_align", "free")
+        )
     diameter = max(1, int(state.brush_size))
     if diameter <= 1:
         return None

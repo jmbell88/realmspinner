@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import json
 import struct
-import tracemalloc
 from types import SimpleNamespace
 
 import numpy as np
@@ -21,28 +20,6 @@ from realmspinner.kernels.geom3d import math3d as m3
 from realmspinner.service.errors import Invalid
 from realmspinner.studio.viewer import picking, pose
 from realmspinner.studio.viewer.camera import Camera
-
-# --- create-26: ghost_handles queues a repeated child once -------------------
-
-
-def test_ghost_handles_visits_a_repeated_child_reference_once():
-    """``update_world`` got a ``queued`` set (clay-io-11); ``ghost_handles``,
-    which claims to make the same walk, pushed every repetition on its stack --
-    on each ghost, each frame. Measured by the stack's peak allocation: a million
-    duplicate references were ~64 MB of tuples before, a handful of bytes now."""
-    children = [1] * 1_000_000  # built before tracing: the file's own cost
-    nodes = [gltf.Node(name="root", children=children), gltf.Node(name="bone")]
-    model = gltf.Model(nodes, [0], [], [])
-    tracemalloc.start()
-    try:
-        tracemalloc.reset_peak()
-        out = pose.ghost_handles(model, ["bone"], {})
-        _, peak = tracemalloc.get_traced_memory()
-    finally:
-        tracemalloc.stop()
-    assert set(out) == {"bone"}
-    assert peak < 16 * 1024 * 1024, f"the walk's stack peaked at {peak} bytes"
-
 
 # --- create-27: _skin_bones is linear ----------------------------------------
 
@@ -249,50 +226,6 @@ def test_an_orthographic_gizmo_has_the_same_screen_size_at_every_depth():
     # And it is the size the orthographic frustum actually draws 90 px at.
     height = 2.0 * camera.distance * np.tan(np.radians(camera.fov * 0.5))
     assert at_target == pytest.approx(height * 90 / 900)
-
-
-# --- create-42: a translucent material in the direction strip -----------------
-
-
-def test_a_translucent_material_in_the_strip_keeps_its_colour_and_alpha(gl, tmp_path, monkeypatch):
-    """A BLEND fragment of alpha a against a transparent clear stored colour c*a
-    but alpha a*a, so ``unpremultiply`` returned c/a and the cell's alpha was a
-    squared: translucent materials looked too bright and too transparent."""
-    import trimesh
-
-    from realmspinner.studio.viewer import scene as scenelib
-    from realmspinner.studio.viewer import sheet as sheetlib
-    from realmspinner.studio.viewer.render import Renderer
-
-    path = tmp_path / "box.glb"
-    trimesh.creation.box(extents=(1.0, 2.0, 1.0)).export(path)
-
-    def centre(alpha: float):
-        model = gltf.load(path)
-        for prims in model.meshes:
-            for prim in prims:
-                prim.material = gltf.Material(
-                    base_color_factor=(0.8, 0.4, 0.2, alpha),
-                    alpha_mode="BLEND" if alpha < 1.0 else "OPAQUE",
-                    double_sided=False,
-                )
-        gpu = scenelib.GpuModel(gl, model)
-        renderer = Renderer(gl)
-        try:
-            img = sheetlib.strip(
-                renderer, gpu, model, [0.0], model_matrix=scenelib.placement(model), flat=True
-            )
-        finally:
-            renderer.release()
-            gpu.release()
-        pixels = np.array(img)
-        return pixels[pixels.shape[0] // 2, pixels.shape[1] // 2].astype(int)
-
-    opaque = centre(1.0)
-    translucent = centre(0.5)
-    assert opaque[3] == 255
-    assert abs(translucent[3] - 128) <= 6, translucent
-    assert np.abs(translucent[:3] - opaque[:3]).max() <= 8, (translucent, opaque)
 
 
 # --- create-47: a request the door cannot apply is refused --------------------

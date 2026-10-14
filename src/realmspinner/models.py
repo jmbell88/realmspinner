@@ -86,22 +86,25 @@ IMG2IMG_STRENGTH_MAX = 0.65
 DEFAULT_IMG2IMG_STRENGTH = 0.45
 
 # The re-texture door's own bounds and default, deliberately not a change to
-# the shared values above: the pixel sheets run img2img with no geometry
-# anchor and keep 0.45/0.65. A re-texture can afford 0.85 -- the 2026-08-08
-# retexture measurement's positive control showed the projection carries what
+# the shared values above: the sprite and tile-sheet restyles run img2img
+# with no geometry anchor and keep 0.45/0.65. A re-texture can afford 0.85 --
+# the 2026-08-08 retexture measurement's positive control showed the projection carries what
 # 0.85 invents faithfully, and with the depth ControlNet anchoring structure,
 # invention is the point. The default is the 2026-08-15 retexture-visibility
 # ladder's pick (dev/measurements/2026-08-15-retexture-visibility.md):
 # monotone and pathology-free to 0.85 under the anchor, 0.65 sits in the
 # pre-registered landing zone and is the old un-anchored ceiling made
 # comfortable.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 RETEXTURE_STRENGTH_MIN = IMG2IMG_STRENGTH_MIN
 RETEXTURE_STRENGTH_MAX = 0.85
 RETEXTURE_DEFAULT_STRENGTH = 0.65
 
-# The style LoRA a pixel sheet restyle is fixed to in v1. Named here rather
-# than in the sheet code so the registry stays the only place a model key is
-# written down.
+# The style LoRA a sprite or tile-sheet restyle is fixed to in v1. Named here
+# rather than in the sheet code so the registry stays the only place a model
+# key is written down. (The name predates the character-sheet pipeline's
+# removal; the 2026-10-14 audit, finding service-gates-12, left it alone because
+# renaming it is a registry-wide change, not a comment.)
 PIXEL_SHEET_LORA = "pixelxl"
 
 # How far into the denoise the ControlNet keeps acting. Ending early lets the
@@ -792,7 +795,13 @@ ENGINE_MODELS: dict[str, EngineModel] = _table(
                 revision="a57397bd3d351599d9729fc144b3f87c3f87d65b",
                 allow_patterns=("*.gguf",),
                 ignore_patterns=("q4/*", "q8/*"),
-                size_gib=16.1,
+                # GiB, like every ``size_gib``: the ten ``*.gguf`` files at this
+                # revision total 16,467,590,304 B (the completed download's own
+                # manifest). It read 16.1, which is right in neither unit and
+                # ~0.8 GiB high, and the first-run size, the disk gate and the
+                # README's total all key off it (the 2026-10-14 audit, finding
+                # docs-D-03).
+                size_gib=15.34,
             ),
         ),
         description=(
@@ -1239,6 +1248,7 @@ BASE_MODELS: dict[str, BaseModel] = _table(
         # **24.1**, which is the figure admission is actually standing in front
         # of. The old number priced the weights and forgot the sample
         # (dev/measurements/2026-08-22-trampoline-child-pids.md).
+        # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
         host_peak_gib=24.0,
         probe=(
             "transformer/diffusion_pytorch_model.safetensors",
@@ -1931,8 +1941,9 @@ SEPARATION_MODELS: dict[str, SeparationModel] = _table(
         commercial=False,
         license_note=(
             "The Demucs code is MIT, but Meta has stated the trained weights "
-            "are provided for scientific purposes only, and htdemucs was "
-            "trained the same way with no new grant. Open-Unmix is not an "
+            "are provided for scientific purposes only, and the checkpoint "
+            "here (hdemucs_high_trained) was trained the same way with no new "
+            "grant. Open-Unmix is not an "
             "escape: its code is MIT and MUSDB18-HQ is CC BY-NC-SA. So the "
             "stems this model produces are not cleanly licensed for a "
             "commercial release, and that is your decision to make rather "
@@ -2032,8 +2043,9 @@ MATTING_MODELS: dict[str, MattingModel] = _table(
             "Cuts the background out of 2D exports properly.\n\n"
             "Without it the alpha comes from a corner flood fill, with visibly "
             "rougher edges around hair, spokes and anything thin. Runs on the "
-            "host rather than the card. Its own modelling code runs on load, so "
-            "it also needs the text2image extra installed."
+            "host rather than the card. Its modelling code ships with Realmspinner "
+            "but imports packages from the text2image extra, so that extra "
+            "must be installed too."
         ),
     ),
 )

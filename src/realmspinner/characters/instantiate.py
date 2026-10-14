@@ -186,8 +186,9 @@ def _ground_and_scale(
     """``(positions, scale, offset)`` -- grounded, centred, the right height.
 
     Grounding always runs, the rule ``model.glb`` already lives by: a character
-    whose feet are not on y = 0 renders half a cell high in every sprite of
-    every sheet, and the offset is not recoverable from the image afterwards.
+    whose feet are not on y = 0 floats above, or sinks into, the ground in
+    every pose and every export, and the offset is not recoverable from the
+    mesh afterwards.
     """
     lo = positions.min(axis=0)
     hi = positions.max(axis=0)
@@ -257,8 +258,9 @@ def _bone_frame(along: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     The 2026-10-03 audit, finding poser-21: this frame used to be built from a
     world +Z cross product, so for a horizontal bone "up" pointed *down* -- the
     horse's ``saddle`` landed 0.445 m below the spine head in the sidecar while
-    ``blender_worker._socket_world_point``, which reads the bone's own matrix,
-    puts it above. The worker is the authoritative projection, so this is
+    the worker's own socket projection (since deleted with the sockets), which
+    read the bone's own matrix, put it above. The worker was the authoritative
+    projection, so this is
     Blender's ``vec_roll_to_mat3`` at roll 0 (``_build_armature`` never sets a
     roll): X is the lateral axis, Z is up, and they differ from "world up" for
     every bone that is not pointing along +Y.

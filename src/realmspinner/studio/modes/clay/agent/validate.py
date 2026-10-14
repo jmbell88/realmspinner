@@ -629,7 +629,20 @@ def _validate_translation(value: Any, field: str) -> tuple[list[float] | None, d
 def _validate_scale(value: Any, field: str) -> tuple[list[float] | None, dict | None]:
     """A scale: three finite numbers, each zero or within
     :data:`SCALE_MIN`..:data:`SCALE_MAX` in magnitude -- see those constants."""
-    return _validate_vec3(value, field, max_abs=SCALE_MAX, min_nonzero_abs=SCALE_MIN)
+    out, failure = _validate_vec3(value, field, max_abs=SCALE_MAX, min_nonzero_abs=SCALE_MIN)
+    if failure is None and out is not None and not any(out):
+        # The 2026-10-14 audit, finding clay-agent-tools-01: an all-zero scale passed every check
+        # here, and ``doc.set_transform`` refused it only after ``clay_add_primitive`` /
+        # ``clay_add_mesh`` had already added the object and opened an undo gesture -- a refusal
+        # saying ``changed: false`` over a document that had changed and a gesture that never
+        # closed, which switches off undo eviction for the rest of the session. The writer
+        # refuses it (a point cannot be saved and reopened), so the door does too, up front.
+        return None, fail(
+            f"{field} of zero on every axis collapses the object to a point.",
+            field=field,
+            recovery="fix_arguments",
+        )
+    return out, failure
 
 
 def _validate_number(value: Any, field: str) -> tuple[float | None, dict | None]:

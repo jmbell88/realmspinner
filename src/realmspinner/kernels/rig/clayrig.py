@@ -93,7 +93,13 @@ def weight_source_doc(doc: bd.ClayDoc) -> bd.ClayDoc:
         )
     by_uid = doc._uid_map()
     worlds = [doc._world_in(o.uid, by_uid) for o in sources]
-    merged = mesh_ops.join(sources, eps=0.0, world=worlds)
+    # ``join`` refuses fewer than two objects, so the one-shape document (a model imported
+    # as a single mesh, the case the button exists for) skips it: the shape is already the
+    # whole mesh, and the world transform below is all that is left to do (the 2026-10-14
+    # audit, finding pipelines-children-01).
+    merged = (
+        sources[0].mesh if len(sources) == 1 else mesh_ops.join(sources, eps=0.0, world=worlds)
+    )
     merged = bm.transformed(merged, worlds[0])
     scratch = bd.ClayDoc()
     scratch.materials = list(doc.materials)

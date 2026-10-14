@@ -245,8 +245,16 @@ class MeshPostOps:
         else:
             from .pipelines import retexture
 
+            # ``match_the_mesh_size``, not ``atlas_size``: the 2026-10-14 audit
+            # (finding pipelines-mesh-01) found a remesh left on "match the mesh"
+            # baking at the raw albedo size, so a 4096 atlas sent Blender a
+            # five-map float bake at 4096 squared with nothing refusing it --
+            # the 2026-10-03 pipelines-13 defect, fixed on the re-texture side
+            # only. The remesh door refuses an explicit size outside
+            # ``remesh.TEXTURE_SIZES``; this holds the unset one to the same
+            # ceiling.
             texture_size = (
-                await asyncio.to_thread(retexture.atlas_size, model_glb)
+                await asyncio.to_thread(retexture.match_the_mesh_size, model_glb)
                 or remesh.DEFAULT_TEXTURE_PX
             )
         temp = source_dir / store.REMESH_GLB_TMP
@@ -456,11 +464,10 @@ class MeshPostOps:
             # A missing "profile" key is a *legacy* row, not an unset one:
             # since resolve_profile (service/_jobs_create.py) started
             # recording the resolved tier on every submit
-            # (dev/measurements/2026-09-23-default-mesh-budget.md), every row
-            # this worker claims carries the key. A row with none predates
-            # that change and ran "raw" -- the config default at the time --
-            # so the fallback is the literal string, not `self.config
-            # .mesh_profile`, which today reads "standard" and would silently
+            # (dev/measurements/2026-09-23-default-mesh-budget.md [lost; re-measure to change]),
+            # every row this worker claims carries the key. A row with none predates that change and
+            # ran "raw" -- the config default at the time -- so the fallback is the literal string,
+            # not `self.config .mesh_profile`, which today reads "standard" and would silently
             # reinterpret an old row as having asked for a budget it never did.
             budget = optimize.resolve(
                 str(params.get("profile") or "raw"),
@@ -508,7 +515,7 @@ class MeshPostOps:
         job rather than as a follow-up: a follow-up would race
         ``_maybe_queue_rig``, which would rig the 268k reconstruction and be
         stale the moment this remesh replaced it
-        (dev/measurements/2026-09-23-default-mesh-budget.md). Between
+        (dev/measurements/2026-09-23-default-mesh-budget.md [lost; re-measure to change]). Between
         ``_optimize`` and ``_apply_scale`` in ``_q_generate``'s loop, so it
         bakes from whatever the triangle budget already produced (or the raw
         reconstruction, when no budget was asked for) and the grounding
@@ -540,8 +547,16 @@ class MeshPostOps:
         else:
             from .pipelines import retexture
 
+            # ``match_the_mesh_size``, not ``atlas_size``: the 2026-10-14 audit
+            # (finding pipelines-mesh-01) found a remesh left on "match the mesh"
+            # baking at the raw albedo size, so a 4096 atlas sent Blender a
+            # five-map float bake at 4096 squared with nothing refusing it --
+            # the 2026-10-03 pipelines-13 defect, fixed on the re-texture side
+            # only. The remesh door refuses an explicit size outside
+            # ``remesh.TEXTURE_SIZES``; this holds the unset one to the same
+            # ceiling.
             texture_size = (
-                await asyncio.to_thread(retexture.atlas_size, glb_path)
+                await asyncio.to_thread(retexture.match_the_mesh_size, glb_path)
                 or remesh.DEFAULT_TEXTURE_PX
             )
         job_dir = self.config.job_dir(job_id)

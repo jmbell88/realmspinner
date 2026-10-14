@@ -250,6 +250,7 @@ def trellis_recipe(config: Any, params: Mapping[str, Any], *, mesh_seed: int) ->
     ``resolve_profile`` records ``params["profile"]`` on every submit, so a
     missing key is not "this job followed the config default", it is "this row
     predates that change" -- and it ran raw, the config default *at the time*.
+    (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     ``config.mesh_profile`` now reads "standard"; falling back to it here would
     make an old row's recipe claim a budget the job never asked for.
     """

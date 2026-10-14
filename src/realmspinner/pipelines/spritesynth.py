@@ -1,9 +1,9 @@
 """Turning one finished drawing into a candidate sprite-sheet atlas.
 
-The counterpart to ``pipelines/pixelsheet``, and deliberately the opposite
-trade. There, eight directions are exact orthographic renders of one mesh, so
-the geometry agrees by construction and only the *style* is generated. Here
-there is no mesh -- there is a single 2D reference -- so the geometry has to be
+The counterpart to the retired mesh-render sheet pipeline, and deliberately the
+opposite trade. There, eight directions were exact orthographic renders of one
+mesh, so the geometry agreed by construction and only the *style* was generated.
+Here there is no mesh -- there is a single 2D reference -- so the geometry has to be
 generated too, and everything in this module exists to stop four or sixteen
 independently-imagined poses from disagreeing with each other:
 
@@ -32,7 +32,7 @@ same pin every other generation path here obeys. 2x2 turnaround cells are
 therefore 512px and 4x4 walk cells are 256px, both exact. The logical sizes the
 user may reduce to (32/48/64) are *not* required to divide those, which is why
 the reduction is ``pixelize.reduce`` -- and, before it, :func:`reduce_atlas` --
-rather than ``pixelsheet.downscale``, whose stride has to be an integer.
+rather than a stride-based downscale, whose stride has to be an integer.
 
 **Generation layout and published layout are two different grids**, and
 conflating them is what capped this path at four directions and two sheet
@@ -45,8 +45,9 @@ cannot be one generation, so :data:`ATLAS_PX` stops being *the atlas* and
 becomes the ceiling on a :class:`Band`.
 
 **One band is one whole direction, all of its frames.** That is
-``pixelsheet.bands``' own argument transposed one axis -- "Whole rows, never
-part of one ... splitting it across two denoises is exactly the flicker".
+the retired mesh-render pipeline's band argument transposed one axis -- whole
+rows, never part of one, because splitting it across two denoises is exactly the
+flicker.
 Drift between two frames of one direction plays at 10fps and reads as flicker,
 so those frames must share a latent. Drift between two *directions* reads as
 the character turning, and what holds identity across that seam is the
@@ -190,15 +191,19 @@ SPRITE_DIRECTIONS: dict[int, tuple[str, ...]] = {
 #: -- the frame count of every action readable in one glance.
 #:
 #: **A second table, not an extension of ``charsheet.ANIMATIONS``**, and the
-#: reason is a failure that would land an hour into a job. Troupe's table drives
-#: Blender clip expansion through ``clips.expand_clips``, which looks each
-#: animation up in ``templates/clips/`` -- and ``humanoid.json`` is the only
-#: clip file that ships, so a name it does not carry raises ``KeyError`` in the
-#: Blender stage rather than at the door. ``hurt`` and ``cast`` have no clips,
-#: so they live here and nowhere else. The five names the two tables *share*
-#: must agree on frame counts, and ``tests/pipelines/test_spritesynth.py`` owns that
-#: overlap: a walk that is eight frames here and six frames there is a sheet
-#: whose two halves of the program disagree about what a cycle is.
+#: reason is a failure that would land an hour into a job. ``charsheet``'s table
+#: drives Blender clip expansion through ``clips.expand_clips``, which looks each
+#: animation up in ``templates/clips/``, so a name it does not carry raises
+#: ``KeyError`` in the Blender stage rather than at the door. Four clip libraries
+#: ship there (bird, blob, humanoid, quadruped) and each carries ``cast`` -- as a
+#: *provisional* clip, 90 ms a frame, which is why ``charsheet.ANIMATIONS`` does not
+#: list it -- along with ``hit``; only ``hurt`` has no clip anywhere. (This comment
+#: said ``humanoid.json`` was the only file that shipped and that ``cast`` had no
+#: clip until the 2026-10-14 audit, finding poser-render-06, listed the four.) So
+#: ``cast`` and ``hurt`` live here and nowhere else. The five names the two tables
+#: *share* must agree on frame counts, and ``tests/pipelines/test_spritesynth.py``
+#: owns that overlap: a walk that is eight frames here and six frames there is a
+#: sheet whose two halves of the program disagree about what a cycle is.
 ACTIONS: tuple[tuple[str, int], ...] = (
     ("idle", 4),
     ("walk", 8),
@@ -216,9 +221,11 @@ ACTION_FRAMES: dict[str, int] = dict(ACTIONS)
 #: The five shared names take Troupe's numbers rather than a second opinion of
 #: them -- a walk is 100 ms a frame in both halves of this program or the same
 #: character moves at two speeds -- and only ``cast`` and ``hurt``, which
-#: ``charsheet.ANIMATIONS`` deliberately does not carry (they have no clip file
-#: behind them), are stated here. A one-shot either way: neither is a cycle, and
-#: a looping hurt is a character stuck flinching.
+#: ``charsheet.ANIMATIONS`` deliberately does not carry, are stated here. ``cast``'s
+#: 90 ms is the figure the shipped provisional ``cast`` clip carries, and
+#: ``tests/pipelines/test_audit_2026_10_14_f48.py`` pins the two together; ``hurt``
+#: has no clip to agree with. A one-shot either way: neither is a cycle, and a
+#: looping hurt is a character stuck flinching.
 ACTION_PLAYBACK: dict[str, tuple[bool, int]] = {
     **{name: (loop, ms) for name, _frames, loop, ms in charsheet.ANIMATIONS},
     "cast": (False, 90),
@@ -790,6 +797,16 @@ TPOSE_GEOMETRY = _build("tpose", _TPOSE_TABLE)
 TPOSE_VARIANTS: tuple[str, ...] = ("male", "female")
 
 
+#: **Retained for rerolls, not for a producer.** The only writer of
+#: ``control_hint_source="guide"``, ``guide_variant`` and ``guide_pose`` was
+#: the character pipeline's service, which went with it; what still reaches
+#: :func:`render_reference_guide` (through ``_q_generate``'s ``prerendered`` branch)
+#: is a reroll of a reference row minted before that, whose params still name a
+#: guide. The two ``*_tpose_guide`` aliases that sat beside it said "Kept for its
+#: callers" and had none, so the 2026-10-14 audit (finding poser-render-04) removed
+#: them. Retiring the rest is the removal of that branch and the four
+#: ``templates/sprite_guides/{tpose,apose}_*.json`` files with it.
+#:
 #: The reference poses on offer, and the ``kind`` each one's templates declare.
 #: A *second* axis, crossed with :data:`TPOSE_VARIANTS` rather than folded into
 #: it: sex and pose are independent choices, and four variant names spelling
@@ -840,15 +857,6 @@ def render_reference_guide(variant: str, pose: str = "tpose") -> PILImage:
     """
     return render_guide(REFERENCE_GEOMETRY[pose], load_reference_guide(variant, pose))
 
-
-def load_tpose_guide(variant: str) -> GuideTemplate:
-    """:func:`load_reference_guide` at the T-pose. Kept for its callers."""
-    return load_reference_guide(variant, "tpose")
-
-
-def render_tpose_guide(variant: str) -> PILImage:
-    """:func:`render_reference_guide` at the T-pose. Kept for its callers."""
-    return render_reference_guide(variant, "tpose")
 
 
 #: ``service.validation.MAX_SEED``, restated rather than imported: a pipeline
@@ -1304,9 +1312,9 @@ def compose_bands(images: list[PILImage], geom: SheetGeometry) -> PILImage:
     No resampling of any kind happens here -- every cell is cropped at
     ``cell_px`` and pasted at ``cell_px``. ``sheet.pack`` is deliberately not
     used for this: it LANCZOS-resizes a frame whose size does not match, which
-    ``pixelize.reduce_frames`` refuses in as many words -- "a filtered downscale
-    is precisely the soft, fringed result the alpha snap then has to guess
-    about".
+    the retired per-frame ``pixelize.reduce_frames`` refused in as many words --
+    "a filtered downscale is precisely the soft, fringed result the alpha snap
+    then has to guess about".
 
     Refuses a band image of the wrong size rather than fitting it, for
     :func:`split`'s reason: the grid is never re-detected from pixels, and a
@@ -1458,8 +1466,8 @@ def reduce_atlas(atlas: PILImage, geom: SheetGeometry, logical_size: int) -> PIL
 
     Kept rather than deleted, and the reason is prose rather than code: this is
     the named home of the whole-atlas boundary argument below, which
-    ``pixelize``'s module docstring and :func:`pixelize.reduce_frames` both cite
-    by this name when they explain why reducing per frame gives nothing up.
+    ``pixelize``'s module docstring cites by this name when it explains why
+    reducing per frame gives nothing up.
     :func:`pixelize.reduce` cites it for the other half -- its fallback for a
     target that does not divide (48 out of 1024) *is* this function's single
     NEAREST resize, which is why those rungs came through the version bump byte
@@ -1468,7 +1476,7 @@ def reduce_atlas(atlas: PILImage, geom: SheetGeometry, logical_size: int) -> PIL
     describe, so it takes no new behaviour and gains no callers.
 
     Whole-atlas and not per cell, so a cell boundary in the output is at the
-    same place whichever side of it you compute from. ``pixelsheet.downscale``
+    same place whichever side of it you compute from. A stride-based downscale
     cannot serve here: it takes an integer stride, and 48 does not divide 512
     or 256. The boundaries stay exact anyway, because the *columns* and *rows*
     divide: an output cell edge lands at ``col * logical_size``, which is an
@@ -1680,17 +1688,19 @@ def animation_block(geom: SheetGeometry) -> dict[str, Any] | None:
 
     **Built by ``charsheet.animation_block`` rather than by a third emitter.**
     ``sheet.sidecar`` is explicit that this format has two writers -- Inker's
-    exporter for a drawn clip and Troupe's for a rendered sheet -- and that "a
-    third writer should extend one of those rather than appear". So the sprite
-    grid is expressed as the one-movement Troupe layout it already is and handed
-    to that function: ``frame_table`` walks a movement direction-major and
-    frame-minor, which is cell for cell the order :func:`plan_sheet` lays a
-    sheet out in, so cell index *i* means the same frame on both sides.
+    exporter for a drawn clip and ``charsheet.animation_block`` for a sprite sheet
+    (this module is its only caller) -- and that "a third writer should extend one of
+    those rather than appear". So the sprite grid is expressed as the one-movement
+    sprite-sheet layout it already is and handed to that function: ``frame_table``
+    walks a movement direction-major and frame-minor, which is cell for cell the
+    order :func:`plan_sheet` lays a sheet out in, so cell index *i* means the same
+    frame on both sides.
 
     A :class:`~charsheet.LayoutSpec` is constructed directly and not through
     ``charsheet.resolve_layout``, because that function validates against
     ``charsheet.ANIMATIONS`` -- which does not carry ``cast`` or ``hurt``, for
-    the reason :data:`ACTIONS` states (they have no Blender clip behind them).
+    the reason :data:`ACTIONS` states (``cast`` is only a provisional clip and
+    ``hurt`` has none).
     Routing through it would refuse two of this module's seven actions for a
     property of the *other* half of the program.
     """

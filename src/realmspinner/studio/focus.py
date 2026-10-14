@@ -39,6 +39,43 @@ from imgui_bundle import imgui
 from . import theme, widgets
 
 
+def _frame_number() -> int | None:
+    """imgui's frame count, or ``None`` without a live context -- asked of
+    ``get_current_context`` first because a frame call with none can crash
+    rather than raise."""
+    try:
+        if imgui.get_current_context() is None:
+            return None
+        return int(imgui.get_frame_count())
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        return None
+
+
+def _first_this_frame(state: Any, what: str, pane: str) -> bool:
+    """Whether ``what`` (``"pump"`` or ``"begin"``) is the first call for
+    ``pane`` in this frame.
+
+    The 2026-10-14 audit (finding shell-boot-01): Muse draws a brief bar and a
+    recipe column in one frame, and each pumped and began its own ring from the
+    same Tab press and the one global ``focus_moved`` flag, so one press moved
+    two rings and issued two ``set_keyboard_focus_here`` requests, the later
+    winning. Two panes that name the *same* ring key (as Create's do) now share
+    one cursor: only the first to pump reads the press, and only the first to
+    begin clears the order, so the second pane's items append to it. Keyed by
+    imgui's own frame count; with no live context, or a state that keeps no
+    stamps (a unit-test stub), every call counts as the first -- the old
+    behaviour."""
+    stamps = getattr(state, "focus_stamps", None)
+    frame = _frame_number()
+    if stamps is None or frame is None:
+        return True
+    key = f"{what}:{pane}"
+    if stamps.get(key) == frame:
+        return False
+    stamps[key] = frame
+    return True
+
+
 def pump(state: Any, pane: str) -> None:
     """Answer Tab / Shift-Tab for ``pane``. Called *before* :func:`begin`.
 
@@ -55,6 +92,8 @@ def pump(state: Any, pane: str) -> None:
     a modal owns the keyboard, and a Tab that also moved the ring behind it
     would leave the cursor somewhere the user never saw it go.
     """
+    if not _first_this_frame(state, "pump", pane):
+        return
     if imgui.is_popup_open("", imgui.PopupFlags_.any_popup.value):
         return
     if not imgui.is_key_pressed(imgui.Key.tab):
@@ -70,7 +109,12 @@ def begin(state: Any, pane: str) -> None:
     because what is on screen changes -- a fold closes, a slider appears with
     the LoRA that justifies it -- and a cursor over controls that are not there
     is a Tab key that appears to do nothing.
+
+    A second pane that shares ``pane``'s key in the same frame keeps what the
+    first recorded and appends to it -- see :func:`_first_this_frame`.
     """
+    if not _first_this_frame(state, "begin", pane):
+        return
     state.focus_order[pane] = []
 
 

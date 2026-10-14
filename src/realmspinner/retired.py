@@ -8,10 +8,10 @@ named here once, in a module with no imports, which the queue, the service layer
 may all read (``service`` is not importable from the queue, which is why this does not live there).
 
 What a retired row does: it is never run again (``Worker._generate`` marks a stuck queued or
-running one as an error, and ``migrate`` flips them at open), it is never offered a button,
-rerun, retarget or export (every "can this row ..." predicate answers no), it opens the Library on
-its own card with :data:`NOTE`, and its files are **never deleted** -- the user's work is theirs
-until they trash it.
+running one as an error, and ``db.retire_stuck_rows`` flips them at every open), it is never
+offered a button, rerun, retarget or export (every "can this row ..." predicate answers no), it
+opens the Library on its own card with :data:`NOTE`, and its files are **never deleted** -- the
+user's work is theirs until they trash it.
 
 ``tests/test_retired_kinds.py`` is the gate: each of these kinds is absent from every table that
 decides what a live kind is offered (the phase tables, the products, the follow-up stages, the

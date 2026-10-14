@@ -272,7 +272,10 @@ def test_the_effects_pane_draws_an_effect_whose_pattern_is_gone(frames):
     ctx = FakeCtx()
     tab = _tab(ctx)
     one = tab.doc.add_oneshot("orphan", rows=2)
-    tab.doc.remove_pattern(one.pattern)
+    # ``remove_pattern`` refuses a sound effect's pattern since the 2026-10-14
+    # audit (finding sirens-engine-08), so the orphan is made the way a
+    # hand-edited file makes it: the list is edited under the document.
+    tab.doc.patterns[:] = [p for p in tab.doc.patterns if p.uid != one.pattern]
     sirens_mode.ensure(ctx).oneshot = one.uid
     frames(lambda: sirens_effects.draw(ctx))
 

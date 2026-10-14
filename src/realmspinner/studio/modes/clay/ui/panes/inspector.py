@@ -15,9 +15,11 @@ while open, so its rows never move when the cards above them change.
 * **One shape** -- its name and colour, the **Size** card (the one place a size is
   typed -- ``inspector_size.py``), its own settings when it has any, the **Colour**
   card (eight named starter colours, ``starter_colours.py``, over the document's own
-  palette, ``swatches.draw_slots``), Duplicate and Delete, then *closed* disclosures:
-  Position & turn (scale behind its own Advanced), Group & parent, and More actions
-  (every object-level op, generated from the registry -- ``inspector_actions.py``).
+  palette, ``swatches.draw_slots``), Duplicate and Delete, then four disclosures, closed
+  unless noted: Position & turn (scale behind its own Advanced), Group & parent,
+  Bone & rig (open for a bone or a weighted mesh, where it is the point of the selection)
+  and More actions (every object-level op, generated from the registry --
+  ``inspector_actions.py``).
 * **Several shapes** -- Colour, Duplicate and Delete, and the multi-object actions;
   no Size card ("Select one shape to change its size").
 * **An element mode** (Points, Edges, Faces) -- "Editing faces" and a Done button that

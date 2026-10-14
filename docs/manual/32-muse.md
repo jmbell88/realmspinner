@@ -127,7 +127,7 @@ Keyboard, while Muse is the mode:
 | --- | --- |
 | Space | Stops whatever is sounding; with nothing sounding, plays the selected take |
 | Up / Down | Move the selection through the takes. Down from nothing picks the newest |
-| Left / Right | Nudge the playhead a second. Hold Shift for ten |
+| Left / Right | Nudge the playhead a second. Hold Shift for ten. While the Tab focus ring is on Length or Takes, step that control's choices instead |
 | Home | Back to the start |
 | `[` / `]` | Set the loop's start or end **at the playhead** |
 | L | Look for loop points |
@@ -147,7 +147,10 @@ rolls it back. The join is then something composed rather than a cut. What it do
 the first and last samples equal: ACE-Step has no cyclic objective and is not being asked for one.
 
 Loop points belong to the take, not to the player: audition another take and come back, and your
-region and crossfade are where you left them. The playhead travels with a switch too — auditioning a
+region and crossfade are where you left them. That memory is this session's only, and holds the last
+32 takes you auditioned; closing the app forgets it, and so does auditioning 32 other takes. The
+candidates **Find loop points** offered are not kept at all — a take you come back to has its
+markers and crossfade, and **L** looks again. The playhead travels with a switch too — auditioning a
 second take picks up from the same position the first was at, clamped to the new take's own length
 if it's the shorter of the two.
 

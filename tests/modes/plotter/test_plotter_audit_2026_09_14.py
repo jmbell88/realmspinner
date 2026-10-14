@@ -70,7 +70,7 @@ def test_seam_erase_actually_redraws_the_material_and_a_cancel_mid_pass_leaves_i
         lora=None,
         lora_weight=0.0,
         negative_prompt="",
-        size=32,
+        size=(32, 32),
         cancel_event=None,
     )
 
@@ -110,9 +110,115 @@ def test_a_cancel_mid_erase_pass_leaves_the_material_file_untouched(tmp_path):
         lora=None,
         lora_weight=0.0,
         negative_prompt="",
-        size=32,
+        size=(32, 32),
         cancel_event=cancel_event,
     )
 
     assert material.read_bytes() == original_bytes
     assert not material.with_name(material.name + ".tmp").exists()
+
+
+# --- the 2026-10-14 audit, finding plotter-tiles-10 ----------------------------
+#
+# ``_erase_seam``'s annotation said ``size: int`` while the worker hands it the
+# ``(1024, 1024)`` tuple from ``geom.source_size`` -- and its only unit tests
+# above passed ``size=32``, so nothing ever used the real call shape. The
+# ordering the branch exists for (redraw the seam cross, *then* measure the seam,
+# with the style lock on and a cancel possible mid-pass) was asserted by no test.
+
+
+def test_erase_seam_is_annotated_with_the_frame_the_worker_passes():
+    from realmspinner import _q_tileset
+
+    assert _q_tileset._erase_seam.__annotations__["size"] == "tuple[int, int]"
+
+
+def test_a_seam_erased_materials_set_measures_the_seam_after_the_redraw(
+    tmp_path, fake_pipelines, monkeypatch
+):
+    """Runs the real ``_tile_set`` through the fake pipeline with ``seam_erase``
+    and the style lock on: every material is redrawn (a masked img2img pass at
+    the worker's real ``(w, h)`` frame) *before* ``seam.report`` measures it, and
+    the first pass is not an erase."""
+    import asyncio
+    import time
+
+    from realmspinner import _q_tileset
+    from realmspinner.config import Config
+    from realmspinner.db import JobStore
+    from realmspinner.pipelines import seam, tileatlas
+    from realmspinner.queue import Worker
+
+    config = Config(
+        data_dir=tmp_path / "assets",
+        db_path=tmp_path / "assets" / "jobs.sqlite",
+        trellis_server_exe=tmp_path / "missing.exe",
+        trellis_models_dir=tmp_path / "models",
+    )
+    store = JobStore(config.db_path)
+    worker = Worker(config, store)
+
+    events: list[tuple[str, str, object]] = []
+    real_erase = _q_tileset._erase_seam
+    real_report = seam.report
+
+    def spy_erase(t2i, material, scratch, **kwargs):
+        events.append(("erase", material.name, kwargs["size"]))
+        return real_erase(t2i, material, scratch, **kwargs)
+
+    def spy_report(path):
+        events.append(("measure", path.name, None))
+        return real_report(path)
+
+    monkeypatch.setattr(_q_tileset, "_erase_seam", spy_erase)
+    monkeypatch.setattr(seam, "report", spy_report)
+
+    prompts = ("moss", "gravel", "water")
+    seeds = tileatlas.material_seeds(100, len(prompts))
+    geom = tileatlas.material_geometry(32, "top_down", len(prompts))
+    params = {
+        "seed": 100,
+        "base_model": "sdxl_cfg",
+        "colors": 64,
+        "negative_prompt": "",
+        "sheet": {
+            "version": 3, "mode": "materials", "tile_w": geom.tile_w, "tile_h": geom.tile_h,
+            "projection": "top_down", "columns": geom.columns, "rows": geom.rows,
+            "layout": "grid",
+            "materials": [
+                {"index": i, "prompt": p, "variant": 1, "seed": s}
+                for i, (p, s) in enumerate(zip(prompts, seeds, strict=True))
+            ],
+            "variants": 1, "style_lock": True, "seam_erase": True,
+        },
+    }
+    job_id = store.create("tile_sheet", "a dungeon", params, stage="tilesheet")
+
+    async def run():
+        worker.start()
+        try:
+            deadline = time.monotonic() + 60.0
+            while time.monotonic() < deadline:
+                if store.get(job_id)["status"] in ("done", "error", "cancelled"):
+                    return
+                await asyncio.sleep(0.01)
+            raise AssertionError("job did not finish before timeout")
+        finally:
+            await worker.shutdown()
+
+    try:
+        asyncio.run(run())
+        row = store.get(job_id)
+    finally:
+        store.close()
+    assert row["status"] == "done", row.get("error")
+
+    names = [f"material-{i:02d}.png" for i in range(len(prompts))]
+    assert [e[:2] for e in events] == [
+        (kind, name) for name in names for kind in ("erase", "measure")
+    ]
+    assert all(e[2] == geom.source_size for e in events if e[0] == "erase")
+    # Three generations plus three masked redraws, the redraws carrying the mask.
+    pipe = worker._text2image
+    masked = [c for c in pipe.conditionings if c is not None and c.mask_image is not None]
+    assert len(pipe.conditionings) == 2 * len(prompts) and len(masked) == len(prompts)

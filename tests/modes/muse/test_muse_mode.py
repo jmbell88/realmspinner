@@ -1032,44 +1032,27 @@ def test_an_off_preset_duration_lights_custom_even_with_the_flag_unset():
     assert muse_brief._current_duration_key(state, form) == muse_brief._CUSTOM
 
 
-def test_step_walks_the_duration_options_and_wraps_onto_custom(monkeypatch):
+def test_step_walks_the_duration_options_and_wraps_onto_custom():
     """Retargeted at the option *keys* rather than a numeric values tuple:
     duration grew a Custom pill that is not a number, and the old
     ``values.index(int(...))`` shape had no way to land on it, which made
-    Custom the one pill Left/Right could never reach. Fails against the
-    unfixed ``_step``, which takes a numeric values tuple and has no way to
-    return ``_CUSTOM`` at all.
+    Custom the one pill Left/Right could never reach.
 
-    A fake stands in for ``imgui`` rather than the real module -- this file's
-    own rule, stated at its head, is that nothing here touches imgui -- so
-    only ``_step``'s own index arithmetic is exercised.
+    ``_step`` takes a direction since the 2026-10-14 audit (finding muse-16): the
+    arrows now reach it through ``handle_key`` and ``step_ring``, not through
+    imgui key reads inside the draw, so this exercises only the index arithmetic
+    and needs no imgui stand-in.
     """
     from realmspinner.studio.modes.muse.ui import brief as muse_brief
-
-    class _Key:
-        left_arrow = "left"
-        right_arrow = "right"
-
-    class _FakeImgui:
-        Key = _Key
-
-        def __init__(self, pressed):
-            self._pressed = pressed
-
-        def is_key_pressed(self, key):
-            return key == self._pressed
 
     keys = tuple(key for key, _ in muse_brief._DURATION_OPTIONS)
     assert keys[-1] == muse_brief._CUSTOM
 
-    monkeypatch.setattr(muse_brief, "imgui", _FakeImgui(_Key.right_arrow))
-    assert muse_brief._step(keys[-2], keys) == muse_brief._CUSTOM, (
+    assert muse_brief._step(keys[-2], keys, +1) == muse_brief._CUSTOM, (
         "Custom must be reachable from the keyboard like any other pill"
     )
-    assert muse_brief._step(keys[-1], keys) == keys[0], "wraps back to the first preset"
-
-    monkeypatch.setattr(muse_brief, "imgui", _FakeImgui(_Key.left_arrow))
-    assert muse_brief._step(keys[0], keys) == muse_brief._CUSTOM, "wraps left onto Custom too"
+    assert muse_brief._step(keys[-1], keys, +1) == keys[0], "wraps back to the first preset"
+    assert muse_brief._step(keys[0], keys, -1) == muse_brief._CUSTOM, "wraps left onto Custom too"
 
 
 def test_switching_takes_keeps_the_playback_position(ctx, monkeypatch):

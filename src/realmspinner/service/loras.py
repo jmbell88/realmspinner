@@ -35,7 +35,8 @@ IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 
 #: How similar two candidate images' perceptual hashes must be for
 #: ``library_training_set`` to treat them as the same picture rather than two
-#: different ones. ``dev/measurements/2026-08-11-perceptual-hash-floor.md``
+#: different ones. ``dev/measurements/2026-08-11-perceptual-hash-floor.md`` [lost; re-measure to
+#: change]
 #: measured a lossless round trip (resize, JPEG re-encode) at a rescaled 1.0,
 #: the worst real variation it tried -- a 1.4x brightness multiply -- at only
 #: 0.66, and two genuinely different drawn objects at ~0.06, indistinguishable
@@ -410,7 +411,7 @@ def train_lora(
         raise Invalid(
             f"at most {lora_train.MAX_IMAGES} images per style", field="images"
         )
-    from PIL import Image
+    from PIL import Image, ImageOps
 
     for path in paths:
         if path.suffix.lower() not in IMAGE_SUFFIXES or not path.is_file():
@@ -472,7 +473,14 @@ def train_lora(
         train_dir.mkdir(parents=True, exist_ok=True)
         for index, path in enumerate(paths):
             with Image.open(path) as im:
-                im.convert("RGB").save(train_dir / f"{index:03d}.png")
+                # Upright first: the PNG written here carries no EXIF, so the
+                # trainer's own ``exif_transpose`` is a no-op on the copy and a
+                # portrait phone photo trained sideways (the 2026-10-14 audit,
+                # finding service-assets-03; ``files.to_png`` had the same defect
+                # fixed at the upload door on 2026-10-03).
+                ImageOps.exif_transpose(im).convert("RGB").save(
+                    train_dir / f"{index:03d}.png"
+                )
         svc.store.create("lora_train", text, params, new_id)
     except Exception:
         # create_character's and create_tile_sheet's own shape (the

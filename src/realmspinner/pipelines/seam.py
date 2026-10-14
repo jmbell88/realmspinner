@@ -33,12 +33,11 @@ from typing import Any
 
 # Above this the seam is a visible edge rather than part of the texture.
 #
-# Measured, not guessed: dev/measurements/2026-08-08-seam-threshold.md. 72
-# units on sdxl-turbo -- 48 generated through the circular-padding path and 24
-# identical prompts and seeds with it off -- put the highest legitimately
-# seamless tile at 2.50 and the lowest visible seam at 5.52, an empty band whose
-# geometric centre is 3.72. 3.5 is the round value inside it, and it classifies
-# every one of the 72 correctly where the previous 2.0 raised two false alarms.
+# Measured, not guessed: dev/measurements/2026-08-08-seam-threshold.md [lost; re-measure to change].
+# 72 units on sdxl-turbo -- 48 generated through the circular-padding path and 24 identical prompts
+# and seeds with it off -- put the highest legitimately seamless tile at 2.50 and the lowest visible
+# seam at 5.52, an empty band whose geometric centre is 3.72. 3.5 is the round value inside it, and
+# it classifies every one of the 72 correctly where the previous 2.0 raised two false alarms.
 #
 # Both false alarms were large flat cells separated by thin hard lines (ceramic
 # grout, metal ribs), which is the shape that breaks the ratio: the denominator
@@ -58,6 +57,7 @@ from typing import Any
 #   corpus bit-identically (max delta 0.000000) and adds the population the
 #   seamless-tileset track actually generates -- sdxl_cfg under the pixelxl
 #   LoRA with SHEET_NEGATIVE_PROMPT, which neither earlier corpus contained.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 #   There the ratio is *inverted*: 20 of 24 wrap-preview-confirmed seamless
 #   tiles score above this constant, while the two lowest-scoring units in the
 #   corpus are un-tiled pictures visibly chopped in four. The padding is fine;
@@ -80,7 +80,7 @@ SEAM_MAX = 3.5
 # **Fixed by construction rather than fitted**, and that is the point of it:
 # at exactly 1.0 the seam is precisely as large as the largest step the picture
 # already contains, so the number is the statistic's own semantics and cannot
-# drift with a corpus. dev/measurements/2026-08-30-seam-dominance.md
+# drift with a corpus. dev/measurements/2026-08-30-seam-dominance.md [lost; re-measure to change]
 # pre-registered it before drawing a single held-out unit and then tried to
 # falsify it: 144 tiled axes at seeds no published corpus contains -- plain,
 # pixel-art-LoRA'd and hard-structured -- and **not one scored above 1.0**
@@ -168,13 +168,12 @@ def report(path: Path) -> dict[str, Any]:
     wraps one way and not the other is not a tile.
 
     Two statistics are reported and only one decides. ``dominance`` is the
-    verdict (dev/measurements/2026-08-30-seam-dominance.md); ``worst`` is the
-    edge-against-mean-grain ratio three published corpora are keyed on, kept so
-    those documents stay readable against new output and so a row's number does
-    not silently change meaning. ``metric`` names which one decided, and its
-    absence marks a row written before 2026-08-30 -- which is what lets
-    ``inspector.seam_verdict`` word an old row correctly instead of describing
-    it with today's vocabulary.
+    verdict (dev/measurements/2026-08-30-seam-dominance.md [lost; re-measure to change]); ``worst``
+    is the edge-against-mean-grain ratio three published corpora are keyed on, kept so those
+    documents stay readable against new output and so a row's number does not silently change
+    meaning. ``metric`` names which one decided, and its absence marks a row written before
+    2026-08-30 -- which is what lets ``inspector.seam_verdict`` word an old row correctly instead of
+    describing it with today's vocabulary.
     """
     import numpy as np
     from PIL import Image

@@ -170,7 +170,7 @@ frozen references (see above) shows it ahead on first-attempt, best-of-three and
 
 Automatic model routing is unchanged. The pinned runtime moved from trellis.cpp v0.6.0 to
 [v0.8.1](https://github.com/pwilkin/trellis.cpp/releases/tag/v0.8.1) on 2026-10-11, after an A/B on
-the same image and seed (`dev/measurements/2026-10-11-trellis-cpp-0.8.1.md`): on a volumetric
+the same image and seed (the maintainer's local notes, which a clone does not carry): on a volumetric
 reference it is about 10% slower with the same GLB structure and face counts within 5%; on a flat,
 thin reference (a pixel-art sprite) its default xatlas `uv_bake` is about 3x slower, so the whole run
 is 2-2.5x slower. The thin-input regression has not been reported upstream yet; `--box-uv` avoids it

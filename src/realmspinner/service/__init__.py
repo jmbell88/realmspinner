@@ -22,7 +22,7 @@ argument that was wrong, and HTTP had nowhere to put it.
 
 Functions take a :class:`~realmspinner.service.core.RealmspinnerService` as their first
 argument rather than hanging off it as methods: the split into modules is by
-subject (jobs, rigs, sheets, ...) and a single 700-line class would only put
+subject (jobs, rigs, ...) and a single 700-line class would only put
 that structure back into one file.
 """
 

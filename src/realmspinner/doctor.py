@@ -1632,7 +1632,7 @@ def _matting_checks(config: Config, *, probe_slow: bool = True, force: bool = Fa
                 ok = False
                 detail += (
                     "; cannot import " + ", ".join(missing) + " -- 2D exports fall back to "
-                    "the corner fill; install with:\n  uv sync --extra text2image"
+                    f"the corner fill; {_pack_hint('text2image')}"
                 )
             if failure:
                 ok = False
@@ -1680,7 +1680,7 @@ def _text_checks(config: Config) -> list[Check]:
         if missing:
             detail += (
                 "; cannot import " + ", ".join(missing) + " -- the prompt falls back to "
-                "the keyword mapper; install with:\n  uv sync --extra text2image"
+                f"the keyword mapper; {_pack_hint('text2image')}"
             )
     else:
         ok = True

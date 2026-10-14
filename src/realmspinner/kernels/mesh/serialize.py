@@ -63,7 +63,7 @@ exist in it, but a ``.rblk`` Clay wrote must reopen, so the reader still
 stack into its mesh, drops the collider objects and the other dead fields, and
 hands back the sentences naming what changed (``ClayDoc.notices``), which the
 mode shows as one toast. A version 3 file is never written again -- a save
-writes version 4 and nothing else -- and a version 4 file with a stray v3 key
+writes version 5 and nothing else -- and a version 4 file with a stray v3 key
 simply ignores it. ``"parent"`` (an object uid or absent, meaning a root) is
 the one v3 field that stays: a uid this file does not carry, or a cycle
 anywhere in the whole document's parenting (only detectable once every object
@@ -98,6 +98,7 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+import zlib
 from typing import Any
 
 import numpy as np
@@ -368,6 +369,9 @@ def read_view(data: bytes) -> dict[str, Any] | None:
             scene = json.loads(zf.read(SCENE))
     except (
         zipfile.BadZipFile,
+        zlib.error,
+        RuntimeError,
+        NotImplementedError,
         KeyError,
         UnicodeDecodeError,
         ValueError,
@@ -762,10 +766,32 @@ def rblk_bytes(doc: ClayDoc, *, view: Any = None) -> bytes:
 # --- reading ----------------------------------------------------------------
 
 
-def _read_mesh(zf: zipfile.ZipFile, uid: int) -> bm.Mesh:
+#: What reading one member of the archive can raise besides ``KeyError`` (absent)
+#: and the ``ValueError`` this reader promises (the 2026-10-14 audit, finding
+#: shell-documents-07): a CRC mismatch is ``BadZipFile``, a damaged deflate
+#: stream is ``zlib.error``, an encrypted member is ``RuntimeError`` and an
+#: unknown compression method is ``NotImplementedError``. ``read_rblk`` leaked a
+#: bare ``zlib.error`` from a corrupt member, and crash recovery had to catch
+#: everything to cope.
+_MEMBER_DAMAGE = (zipfile.BadZipFile, zlib.error, RuntimeError, NotImplementedError)
+
+
+def _read_member(zf: zipfile.ZipFile, name: str) -> bytes:
+    """``zf.read(name)`` with a damaged member refused as a ``ValueError``.
+
+    ``KeyError`` (no such member) passes through: every caller words that
+    absence for the thing it expected to find.
+    """
+    try:
+        return zf.read(name)
+    except _MEMBER_DAMAGE as exc:
+        raise ValueError(f"{name} in this clay document is unreadable: {exc}") from exc
+
+
+def _read_mesh(zf: zipfile.ZipFile, uid: int, skin_members: bool = True) -> bm.Mesh:
     name = f"{MESH_DIR}/{uid}.npz"
     try:
-        raw = zf.read(name)
+        raw = _read_member(zf, name)
     except KeyError as exc:
         raise ValueError(
             f"this clay document names an object whose mesh is missing ({name})"
@@ -786,8 +812,12 @@ def _read_mesh(zf: zipfile.ZipFile, uid: int) -> bm.Mesh:
     # no texture coordinates, which is what a v1 mesh was.
     if "uv" in npz:
         arrays["uv"] = npz["uv"]
-    # Optional, and absent from every file before version 5.
-    for field_name in _SKIN_FIELDS:
+    # Optional, and absent from every file before version 5. A caller reading an older file
+    # passes ``skin_members=False`` and they are ignored, as the stray v5 keys on the scene are:
+    # the 2026-10-14 audit, findings clay-document-10 and clay-mesh-model-06 -- a format-4 file
+    # whose mesh carried weights opened with weights and no skin (the skin is read only from
+    # format 5), a document Save, the journal and ``to_model`` then refused.
+    for field_name in _SKIN_FIELDS if skin_members else ():
         if field_name in npz:
             arrays[field_name] = npz[field_name]
     mesh = bm.Mesh(**arrays)
@@ -833,7 +863,7 @@ def _read_textures(zf: zipfile.ZipFile, scene: dict[str, Any]) -> list[Any]:
             raise ValueError("a texture in this clay document is not a mapping")
         name = str(entry.get("file", ""))
         try:
-            raw = zf.read(name)
+            raw = _read_member(zf, name)
         except KeyError as exc:
             raise ValueError(
                 f"this clay document names a texture the file does not carry ({name})"
@@ -1111,6 +1141,28 @@ def _skin_from(entry: dict[str, Any]) -> rig.Skin | None:
         ) from exc
 
 
+#: The largest uid a document may carry. A JSON number a client of the MCP bridge parses holds
+#: an integer exactly only to 2**53, and :func:`reserve_uid` raises a process-wide counter
+#: that never comes back down. The 2026-10-14 audit, finding clay-document-06: a file declaring
+#: ``10**30`` made every object minted for the rest of the session carry a 31-digit uid.
+MAX_UID = 1 << 53
+
+
+def _json_flag(entry: dict[str, Any], key: str, default: bool, what: str) -> bool:
+    """*entry*'s ``key`` as a real JSON boolean, or a refusal by name.
+
+    The 2026-10-14 audit, finding clay-document-09: ``bool()`` read the string ``"false"`` and
+    the integer ``1`` as true, so a hand-edited ``"bone": "false"`` opened as a bone. The same
+    rule ``_material_from`` keeps for ``nearest``: only ``true`` and ``false`` are flags.
+    """
+    value = entry.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(
+            f"{what} in this clay document has a {key!r} that is not true or false"
+        )
+    return value
+
+
 def _rig_refusal(objects: list[Obj]) -> str:
     """Why the bones and skins in *objects* cannot be a document, or ``""``.
 
@@ -1155,16 +1207,31 @@ def _read_animations(
             raise ValueError(f"animation {i} in this clay document is not readable")
         member = f"{ANIM_DIR}/{i}.npz"
         try:
-            blob = zf.read(member)
+            blob = _read_member(zf, member)
         except KeyError as exc:
             raise ValueError(
                 f"this clay document names the animation {name!r} but {member} is missing"
             ) from exc
         arrays = npyguard.read_npz(blob, f"an animation in this clay document ({member})")
         channels: dict[int, dict[str, anim.Channel]] = {}
+        declared_channels = entry.get("channels", {})
+        # The 2026-10-14 audit, finding clay-document-07: ``" 1"`` and ``"1 "`` both int() to one
+        # bone, so a 333 KB file with 100,000 such keys took 2.8 s to open -- the work scaled
+        # with the key count, not the bone cap. The mapping's size is free; it is checked before
+        # the loop, as the animation and object counts are.
+        if len(declared_channels) > rig.MAX_BONES:
+            raise ValueError(
+                f"the animation {name!r} in this clay document declares "
+                f"{len(declared_channels):,} channels, past the {rig.MAX_BONES} bones Clay reads"
+            )
         try:
-            for key, props in entry.get("channels", {}).items():
+            for key, props in declared_channels.items():
                 uid = int(key)
+                if isinstance(props, (list, tuple)) and len(props) > len(anim.PROPS):
+                    raise ValueError(
+                        f"it lists {len(props)} properties for one bone, "
+                        f"past the {len(anim.PROPS)} there are"
+                    )
                 if uid not in bones:
                     raise ValueError(f"it animates uid {uid}, which is not a bone")
                 for prop in props:
@@ -1176,7 +1243,7 @@ def _read_animations(
             animations.append(
                 anim.Animation(
                     name,
-                    bool(entry.get("loop", True)),
+                    _json_flag(entry, "loop", True, f"the animation {name!r}"),
                     str(entry.get("interpolation", "linear")),
                     channels,
                 )
@@ -1329,6 +1396,9 @@ def read_rblk(data: bytes) -> ClayDoc:
             scene = json.loads(zf.read(SCENE))
         except (
             zipfile.BadZipFile,
+            zlib.error,
+            RuntimeError,
+            NotImplementedError,
             KeyError,
             UnicodeDecodeError,
             json.JSONDecodeError,
@@ -1449,9 +1519,13 @@ def read_rblk(data: bytes) -> ClayDoc:
                 raise ValueError(
                     f"this clay document has two objects sharing uid {uid}"
                 )
+            if not 0 <= uid <= MAX_UID:
+                raise ValueError(
+                    f"an object in this clay document has a uid ({uid}) outside "
+                    f"0 to {MAX_UID}"
+                )
             seen_uids.add(uid)
-            reserve_uid(uid)
-            mesh = _read_mesh(zf, uid)
+            mesh = _read_mesh(zf, uid, skin_members=version >= 5)
             # The 2026-09-08 audit's second run, clay-09: this used to add
             # ``len(mesh.starts) - 1`` -- the *face* count -- toward
             # ``MAX_TRIANGLES``. The CSR format stores n-gons untriangulated, so
@@ -1480,10 +1554,14 @@ def read_rblk(data: bytes) -> ClayDoc:
                     scale=_vector(entry, "scale", (1.0, 1.0, 1.0)),
                     generator=_generator(entry),
                     params=_params(entry),
-                    visible=bool(entry.get("visible", True)),
+                    visible=_json_flag(entry, "visible", True, f"the object {uid}"),
                     material=_material_index(entry),
                     parent=_parent_from(entry),
-                    bone=bool(entry.get("bone", False)) if version >= 5 else False,
+                    bone=(
+                        _json_flag(entry, "bone", False, f"the object {uid}")
+                        if version >= 5
+                        else False
+                    ),
                     skin=_skin_from(entry) if version >= 5 else None,
                 )
             )
@@ -1521,6 +1599,12 @@ def read_rblk(data: bytes) -> ClayDoc:
     materials = [reduce_material(m) for m in raw_materials]
     if objects and not materials:
         materials = None
+    # The 2026-10-14 audit, finding clay-document-06: the floor used to rise per entry, before
+    # the file was accepted, and the counter never goes back down, so a refused file poisoned
+    # every later ``new_uid``. Raised here, once the file can no longer be refused and before
+    # ``ClayDoc`` or the migration mint anything.
+    if objects:
+        reserve_uid(max(obj.uid for obj in objects))
     doc = ClayDoc(objects=objects, materials=materials)
     doc.rig_state = rig_state
     doc.set_active_animation(active)

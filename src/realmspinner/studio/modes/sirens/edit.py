@@ -315,10 +315,13 @@ def write_hex(ctx: Any, value: int) -> bool:
 
     Tracker entry, which is nibble-at-a-time and **in place**: the digit
     replaces one nibble of whatever the cell already holds rather than starting
-    a fresh byte, so correcting the low half of ``4F`` is one keystroke on the
-    second character instead of retyping both. An empty cell counts as ``00``
-    for that purpose, which is what makes the first digit of a fresh entry land
-    in the high nibble and read back the way it was typed.
+    a fresh byte. Each digit still goes to the next nibble in turn (the first
+    to the left, the second to the right, then the left again), and no key puts
+    the caret on the second character first, so correcting the low half of
+    ``4F`` takes two keystrokes -- retype the left digit, then the new right
+    one -- not one (the 2026-10-14 audit, finding sirens-playback-08). An empty
+    cell counts as ``00`` for that purpose, which is what makes the first digit
+    of a fresh entry land in the high nibble and read back the way it was typed.
 
     A digit that would take the cell past :func:`_column_ceiling` writes
     **nothing at all** -- ``8`` in the high nibble of the instrument column
@@ -337,6 +340,12 @@ def write_hex(ctx: Any, value: int) -> bool:
         return False
     pattern = sirens_mode.caret_pattern(ctx, tab)
     if pattern is None:
+        return False
+    # The 2026-10-14 audit, finding sirens-playback-01: ``state.row`` can name a
+    # row the pattern has just lost (the Rows slider, an undo of an insert), and
+    # the read below is a bare index. ``set_cells`` clips a note write quietly;
+    # this one raised.
+    if not (0 <= state.row < pattern.rows and 0 <= state.channel < pattern.channels):
         return False
     # An empty cell is ``00`` for the purpose of a nibble write; anything else
     # would make the first digit of a fresh entry depend on ``EMPTY``'s value.
@@ -699,15 +708,19 @@ def undo(ctx: Any, tab: Any) -> None:
     keyboard, which is why this exists at all: the bridge pane draws the same
     Undo button and must carry the same side effects.
     """
-    tab.doc.undo()
-    tab.render_dirty = True
+    # Armed only when the history moved (the 2026-10-14 audit, finding
+    # sirens-playback-05): Ctrl+Z on an untouched song used to force a full
+    # re-render and Play then refused "Still rendering your latest edits" until
+    # it landed, for a document that had not changed.
+    if tab.doc.undo():
+        tab.render_dirty = True
     clamp_caret(ctx, tab)
 
 
 def redo(ctx: Any, tab: Any) -> None:
     """One step forward. :func:`undo`'s twin, and its reasoning."""
-    tab.doc.redo()
-    tab.render_dirty = True
+    if tab.doc.redo():
+        tab.render_dirty = True
     clamp_caret(ctx, tab)
 
 
@@ -715,6 +728,7 @@ def step_history(ctx: Any, tab: Any, index: int) -> bool:
     """Jump to a position in the undo stack -- the history popover's door,
     carrying :func:`undo`'s side effects for :func:`undo`'s reason."""
     moved = tab.doc.history.step_to(tab.doc, index)
-    tab.render_dirty = True
+    if moved:
+        tab.render_dirty = True
     clamp_caret(ctx, tab)
     return moved

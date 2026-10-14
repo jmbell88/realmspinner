@@ -225,6 +225,30 @@ class UndoStack:
         for edit in (*self._done, *self._undone):
             yield from walk(edit)
 
+    def done_since(self, serial: int) -> Iterator[Edit]:
+        """The steps now *done* that were pushed after *serial*, compounds opened.
+
+        For a caller that recorded :attr:`head` when it asked for something to
+        be done later and has to ask, when the answer comes back, whether the
+        document was reshaped in between (the 2026-10-14 audit, finding
+        inker-panes-04: a regeneration landing over a canvas flipped while the
+        job was queued). Undone steps are not listed -- an undo put the
+        document back, which is what the caller wants to know. Like
+        :meth:`edits`, the stack hands back opaque ``Edit``s and the caller
+        decides which of them it recognises.
+        """
+
+        def walk(edit: Edit) -> Iterator[Edit]:
+            if isinstance(edit, CompoundEdit):
+                for child in edit.edits:
+                    yield from walk(child)
+            else:
+                yield edit
+
+        for edit in self._done:
+            if edit.serial > serial:
+                yield from walk(edit)
+
     @property
     def head(self) -> int:
         """Identifies the current position in history.
@@ -457,7 +481,16 @@ class UndoStack:
         if not self._undone:
             return False
         edit = self._undone.pop()
-        edit.redo(doc)
+        try:
+            edit.redo(doc)
+        except BaseException:
+            # Put back where it came from. The step was popped *before* it ran,
+            # so a redo that raised (the 2026-10-14 audit, finding
+            # inker-document-04: an older step redone against a stale layer)
+            # used to drop it, and the steps still on the redo branch above it
+            # described a document the stack no longer led to.
+            self._undone.append(edit)
+            raise
         self._done.append(edit)
         return True
 

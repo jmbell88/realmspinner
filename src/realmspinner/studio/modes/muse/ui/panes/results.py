@@ -42,8 +42,21 @@ def plan_for(ctx: Any) -> list[dict[str, Any]]:
     Off ``ctx.cache.jobs`` rather than a query of its own: the cache is already
     refreshed on the app's own schedule, and a second poll would be a second
     answer to "what has finished" that could disagree with the Library's.
+
+    **The 2026-10-14 audit, findings muse-mode-01 and muse-mode-02.** The cache
+    is already newest-first (``JobStore.list`` orders ``created_at DESC`` and
+    ``JobsCache.adopt`` keeps ``top + old``), so it is *not* reversed here: this
+    used to flip it, which put a new take at the END of the tray and made Down
+    from nothing select the oldest. And the cache holds the workshop and the
+    trash together, so a row with ``deleted_at`` is dropped, as Home's
+    ``landing._asset_rows`` drops it -- a trashed take kept its Play, Open in
+    Sirens, Make more and Stems buttons under copy that says "delete the rest".
     """
-    return [job for job in reversed(ctx.cache.jobs) if job.get("kind") == "music"]
+    return [
+        job
+        for job in ctx.cache.jobs
+        if job.get("kind") == "music" and not job.get("deleted_at")
+    ]
 
 
 def should_draw(ctx: Any) -> bool:
@@ -95,16 +108,52 @@ def _window_is_partial(ctx: Any) -> bool:
     return int(getattr(cache, "total", 0) or 0) > len(getattr(cache, "jobs", []) or [])
 
 
+#: Below this many takes the tray is drawn whole, as ``library.CLIP_THRESHOLD``
+#: says for its list: a short tray fits on screen, gains nothing from clipping
+#: and is what nearly every test and screenshot draws.
+CLIP_THRESHOLD = 40
+
+
 def _grid(ctx: Any, jobs: list[dict[str, Any]]) -> None:
-    """Cards, wrapped to the pane's width."""
+    """Cards, wrapped to the pane's width.
+
+    **The 2026-10-14 audit, finding muse-mode-17.** Every card in the cache
+    window (up to 200) was drawn every frame -- a shadow, a squircle and about
+    ten widgets each -- whether or not it was on screen. Past
+    :data:`CLIP_THRESHOLD` a row wholly outside the pane's view is replaced by a
+    ``dummy`` of the same footprint, the arithmetic ``library._clipper`` uses
+    (every card is one child of a fixed height, so the skip is exact and the
+    scrollbar and scroll position are what they would have been). The row that
+    holds the selected take is never skipped, so arriving at it by any route
+    still lands.
+    """
     width = sp(CARD_W)
     gap = imgui.get_style().item_spacing.x
     avail = imgui.get_content_region_avail().x
     per_row = max(1, int((avail + gap) // (width + gap)))
-    for index, job in enumerate(jobs):
-        if index % per_row:
-            imgui.same_line()
-        _card(ctx, job, width)
+    clip = len(jobs) >= CLIP_THRESHOLD
+    view = float(imgui.get_window_size().y) if clip else 0.0
+    clip = clip and view > 0.0
+    scroll = float(imgui.get_scroll_y()) if clip else 0.0
+    height = sp(CARD_H)
+    selected = muse_mode.ensure(ctx).selected_job if clip else ""
+    for start in range(0, len(jobs), per_row):
+        row = jobs[start : start + per_row]
+        if clip:
+            top = float(imgui.get_cursor_pos_y())
+            off_screen = top + height < scroll or top > scroll + view
+            if off_screen and not any(str(job["id"]) == selected for job in row):
+                # ``dummy`` takes the same item spacing after it that a card's
+                # ``end_child`` does, so the height alone is a row's footprint.
+                imgui.dummy((width, height))
+                continue
+        for offset, job in enumerate(row):
+            if offset:
+                imgui.same_line()
+            _card(ctx, job, width)
+    # The request is spent whether or not the selected take was in this window:
+    # left set, it would scroll to the take whenever it next appeared.
+    muse_mode.ensure(ctx).scroll_to_selected = False
 
 
 def _card(ctx: Any, job: dict[str, Any], width: float) -> None:
@@ -112,6 +161,10 @@ def _card(ctx: Any, job: dict[str, Any], width: float) -> None:
     state = muse_mode.ensure(ctx)
     origin = imgui.get_cursor_screen_pos()
     size = (width, sp(CARD_H))
+    # The card's top in the *parent's* scroll space, read before the card's own
+    # child begins: ``set_scroll_from_pos_y`` is the parent's, and inside the
+    # child it would scroll the card.
+    top = float(imgui.get_cursor_pos_y())
     with widgets.card(f"muse-take/{job_id}", size):
         widgets.stage_badge(job, inline=True)
         imgui.same_line()
@@ -146,6 +199,12 @@ def _card(ctx: Any, job: dict[str, Any], width: float) -> None:
     # the same way, and rings the selected one the same way.
     if imgui.is_item_clicked():
         state.selected_job = job_id
+    if state.selected_job == job_id and state.scroll_to_selected:
+        # The 2026-10-14 audit, finding muse-25: ``select`` raised the request
+        # (Up/Down, a new take) but nothing consumed it, so the selection could
+        # sit off screen in a tray that scrolls.
+        imgui.set_scroll_from_pos_y(top + size[1] / 2.0, 0.5)
+        state.scroll_to_selected = False
     if state.selected_job == job_id:
         widgets.ring(
             imgui.ImVec2(origin.x, origin.y),
@@ -365,9 +424,20 @@ def _derive_menu(ctx: Any, job_id: str, ready: bool, status: str = "") -> None:
         parent_duration = _parent_duration(ctx, job_id)
         for task, label, note in DERIVE_ITEMS:
             item_reason = _extend_reason(parent_duration) if task == "extend" else ""
-            clicked, _ = controls.menu_item(label, "", False, not item_reason)
-            if imgui.is_item_hovered():
-                imgui.set_tooltip(item_reason or note)
+            # The 2026-10-14 audit, finding muse-mode-08: imgui answers
+            # ``is_item_hovered()`` False over a disabled item, so the reason
+            # drawn here by hand never showed and a take at the extend ceiling
+            # offered a greyed Extend with no explanation. ``controls.menu_item``
+            # asks with ``allow_when_disabled`` and shows ``reason`` while
+            # disabled, ``tooltip`` otherwise.
+            clicked, _ = controls.menu_item(
+                label,
+                "",
+                False,
+                not item_reason,
+                reason=item_reason,
+                tooltip=note,
+            )
             if clicked:
                 muse_mode.open_derive(ctx, job_id, task)
                 imgui.close_current_popup()
@@ -494,7 +564,7 @@ def _derive_field(
             f"##muse-{name}",
             str(derive[name]),
             sp(62.0 if is_lyrics else 40.0),
-            _max_lyrics() if is_lyrics else 400,
+            _max_lyrics() if is_lyrics else _max_prompt(),
         )
         widgets.muted("Leave it empty to keep this take's.")
         widgets.field_error(ctx.state, name)
@@ -559,6 +629,19 @@ def _max_count() -> int:
     from ......service._jobs_music import MAX_COUNT
 
     return MAX_COUNT
+
+
+def _max_prompt() -> int:
+    """The tags field's bound: the door's ``MAX_PROMPT``, imported lazily.
+
+    The 2026-10-14 audit, finding muse-mode-14: this was a literal 400 while the
+    brief and ``check_prompt`` allow ``MAX_PROMPT``, so a take made from a
+    600-character brief could not be edited with tags of that length -- the
+    second copy of a door bound that :data:`DERIVE_FIELDS`' comment warns against.
+    """
+    from ......service.validation import MAX_PROMPT
+
+    return MAX_PROMPT
 
 
 def _max_lyrics() -> int:

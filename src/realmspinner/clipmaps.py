@@ -11,7 +11,8 @@ This module is only the bone-name side of that: which external bone names
 correspond to which template bones, and matching a mapping table against a
 skeleton the app has never seen before. The Blender sampling op that reads an
 external animation's transforms and the rotation math that expresses them
-against the template rig are later steps -- deliberately not here, so this
+against the template rig live elsewhere (``cliptransfer`` and the
+``clip_import`` door) -- deliberately not here, so this
 stays importable and testable with no Blender, exactly like
 ``kernels.rig.templates``' own template registry.
 
@@ -62,7 +63,7 @@ __all__ = [
 ]
 
 #: Shipped clip maps, one file per external rig family. A sibling of
-#: ``cliplib.CLIP_DIR`` (the Troupe pose-clip library) rather than the same
+#: ``cliplib.CLIP_DIR`` (the pose-clip library) rather than the same
 #: directory: that one holds *poses*, keyed by template, and this holds
 #: *bone-name tables*, keyed by external rig -- conflating the two would put
 #: an external-rig JSON file in a glob that ``cliplib._load_clip_library``
@@ -106,10 +107,10 @@ def parse_clip_map(raw: Mapping[str, Any], *, source: str) -> ClipMap:
     ``source`` names what this came from in every error message; when the map
     is loaded from a shipped file it is that file's stem, and the map's own
     ``key`` must equal it -- the rule ``templates._load_templates`` applies to a
-    skeleton template's key and filename, for the same reason: the Poser UI
-    interpolates a clip map's key into a control's id, and a key naming a
+    skeleton template's key and filename, for the same reason: a key naming a
     different file than the one that produced it would make an error message
-    point at the wrong table.
+    point at the wrong table (and a control id built from the key, as Poser's
+    was, at the wrong control).
 
     Checked, in order: the version is 1; ``template`` names a real skeleton
     template; every ``bones`` key is a bone of that template; every chain is a
@@ -210,7 +211,7 @@ def load_clip_maps() -> dict[str, ClipMap]:
     **A malformed file costs you that entry, not the loader** -- the same rule
     ``templates._load_templates`` follows, for the same reason: a hand-edited or
     future third-party clip map dropped beside the shipped two must not be
-    able to take Poser's whole "Import clip" feature down with it.
+    able to take the whole "Import clip" feature down with it.
     """
     global _clip_maps
     if _clip_maps is None:

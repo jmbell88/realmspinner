@@ -8,8 +8,10 @@ No GPU, no weights.
 
 ## Starting a map
 
-`Ctrl+N` opens the New Map dialogue, and it asks for two things: **tile size**, how big one cell is
-in pixels, and **projection**, the lattice — orthogonal, isometric, staggered or hexagonal.
+`Ctrl+N` opens the New Map dialogue. Two answers matter most: **tile size**, how big one cell is
+in pixels, and **projection**, the lattice — orthogonal, isometric, staggered or hexagonal. It also
+asks for the map's size in tiles, whether the map is **Infinite**, and what to do **Then**, the
+first tileset or nothing yet; the presets fill every one of them in.
 
 Only projection is fixed once anything is painted, and that is stricter than Tiled, which lets you
 change orientation afterwards. The reason is that projection here decides the lattice rather than

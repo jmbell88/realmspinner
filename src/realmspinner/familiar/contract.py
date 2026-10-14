@@ -90,14 +90,14 @@ SAMPLING: dict[str, dict[str, float | int]] = {
     "clay": {"temperature": 0.2, "top_k": 64, "top_p": 0.95, "max_tokens": 4096},
     # T5's plain-chat sampling -- there is no measurement behind this row the
     # way there is for "clay" (that one is
-    # dev/measurements/2026-09-13-clay-assistant-sampling.md's own pick out
-    # of a 232-row corpus): the base instruct model has no fine-tune or eval
-    # corpus of its own here yet. t0.7/top-k 64/top-p 0.95 was Google's own
-    # stock recommendation for Gemma 4, the previous pin, carried over
-    # unmeasured; it has not been re-picked against Qwen3-VL-4B's own
-    # published defaults. A dated measurement document should replace this
-    # comment before the number is trusted for anything beyond "a
-    # reasonable default".
+    # dev/measurements/2026-09-13-clay-assistant-sampling.md's [lost; re-measure to change] own pick
+    # out of a 232-row corpus): the base instruct model has no fine-tune or eval corpus of its own
+    # here yet. t0.7/top-k 64/top-p 0.95 was Google's own stock recommendation for Gemma 4, the
+    # previous pin, carried over unmeasured. Gemma 4 12B is the served model again (Qwen3-VL-4B was
+    # the pin in between; the 2026-10-14 audit, finding familiar-core-10, caught this comment still
+    # naming it), and the row has not been re-picked against Gemma's own published defaults. A dated
+    # measurement document should replace this comment before the number is trusted for anything
+    # beyond "a reasonable default".
     "chat": {"temperature": 0.7, "top_k": 64, "top_p": 0.95, "max_tokens": 1024},
     # Greedy and starved on purpose: the router answers one enum value
     # (:data:`~.router.SKILLS`) through ``response_format``'s constrained
@@ -139,10 +139,10 @@ SAMPLING: dict[str, dict[str, float | int]] = {
     "character": {"temperature": 0.0, "top_k": 1, "top_p": 1.0, "max_tokens": 200},
 }
 """Per-skill sampling defaults for a real chat turn. Clay's own settings are
-``dev/measurements/2026-09-13-clay-assistant-sampling.md``'s own measured
-pick, Q8_0 door acceptance out of 232: greedy (t0, 173) and t1.0 n1 (178,
-Google's stock Gemma recommendation, what run A was first scored at) were
-both beaten by t0.2/top-k 64/top-p 0.95 sampled three times a row (185.0,
+``dev/measurements/2026-09-13-clay-assistant-sampling.md``'s [lost; re-measure to change] own
+measured pick, Q8_0 door acceptance out of 232: greedy (t0, 173) and t1.0 n1 (178, Google's stock
+Gemma recommendation, what run A was first scored at) were both beaten by t0.2/top-k 64/top-p 0.95
+sampled three times a row (185.0,
 versus t1.0's own 177.7 over the same three samples)."""
 
 #: Skills whose reply must be *sized*, via ``/tokenize`` plus
@@ -177,15 +177,45 @@ built to match."""
 #: measuring real conversations first. Unmeasured, same caveat as
 #: ``SAMPLING["chat"]`` above -- the point is a chat thread degrades by
 #: forgetting its oldest turns, never by having the whole request refused
-#: the way an oversized Clay prompt is.
+#: the way an oversized Clay prompt is. Count alone does not hold that
+#: promise, so :data:`CHAT_HISTORY_CHAR_BUDGET` bounds the same fold by size.
 HISTORY_TURNS = 8
+
+#: The longest plain-chat message a door accepts, in characters
+#: (``service.familiar``'s ``ask``/``chat_reply`` refuse past it). The
+#: 2026-10-14 audit, finding familiar-core-03: nothing bounded a prompt, so one
+#: long paste exceeded the 8192-token slot and, because a failed send keeps its
+#: turn in the thread, rode in the next several requests' history too. 4000
+#: characters is about 1300 tokens at three characters a token (a pessimistic
+#: ratio for English), leaving the slot room for history and the reply.
+MAX_CHAT_PROMPT_CHARS = 4000
+
+#: The most history, in characters, :func:`build_chat_messages` sends. With
+#: :data:`MAX_CHAT_PROMPT_CHARS` for the live turn, system prompt and
+#: ``SAMPLING["chat"]``'s 1024-token reply, 12000 characters (~4000 tokens at
+#: three a token) keeps the whole request inside one 8192-token slot even
+#: for an image-bearing turn. Characters, not tokens: the request builders
+#: are pure and a ``/tokenize`` round trip per chat turn is what
+#: ``SIZED_SKILLS`` exists to avoid. Unmeasured, same caveat as above.
+CHAT_HISTORY_CHAR_BUDGET = 12000
+
+#: Everything :func:`build_chat_messages` may put in one request, by the same
+#: character count: history plus the live prompt.
+CHAT_PROMPT_CHAR_BUDGET = CHAT_HISTORY_CHAR_BUDGET + MAX_CHAT_PROMPT_CHARS + len(CHAT_SYSTEM)
 
 
 def build_chat_messages(prompt: str, history: tuple[Any, ...] = ()) -> list[dict[str, str]]:
     """One chat-completions message list for plain conversation: the short
-    system prompt (:data:`CHAT_SYSTEM`), up to the last :data:`HISTORY_TURNS`
-    turns of *history* (``threads.Turn``, ``role`` mapped ``"familiar"`` ->
-    ``"assistant"``), then *prompt* as the final user turn.
+    system prompt (:data:`CHAT_SYSTEM`), the most recent turns of *history*
+    (``threads.Turn``, ``role`` mapped ``"familiar"`` -> ``"assistant"``) that
+    fit both :data:`HISTORY_TURNS` and :data:`CHAT_HISTORY_CHAR_BUDGET`, then
+    *prompt* as the final user turn.
+
+    Turns are taken newest first and the walk stops at the first one that does
+    not fit, so what is kept is always an unbroken tail of the thread: an
+    oversized turn (a failed paste still sitting in the thread) is forgotten
+    together with everything older, rather than skipped with older turns
+    reattached to a conversation that no longer reads.
 
     Unlike :func:`build_messages` (Clay's frozen card plus one merged
     "here is the scene" user turn), plain chat has no scene to compact and no
@@ -196,10 +226,16 @@ def build_chat_messages(prompt: str, history: tuple[Any, ...] = ()) -> list[dict
     refinement context, never fed back as model context, *for a skill with a
     frozen card* -- plain chat has no such card to protect).
     """
-    messages: list[dict[str, str]] = [{"role": "system", "content": CHAT_SYSTEM}]
     role_map = {"user": "user", "familiar": "assistant"}
-    for turn in history[-HISTORY_TURNS:]:
-        messages.append({"role": role_map.get(turn.role, turn.role), "content": turn.text})
+    kept: list[dict[str, str]] = []
+    used = 0
+    for turn in reversed(history[-HISTORY_TURNS:]):
+        used += len(turn.text)
+        if used > CHAT_HISTORY_CHAR_BUDGET:
+            break
+        kept.append({"role": role_map.get(turn.role, turn.role), "content": turn.text})
+    messages: list[dict[str, str]] = [{"role": "system", "content": CHAT_SYSTEM}]
+    messages.extend(reversed(kept))
     messages.append({"role": "user", "content": prompt})
     return messages
 
@@ -647,6 +683,7 @@ reserve too small for any real Clay reply. The longest assistant reply text
 ``answer``) across the Clay-assistant dataset is 5,167 chars
 (``vehicles-0029``), and Qwen3-VL-4B's own tokenizer counts it as exactly
 2,573 tokens (``dev/measurements/2026-09-16-familiar-qwen-vram.md``).
+(Document lost with the 2026-09-20 backup; re-measure before changing this.)
 
 Counted, not estimated: the Gemma-era floor was ``ceil(5167 / 2.73)``, an
 average chars/token ratio, and on Qwen that ratio overstates by about a quarter for

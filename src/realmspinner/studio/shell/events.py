@@ -119,6 +119,14 @@ def _leave_mode_if_needed(ctx: Any, old: str) -> None:
         from ..modes.muse import mode as muse_mode
 
         muse_mode.stop(ctx)
+        # The 2026-10-14 audit, finding muse-mode-05: the derive popup's
+        # ``derive_job`` is cleared only by Muse's own pane, which stops
+        # drawing once the mode is left. A programmatic switch (Familiar's
+        # ``navigate``) with the popup open therefore left it set, and
+        # ``dialogs.modal_open`` answered True in every mode -- every KEYDOWN
+        # dropped with no popup on screen. Packwright's identical incident
+        # (packwright-02, below) is released the same way.
+        muse_mode.close_derive(ctx)
     elif old == "plotter":
         from ..modes.plotter import state as plotter_state
 
@@ -884,6 +892,43 @@ class EventsMixin:
             if images:
                 packwright_mode.add_source_paths(self.app_ctx, images)
             return
+        if len(paths) > 1 and self.app_ctx.state.mode in ("home", "library"):
+            # The 2026-10-14 audit, finding shell-shell-pkg-03: the library's
+            # mesh import is keyed once for the whole mode, so N paths handed
+            # to the one-path door started the first and had the rest refused
+            # by ``TaskRunner.submit`` with nothing said -- while the toast
+            # claimed every one was importing. The meshes are one batch task.
+            from ..modes.library.ui.panes import library
+
+            meshes = [p for p in paths if p.suffix.lower() == ".glb"]
+            for path in paths:
+                if path not in meshes:
+                    self._on_drop(path)
+            if len(meshes) == 1:
+                self._on_drop(meshes[0])
+            elif meshes:
+                if library.import_mesh_paths(self.app_ctx, meshes):
+                    self.app_ctx.toast(f"Importing {len(meshes)} meshes...", "info")
+                else:
+                    self.app_ctx.toast(library.IMPORT_BUSY, "error")
+            return
+        if len(paths) > 1 and self.app_ctx.state.mode == "sirens":
+            # Same finding: a song's sample decode is keyed once per tab, so a
+            # second .wav in the same drop was refused without a word. The
+            # first goes through the ordinary door; the rest are *said*.
+            wavs = [p for p in paths if p.suffix.lower() == ".wav"]
+            if len(wavs) > 1:
+                for path in paths:
+                    if path not in wavs[1:]:
+                        self._on_drop(path)
+                left = len(wavs) - 1
+                self.app_ctx.toast(
+                    f"Sirens takes one sample at a time: {left} more "
+                    f"{'was' if left == 1 else 'were'} not added. Drop "
+                    f"{'it' if left == 1 else 'them'} again once the first lands.",
+                    "error",
+                )
+                return
         for path in paths:
             self._on_drop(path)
 
@@ -985,7 +1030,14 @@ class EventsMixin:
                         "Open or start a song first: a sample belongs to one.", "error"
                     )
                 else:
-                    sirens_mode.import_sample(ctx, tab, path)
+                    if not sirens_mode.import_sample(ctx, tab, path) and not tab.busy:
+                        # A busy tab already said why. The other refusal is the
+                        # tab's decode key being taken, which said nothing: the
+                        # 2026-10-14 audit, finding shell-shell-pkg-03.
+                        ctx.toast(
+                            "Still adding the last sample. Drop this one again once it lands.",
+                            "error",
+                        )
             else:
                 ctx.toast("Sirens opens .rsng songs and .wav samples.", "error")
             return
@@ -1007,8 +1059,13 @@ class EventsMixin:
             # that question for images.
             from ..modes.library.ui.panes import library
 
-            library.import_mesh_path(ctx, path)
-            ctx.toast(f"Importing {path.name}...", "info")
+            # Worded from the door's answer: the toast used to claim an import
+            # that ``submit`` had refused (one is already running) -- the
+            # 2026-10-14 audit, finding shell-shell-pkg-03.
+            if library.import_mesh_path(ctx, path):
+                ctx.toast(f"Importing {path.name}...", "info")
+            else:
+                ctx.toast(library.IMPORT_BUSY, "error")
             return
         if path.suffix.lower() not in DROPPABLE_IMAGES:
             # The refusal says what a drop would have *done here* (H71). One

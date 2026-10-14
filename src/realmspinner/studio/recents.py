@@ -18,6 +18,7 @@ would be a record of the library that the library could contradict.
 
 from __future__ import annotations
 
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -63,9 +64,26 @@ def _decode(rows: list[dict[str, Any]]) -> list[Entry]:
         path = row.get("path")
         if kind not in KINDS or not isinstance(path, str) or not path:
             continue
-        when = row.get("when")
-        out.append(Entry(kind, path, float(when) if isinstance(when, int | float) else None))
+        out.append(Entry(kind, path, _stamp(row.get("when"))))
     return out
+
+
+def _stamp(when: Any) -> float | None:
+    """A stored ``when`` as a finite float, or ``None`` for anything else.
+
+    ``settings.json`` is untrusted input: Python's ``json`` parses ``-Infinity`` and
+    ``NaN``, ``True`` is an ``int``, and an integer past float range overflows. Any of
+    them used to reach ``widgets.ago`` and raise on every frame Home's Resume was drawn
+    (the 2026-10-14 audit, finding shell-documents-08); an unstamped row is the
+    documented reading of "no clock".
+    """
+    if isinstance(when, bool) or not isinstance(when, int | float):
+        return None
+    try:
+        value = float(when)
+    except OverflowError:
+        return None
+    return value if math.isfinite(value) else None
 
 
 def _encode(entries: list[Entry]) -> list[dict[str, Any]]:

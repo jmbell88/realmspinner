@@ -22,6 +22,7 @@ building half a gigabyte.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
@@ -63,12 +64,27 @@ def read_bytes_within_ceiling(path: Path, ceiling: int, *, field: str = "file") 
     "passed" -- shell-07, the 2026-09-18 audit. This reads at most
     ``ceiling + 1`` bytes in one call and refuses if that many came back,
     which bounds the read itself rather than trusting an earlier stat.
+
+    **The request is sized from the file, not from the ceiling** (the
+    2026-10-14 audit, finding shell-documents-02). ``f.read(n)`` allocates *n*
+    bytes up front whatever the file holds, so ``f.read(ceiling + 1)`` peaked at
+    1 GiB opening a 1 KB ``.rsng`` and about 400 MiB for an Inker or Packwright
+    file, a ``MemoryError`` risk beside a 16 GB-floor app that is loading GPU
+    models. The first read asks for ``min(size, ceiling) + 1``: one byte more
+    than the stat says, so a file that stayed put returns short (EOF) and is
+    done, and one that grew since the stat fills the request and is read on up
+    to ``ceiling + 1`` -- the bound on growth the stat/read race needs.
     """
     from ...service.errors import TooLarge
 
     p = Path(path)
     with p.open("rb") as f:
-        data = f.read(ceiling + 1)
+        hint = min(os.fstat(f.fileno()).st_size, ceiling) + 1
+        data = f.read(hint)
+        if len(data) == hint and hint <= ceiling:
+            # The file is larger than it was a moment ago; keep reading, still
+            # bounded by the one byte past the ceiling that proves a refusal.
+            data += f.read(ceiling + 1 - len(data))
     if len(data) > ceiling:
         raise TooLarge(
             f"{p.name} is past the {ceiling} bytes this build will open",

@@ -26,9 +26,10 @@ malicious peer. In scope:
   every image format Pillow handles. Also the import-only formats two parsers
   read but never write: Clay's mesh importer takes `.obj`, `.stl` and `.ply`
   (`kernels.mesh.meshimport.SUPPORTED_SUFFIXES`, alongside the `.glb` already
-  named above), and Poser's clip importer takes `.fbx` and `.gltf`
-  (`service.clip_import.SOURCE_EXTENSIONS`) — the 2026-09-20 audit, finding
-  docs-01: an import-only parser is exactly as reachable by a crafted
+  named above), and Clay's Import Animation takes `.glb` only
+  (`kernels.mesh.animimport`) -- the 2026-10-14 audit, finding docs-A-B-02:
+  the list names only formats a door in the app can reach. The 2026-09-20
+  audit, finding docs-01: an import-only parser is exactly as reachable by a crafted
   third-party file as a native document format, and the inventory above had
   only ever been swept from `service.files`'s save-format constants, which a
   read-only importer never appears in. Three more were missing for the same
@@ -54,26 +55,18 @@ malicious peer. In scope:
   for an update).
 - **The MCP agent bridge.** `src/realmspinner/mcp/` listens on a named pipe
   (Unix socket elsewhere) and accepts JSON-RPC from another process running as
-  the same user on the same machine, so an agent can drive Clay and, since the
-  character pipeline landed, a second, narrower surface. It is **off
+  the same user on the same machine, so an agent can drive Clay. It is **off
   until switched on in Settings**, it is inbound only — it carries no model of its own,
-  makes no outbound connection, and leaves `HF_HUB_OFFLINE` untouched. Scope is two-part: an agent gets its
-  own Clay tab and can address no other; against the character pipeline it may
-  read any Library row by job id, but write is additive only — new mesh, rig
-  or charsheet rows minted through the same service doors a pane uses, derived
-  artifacts, and copies into the configured export folder — never a rewrite of
-  an existing row, never a path (every argument is an id or an enum), and it
-  may cancel only the jobs it started on its own connection. Every file an
-  agent exports is named from `characters.agent_export_stem` (the asset's own
-  export name plus its job id, and a sheet id too where the format needs one)
-  rather than the plain display name a pane's export uses, so an agent's
-  export of a copy can only ever overwrite an earlier export *it* made of the
-  same asset, never a human's export of a same-named one. It is still an
+  makes no outbound connection, and leaves `HF_HUB_OFFLINE` untouched. Its scope
+  is one thing: an agent gets its own Clay tab and can address no other. The
+  only doors out of that tab are reading a Library job's reference image by id
+  (`clay_reference_add`) and `clay_export`'s one-shot mint of a Library row; it
+  never reaches text-to-image or the reconstruction engine. (The character-pipeline tool surface that once sat beside it was
+  removed on 2026-10-14; the 2026-10-14 audit, finding docs-A-B-01.) It is still an
   untrusted-input parser like any file format above: its framing
   (`src/realmspinner/mcp/protocol.py`) and its pipe (`pipe.py`) are in scope, and so
-  is anything reachable through either derived tool surface that escapes its
-  own bound — Clay's one tab, or the character pipeline's read-any/write-
-  additive-only rule.
+  is anything reachable through the derived Clay tool surface that escapes its
+  own bound — Clay's one tab.
 - **Familiar's local listeners.** `src/realmspinner/pipelines/llama.py` spawns
   `llama-server.exe`, a loopback HTTP listener distinct from the named pipe above,
   bound to `127.0.0.1` only (`REALMSPINNER_FAMILIAR_PORT`, 17972 by default). A second
@@ -88,10 +81,13 @@ malicious peer. In scope:
   `fetch_worker` above, and the three network exceptions stay three. In scope:
   anything reachable through those HTTP surfaces, and the key files' own handling.
 - **Subprocess handling.** Heavy or privileged work is never done inline in the
-  main process: reconstruction (`trellis-server.exe`), Familiar's `llama-server.exe` children, the Blender worker,
-  the matting worker, the music and stem-separation workers, LoRA training,
+  main process: every child process the app starts — reconstruction
+  (`trellis-server.exe`), Familiar's `llama-server.exe` children, the
+  text-to-image worker (`t2i_client`), the Blender worker, the matting worker,
+  the music and stem-separation workers, LoRA training, `gltfpack`
+  (`pipelines/optimize.py`), Flourish's text model (`recipe_worker`),
   `doctor`'s load probe, the fetch worker, the pack worker and the update
-  worker all run as a child process inside the `winjob` kill-on-close job, so a
+  worker — runs inside the `winjob` kill-on-close job, so a
   crash or a forced close of the main window cannot leave one running orphaned.
 
 ## What is not in scope

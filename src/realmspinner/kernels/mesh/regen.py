@@ -136,7 +136,14 @@ def carry_over(
     reorder_risk = (
         changed_keys is not None and len(changed_keys) > 1 and not same_faces(old, rebuilt)
     )
-    if bm.face_count(rebuilt) == bm.face_count(old) and not reorder_risk:
+    # The 2026-10-14 audit, finding clay-document-12: with ``changed_keys`` omitted
+    # this trusted "same face count" as "same faces", so a capsule or a UV sphere
+    # whose two counts both moved (the same face count, a different corner count)
+    # got the old ``uv`` array -- the wrong length -- and failed ``validate``. A
+    # per-corner array is only carried onto the same corners, so the corner count
+    # has to match as well.
+    same_corners = len(rebuilt.loops) == len(old.loops)
+    if bm.face_count(rebuilt) == bm.face_count(old) and same_corners and not reorder_risk:
         return replace(rebuilt, smooth=old.smooth, material=old.material, uv=old.uv)
     smoothed = shading.auto_smooth(rebuilt)
     return replace(smoothed, material=np.full(bm.face_count(rebuilt), material, dtype="i4"))

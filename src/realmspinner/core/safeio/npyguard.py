@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+import zlib
 
 import numpy as np
 
@@ -98,6 +99,18 @@ def read_array(raw: bytes, what: str) -> np.ndarray:
         # reaches numpy's. A pickled object inside a document a user was handed
         # is arbitrary code, and the header is where it announces itself.
         raise ValueError(f"{what} stores Python objects, which this build never unpickles")
+    if int(dtype.itemsize) == 0:
+        # The 2026-10-14 audit, finding shell-documents-01: the cost below is
+        # ``count * itemsize``, so a ``|V0``, ``<U0`` or ``|S0`` array
+        # declaring ``(1 << 40,)`` priced at 0 bytes and sailed past the
+        # ceiling this function exists to enforce -- the element count itself
+        # was never bounded, and the mesh built from it asked for a 4 TiB
+        # ``float32`` and raised a bare ``MemoryError``. Nothing this build
+        # writes has a zero-width element, so the dtype is refused by name.
+        raise ValueError(
+            f"{what} declares {shape} of {dtype}, a zero-width element type this"
+            " build never reads"
+        )
     count = 1
     for axis in shape:
         count *= int(axis)
@@ -127,6 +140,13 @@ def read_npz(raw: bytes, what: str) -> dict[str, np.ndarray]:
         archive = zipguard.BoundedZip(io.BytesIO(raw))
     except zipfile.BadZipFile as exc:
         raise ValueError(f"{what} is not a numpy archive") from exc
+    # What a member read can raise besides the ``ValueError`` this module
+    # promises (the 2026-10-14 audit, finding shell-documents-07): a CRC
+    # mismatch or a damaged stream is ``BadZipFile`` or ``zlib.error``, an
+    # encrypted member is ``RuntimeError`` and an unknown compression method is
+    # ``NotImplementedError``. None is a ``ValueError``, so a corrupt ``.rblk``
+    # mesh reached the open path as an unnamed error.
+    damaged = (zipfile.BadZipFile, zlib.error, RuntimeError, NotImplementedError)
     out: dict[str, np.ndarray] = {}
     with archive:
         # Before any member is read: read_array bounds one member at a time
@@ -153,5 +173,9 @@ def read_npz(raw: bytes, what: str) -> dict[str, np.ndarray]:
                 # something else's file riding along; skipping it is what
                 # ``np.load`` does with it too.
                 continue
-            out[name[: -len(".npy")]] = read_array(archive.read(name), f"{name} in {what}")
+            try:
+                member = archive.read(name)
+            except damaged as exc:
+                raise ValueError(f"{name} in {what} is unreadable: {exc}") from exc
+            out[name[: -len(".npy")]] = read_array(member, f"{name} in {what}")
     return out

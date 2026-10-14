@@ -2,7 +2,7 @@
   "version": 3,
   "template": "humanoid",
   "space": "delta",
-  "comment": "Troupe's clip library. Local joint rotations, XYZW. space=delta means each value is a rotation from the bone's own REST orientation, not the pose editor's node-local frame -- see blender_worker.POSE_SPACES. Local X is the swing axis for both thigh and upper_arm; arms carry a constant -58 degrees about it to bring them down from a T/A-pose rest. root_translation is in character-height units.",
+  "comment": "The shipped clip library. Local joint rotations, XYZW. space=delta means each value is a rotation from the bone's own REST orientation, not the pose editor's node-local frame -- see blender_worker.POSE_SPACES. Local X is the swing axis for both thigh and upper_arm; arms carry a constant -58 degrees about it to bring them down from a T/A-pose rest. root_translation is in character-height units.",
   "clips": [
     {
       "name": "idle",

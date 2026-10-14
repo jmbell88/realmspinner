@@ -24,11 +24,10 @@ from typing import Any
 
 #: Triangle budgets, keyed by the word the panel and Create's Budget combo
 #: show. Triangles, not quads: measured 2026-09-23 on the raccoon
-#: (`dev/measurements/2026-09-23-default-mesh-budget.md`) -- the voxel pass
-#: forces quadriflow to refuse ("consistent normals") on every trellis mesh,
-#: so the decimate fallback is what actually runs, and decimate's own budget
-#: is a triangle count. A quad-labelled ladder was therefore promising a unit
-#: the worker could not deliver. ``custom`` takes a number in
+#: (`dev/measurements/2026-09-23-default-mesh-budget.md` [lost; re-measure to change]) -- the voxel
+#: pass forces quadriflow to refuse ("consistent normals") on every trellis mesh, so the decimate
+#: fallback is what actually runs, and decimate's own budget is a triangle count. A quad-labelled
+#: ladder was therefore promising a unit the worker could not deliver. ``custom`` takes a number in
 #: ``TRIANGLES_MIN..TRIANGLES_MAX``.
 #:
 #: 5k is the default: Crash-Bandicoot-range fidelity on a whole-character

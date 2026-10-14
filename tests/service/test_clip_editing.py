@@ -355,7 +355,12 @@ def test_the_two_spellings_of_the_clip_directory_agree(svc):
     """``poselib.clip_dir`` is the app asking where to write and
     ``cliplib.user_clip_dir`` is the loader asking where to read. The loader may
     not import ``config``, so they are two expressions of one path -- and this
-    is what asserts they are the same one."""
+    is what asserts they are the same one.
+
+    The loader's directory is armed by the ``service.clips`` doors, not by service
+    construction (the 2026-10-14 audit, finding poser-poses-02), so a door is
+    called first."""
+    svc_clips.library(svc, TEMPLATE)
     assert poselib.clip_dir(svc.config) == cliplib.user_clip_dir()
 
 

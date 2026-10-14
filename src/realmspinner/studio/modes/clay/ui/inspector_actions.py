@@ -91,7 +91,7 @@ def action_groups(mode: str = "object") -> list[tuple[str, str, tuple[clay_ops.O
     return out
 
 
-#: ``doc -> ((rev, element mode, saving), {op name: reason})``. Weak, so a closed
+#: ``doc -> ((rev, element mode, saving, pose_rev), {op name: reason})``. Weak, so a closed
 #: document takes its entry with it (``props._MATERIAL_USERS_CACHE``'s own shape).
 _STATUS: weakref.WeakKeyDictionary[Any, tuple[tuple[Any, ...], dict[str, str]]] = (
     weakref.WeakKeyDictionary()
@@ -113,7 +113,11 @@ def status(doc: Any, ops: tuple[clay_ops.Op, ...], saving: bool) -> dict[str, st
     """
     if saving:
         return {op.name: _SAVING for op in ops}
-    key = (getattr(doc, "rev", None), doc.element_mode, False)
+    # ``pose_rev`` is in the key because a pose gate (Apply Pose as Rest asks ``pose_overrides``)
+    # reads the playhead, the active clip and the unkeyed pose, none of which move ``rev``: the
+    # 2026-10-14 audit, finding clay-panes-02, left the button greyed with "Nothing is posed"
+    # over a pose the viewport was showing.
+    key = (getattr(doc, "rev", None), doc.element_mode, False, getattr(doc, "pose_rev", 0))
     known: dict[str, str] = {}
     if key[0] is not None:
         cached = _STATUS.get(doc)

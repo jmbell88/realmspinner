@@ -299,6 +299,7 @@ def _log_mem(when: str) -> None:
     # printed ``children 0.0 GiB`` beside a worker holding 6.3 GiB -- on the
     # very tick that then refused the next job for want of commit
     # (dev/measurements/2026-08-22-trampoline-child-pids.md).
+    # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     host = memlog.summary(children=winjob.measured_pids())
     if host is not None:
         log.info("host %s: %s", when, host)
@@ -640,7 +641,12 @@ def _palette_entries(config: Config, name: str) -> tuple[tuple[int, int, int], .
     if not name:
         return ()
     directory = Path(config.palette_dir)
-    for suffix in (".hex", ".gpl"):
+    # Every suffix the reader table has, in its order -- which is the order
+    # ``service.palettes`` resolves in. The 2026-10-14 audit, finding service-01:
+    # this loop was a hand-kept ``(".hex", ".gpl")``, so a ``.pal`` or ``.txt``
+    # palette the picker offers and the door loads passed admission and then died
+    # here with "no longer installed" while the file was still on disk.
+    for suffix in pixel.PARSERS:
         candidate = directory / f"{name}{suffix}"
         if candidate.is_file() and candidate.resolve().parent == directory.resolve():
             return pixel.parse_palette(
@@ -1150,6 +1156,16 @@ class Worker(
 
     async def shutdown(self) -> None:
         self._stop.set()
+        # The running job's cancel event goes up *before* either child is
+        # closed (the 2026-10-14 audit, finding service-12). ``close`` kills its
+        # child first, so the in-flight request in ``_process`` sees a dead
+        # child; with the event still clear that reads as the job failing, and
+        # the row was recorded ``error`` and ``on_job_failed`` fired -- which for
+        # a sweep unit cancels every queued sibling with a reason ("failed on
+        # this server config") that is false for a plain quit. Only the event
+        # here: the phase-specific kill stays in ``request_cancel`` below.
+        if self.current_job_id is not None and self._cancel is not None:
+            self._cancel.event.set()
         # Before the cancel and before the grace period, so a load already in
         # flight on a worker thread learns not to publish. Cancelling the task
         # below only cancels the coroutine awaiting it (MDL-02).
@@ -1759,7 +1775,20 @@ class Worker(
                 vram.TRELLIS_GIB * vram.TRELLIS_RES_MULT.get(self._trellis_resolution, 1.0),
                 exclusive=bool(self.config.vram_exclusive),
             )
-        if image_term > 0 and self._text2image is not None and self._text2image.loaded:
+        if (
+            image_term > 0
+            # ``music`` returns its *music* checkpoint as the second term, so
+            # ``image_term > 0`` is true for it -- and a music job neither
+            # reuses a resident SDXL pipe nor evicts it (``_q_music`` stops
+            # trellis and nothing else). Crediting the pipe anyway was ~7 GiB
+            # of headroom that is not free, on the under-charging side of the
+            # "VRAM halves agree" invariant (the 2026-10-14 audit, finding
+            # service-11): a failed text job's ``trim()`` leaves exactly such
+            # a pipe loaded until the 600 s idle sweep.
+            and job.get("kind") != "music"
+            and self._text2image is not None
+            and self._text2image.loaded
+        ):
             # Gated on "did the estimate charge for a checkpoint", not on the
             # job's kind. The kind list this replaced said `text` alone, while
             # `vram.estimate` prices sprite_synthesis and

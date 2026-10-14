@@ -45,7 +45,11 @@ local to the joint's glTF parent, and a bone here is local to its parent *bone*,
 non-joint node (Blender's Armature empty) sits between them the keys are carried across it:
 sampled at the union of the joint's key times, composed, multiplied by the fixed matrix between
 the two frames and decomposed again. A ``CUBICSPLINE`` channel is resampled to linear keys and
-the notice says so; ``STEP`` and ``LINEAR`` import as they are. The frame rate is guessed from
+the notice says so (its time span is checked against the 600-second and 4,096-key caps *before*
+the resampling, which makes a key every frame; the cap on keys is therefore met by about 136
+seconds at 30 fps, and the refusal says it is the resampling that is over); ``STEP`` and
+``LINEAR`` import as they are. A clip none of whose channels drives a bone is left out and
+counted in the notice. The frame rate is guessed from
 the smallest gap between keys and rounded to the nearest of 12, 24, 30 and 60. More than 64
 animations, a channel past 4,096 keys or a clip longer than 600 seconds is refused by name: the
 caps are Clay's, and trimming a clip silently would be worse than saying so.
@@ -140,6 +144,15 @@ class _Importer:
             parent = self.bone_of_node[above] if above is not None else None
             parent_world = self.model.nodes[above].world if above is not None else None
             t, r, s = _relative(node.world, parent_world, label)
+            # The 2026-10-14 audit, finding clay-rig-09: ``_relative`` refuses a collapsed
+            # parent and an all-zero scale but not one zero axis, and the import then died in
+            # ``np.linalg.inv`` of this bone's world (here, in ``frame_change`` and in
+            # ``_skinned``) with a bare ``LinAlgError`` that named no bone.
+            if np.linalg.matrix_rank(np.asarray(node.world, dtype="f8")[:3, :3]) < 3:
+                raise OpError(
+                    f"{label} is flattened along one axis (a zero scale), so a Clay bone "
+                    "cannot be placed there."
+                )
             bone = Obj(
                 uid=new_uid(),
                 name=self.unique(node.name or "Bone", self.taken),
@@ -264,11 +277,50 @@ def _guess_fps(model: gltf.Model) -> int:
     return min(anim.FPS_CHOICES, key=lambda fps: abs(np.log(fps / wanted)))
 
 
-def _linear_keys(channel: gltf.AnimChannel, fps: int) -> tuple[np.ndarray, np.ndarray, bool]:
-    """``(times, values, was_cubic)``: the channel as keys Clay can hold, ascending and unique."""
+def _refuse_cubic_span(times: np.ndarray, fps: int, where: str) -> None:
+    """Refuse a smoothed channel whose resampling would be past Clay's caps, *before* it is made.
+
+    The 2026-10-14 audit, finding clay-rig-01: ``anim.resample_cubic`` lays a key every ``1/fps``
+    seconds from the first key to the last, so a few-hundred-byte file whose last key time is
+    1e10 asked ``np.arange`` for 2 TiB (and at 20,000 s the loop alone took 3 s) before the 4,096
+    key and 600 second caps were looked at -- a number read from an untrusted file decided an
+    allocation before it was checked. Finding clay-rig-12: the cap on keys was met only *after*
+    resampling, so a clip of about 136 s at 30 fps was refused as "4,501 keys" for a file that
+    held three; the refusal now says it is the resampling that is over.
+    """
+    times = np.asarray(times, dtype="f8")
+    if not len(times):
+        return
+    if not np.isfinite(times).all() or (len(times) > 1 and not (np.diff(times) > 0.0).all()):
+        raise OpError(
+            f"{where} has key times that do not strictly increase, so it cannot be resampled."
+        )
+    first, last = float(times[0]), float(times[-1])
+    if first < 0.0 or last > anim.MAX_ANIMATION_SECONDS:
+        raise OpError(
+            f"{where} runs from {first:.0f} to {last:.0f} seconds, outside the "
+            f"0..{anim.MAX_ANIMATION_SECONDS:.0f} a Clay clip holds."
+        )
+    grid = int(np.ceil((last - first) * fps))
+    if grid > anim.MAX_KEYS_PER_CHANNEL:
+        raise OpError(
+            f"{where} is a smoothed channel that would resample to about {grid:,} keys at "
+            f"{fps} fps ({len(times)} in the file), past the {anim.MAX_KEYS_PER_CHANNEL:,} a Clay "
+            "channel holds. Bake it to linear keys in Blender first."
+        )
+
+
+def _linear_keys(
+    channel: gltf.AnimChannel, fps: int, where: str = "A smoothed channel"
+) -> tuple[np.ndarray, np.ndarray, bool]:
+    """``(times, values, was_cubic)``: the channel as keys Clay can hold, ascending and unique.
+
+    *where* names the channel in a refusal (``import_animations`` and ``animimport`` both call
+    this; the second still passes nothing and gets the generic subject)."""
     width = 4 if channel.path == "rotation" else 3
     cubic = channel.interpolation == "CUBICSPLINE"
     if cubic:
+        _refuse_cubic_span(channel.times, fps, where)
         times, values = anim.resample_cubic(channel.times, channel.values, fps=fps, width=width)
     else:
         times, values = np.asarray(channel.times), np.asarray(channel.values)
@@ -303,7 +355,7 @@ def import_animations(importer: _Importer) -> tuple[anim.RigState, tuple[str, ..
     fps = _guess_fps(model)
     taken: set[str] = set()
     animations: list[anim.Animation] = []
-    cubic = dropped = mixed = 0
+    cubic = dropped = mixed = idle = 0
     for source in model.animations:
         label = f"The animation {source.name!r}" if source.name else "An animation"
         by_node: dict[int, dict[str, gltf.AnimChannel]] = {}
@@ -319,6 +371,12 @@ def import_animations(importer: _Importer) -> tuple[anim.RigState, tuple[str, ..
             made, resampled = _bone_channels(importer, node_index, props, fps, label)
             cubic += resampled
             channels[importer.bone_of_node[node_index].uid] = made
+        if not channels:
+            # The 2026-10-14 audit, finding clay-rig-10: a camera or prop clip (or a morph-only
+            # one) arrived as an empty animation of duration 0 that ``glb_to_claydoc`` then
+            # selected and the writer exported channel-less. ``animimport`` already skips it.
+            idle += 1
+            continue
         if len(interpolations) > 1:
             mixed += 1
         loop = source.extras.get("loop", True) if isinstance(source.extras, dict) else True
@@ -350,6 +408,11 @@ def import_animations(importer: _Importer) -> tuple[anim.RigState, tuple[str, ..
             f"{mixed} animation{'s' if mixed != 1 else ''} mixed step and linear keys and came "
             "in as linear."
         )
+    if idle:
+        notices.append(
+            f"{idle} animation{'s' if idle != 1 else ''} moved no bone and "
+            f"{'were' if idle != 1 else 'was'} left out."
+        )
     return anim.RigState(tuple(animations), fps), tuple(notices)
 
 
@@ -364,14 +427,19 @@ def _bone_channels(
     model = importer.model
     bone = importer.bone_of_node[node_index]
     keys: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    built: dict[str, anim.Channel] = {}
     resampled = 0
     for path, channel in props.items():
-        times, values, was_cubic = _linear_keys(channel, fps)
+        where = f"{label} ({bone.name!r}, {path})"
+        times, values, was_cubic = _linear_keys(channel, fps, where)
         resampled += int(was_cubic)
         keys[path] = (times, values)
         if len(times) > anim.MAX_KEYS_PER_CHANNEL:
+            # The 2026-10-14 audit, finding clay-rig-12: for a smoothed channel these are the
+            # keys the *resampling* made, not the file's.
+            what = "keys once resampled at the frame rate" if was_cubic else "keys"
             raise OpError(
-                f"{label} has {len(times):,} keys on {bone.name!r}'s {path}, past the "
+                f"{label} has {len(times):,} {what} on {bone.name!r}'s {path}, past the "
                 f"{anim.MAX_KEYS_PER_CHANNEL:,} a Clay channel holds. Bake it to fewer keys "
                 "in Blender first."
             )
@@ -380,9 +448,13 @@ def _bone_channels(
                 f"{label} runs {times[-1]:.0f} seconds, past the {anim.MAX_ANIMATION_SECONDS:.0f} "
                 "a Clay clip holds."
             )
+        # The 2026-10-14 audit, finding clay-rig-08: only ``anim.Animation`` was inside a ``try``,
+        # so a key ``Channel`` refuses (a negative time, a zero quaternion) escaped as a bare
+        # ``ValueError`` naming neither the animation nor the bone.
+        built[path] = _channel(times, values, where)
     fold = importer.frame_change(node_index)
     if fold is None:
-        return {path: anim.Channel(t, v) for path, (t, v) in keys.items()}, resampled
+        return built, resampled
 
     # A non-joint node sits between this joint and its parent bone, so every key crosses a
     # fixed matrix: sample all three properties at the union of the key times, multiply, and
@@ -400,7 +472,7 @@ def _bone_channels(
     for time in union:
         local = {
             path: (
-                anim.sample(anim.Channel(*keys[path]), float(time), interpolation)
+                anim.sample(built[path], float(time), interpolation)
                 if path in keys
                 else np.asarray(rest[path], dtype="f8")
             )
@@ -415,7 +487,18 @@ def _bone_channels(
             )
         for path, value in (("translation", t), ("rotation", r), ("scale", s)):
             out[path].append(value)
-    return {path: anim.Channel(union, np.array(rows)) for path, rows in out.items()}, resampled
+    return {
+        path: _channel(union, np.array(rows), f"{label} ({bone.name!r}, {path})")
+        for path, rows in out.items()
+    }, resampled
+
+
+def _channel(times: Any, values: Any, where: str) -> anim.Channel:
+    """``anim.Channel`` with its ``ValueError`` as the module's own refusal, naming *where*."""
+    try:
+        return anim.Channel(times, values)
+    except ValueError as exc:
+        raise OpError(f"{where} cannot be imported: {exc}") from exc
 
 
 # -- the skeleton's questions ---------------------------------------------------------------
@@ -519,7 +602,14 @@ def _into_frame(positions: np.ndarray, normals: np.ndarray | None, matrix: np.nd
 
 def _normalised(weights: np.ndarray) -> np.ndarray:
     """Weights summing to exactly one per vertex. A row of zeros (unskinned in glTF) is
-    given to its first joint, the nearest honest reading of "no weights at all"."""
+    given to its first joint, the nearest honest reading of "no weights at all".
+
+    A weight that is not a finite number is refused by name: ``np.clip`` and the ``total <= 0``
+    test below both let a NaN through, and the document that results cannot be saved. The
+    2026-10-14 audit, finding clay-io-03 (``gltf.load`` refuses first; this is the second door,
+    for a caller that hands over its own arrays)."""
+    if not np.isfinite(weights).all():
+        raise OpError("A skin weight is not a finite number, so the rig cannot be imported.")
     weights = np.clip(weights, 0.0, None)
     total = weights.sum(axis=1)
     empty = total <= 0.0

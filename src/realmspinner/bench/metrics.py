@@ -232,7 +232,7 @@ def hash_similarity(a: int, b: int) -> float:
     with a floor under it, and reporting it as-is would call a worst-case pair
     of pure-noise plates "75% similar". Subtracting the floor and rescaling is
     what ``pipelines.rank`` already does to the cosine's -1..1 range. The corpus
-    is ``dev/measurements/2026-08-11-perceptual-hash-floor.md``; do not
+    is ``dev/measurements/2026-08-11-perceptual-hash-floor.md`` [lost; re-measure to change]; do not
     "simplify" this back to a bit count.
     """
     agreement = 1.0 - bin(a ^ b).count("1") / HASH_BITS

@@ -42,7 +42,7 @@ from typing import Any
 from ... import docmodes, journal
 from ...state import set_mode
 from . import state as plotter_state
-from .engine._map_model import ObjectLayer
+from .engine._map_model import ObjectLayer, TileShape
 
 # ``ensure`` and ``active`` live in :mod:`.plotter_state` -- they touch nothing
 # but ``ctx.state.plotter`` -- and the file layer lives in :mod:`.plotter_io`.
@@ -52,6 +52,7 @@ from .engine._map_model import ObjectLayer
 # ``main.App`` names ``"plotter_mode.persist"`` as a literal besides.
 from .fileio import (  # noqa: F401
     MAP_FILTER,
+    OPEN_PREFIX,
     RMAP_FILTER,
     TMJ_FILTER,
     TMX_FILTER,
@@ -352,6 +353,18 @@ def on_task_done(ctx: Any, done: Any) -> None:
             # A ruled sheet: park it and let the popup ask. Nothing is added to
             # the document here -- ``slicing``'s rule is that the detection is a
             # suggestion, so the only thing that has happened is a measurement.
+            if state.active_uid != tab.uid:
+                # The popup opens only for the front tab, and arriving at a tab
+                # forgets a parked sheet (``_forget_document_state``), so a
+                # sheet parked for a background tab was dropped without a word
+                # the moment the user went back to it (the 2026-10-14 audit,
+                # finding plotter-mode-10). Said now, once, instead.
+                ctx.toast(
+                    f"The sheet you picked for {tab.title} was not added because "
+                    "you had switched maps. Add it again from that map.",
+                    "warn",
+                )
+                return
             state.sheet_import = result["sheet"]
             state.sheet_import_open = False
             return
@@ -396,7 +409,15 @@ _SAVE_TASK_HEADS = ("plotter-save", "plotter-saveas", "plotter-export", "plotter
 
 
 def on_task_failed(ctx: Any, done: Any) -> None:
-    """A failed save must not leave the document locked."""
+    """A failed save must not leave the document locked, and a failed open must
+    drop its path off the recents list."""
+    if done.key.startswith(OPEN_PREFIX):
+        # Before the tab lookup: an open that failed has no tab, only a path
+        # that does not open (the 2026-10-14 audit, finding plotter-mode-09).
+        # An edit-asset open carries a job id here instead, and forgetting one
+        # of those matches nothing.
+        forget_path(ctx, done.key.split(":", 1)[1])
+        return
     state = ctx.state.plotter
     if state is None or ":" not in done.key:
         return
@@ -615,6 +636,20 @@ def redo(ctx: Any, tab: Any) -> None:
     _prune_stale_brush(ctx, tab)
 
 
+def tile_gid_resolves(doc: Any, tile_gid: int) -> bool:
+    """Whether a tile object's gid (flip flags and all) names a tile ``doc`` has.
+
+    Zero is the empty tile and always resolves. This is the check ``read_rmap``
+    makes at the other door: a gid no tileset covers saves without complaint and
+    then makes the whole map unopenable, journal recovery included (the
+    2026-10-14 audit, finding plotter-mode-01).
+    """
+    from ....kernels.grid2d import gid as gidlib
+
+    tile_id = int(gidlib.decompose(int(tile_gid))[0])
+    return not tile_id or doc.ref_for(tile_id) is not None
+
+
 def _names_missing_tileset(doc: Any, cells: Any) -> bool:
     """Whether a gid array holds a tile no tileset in ``doc`` accounts for."""
     import numpy as np
@@ -651,6 +686,16 @@ def _prune_stale_brush(ctx: Any, tab: Any) -> None:
             state.brush = None
     clip = state.clipboard
     if (
+        isinstance(clip, ObjectClip)
+        and state.clipboard_doc == tab.uid
+        and isinstance(clip.obj.shape, TileShape)
+        and not tile_gid_resolves(doc, clip.obj.shape.gid)
+    ):
+        # A copied tile object is a gid too, and Ctrl+V used to write it
+        # without asking (the 2026-10-14 audit, finding plotter-mode-01).
+        state.clipboard = None
+        state.clipboard_doc = ""
+    elif (
         clip is not None
         and not isinstance(clip, ObjectClip)
         and state.clipboard_doc == tab.uid
@@ -967,6 +1012,15 @@ def handle_key(ctx: Any, event: Any) -> bool:
         # they spent a gesture placing. Consumed either way -- Esc belongs to
         # this mode even when there is nothing left for it to drop.
         if state.drag_kind:
+            # The document's own open gesture is abandoned *before* the drag
+            # state is cleared: clearing only the state left the half stroke in
+            # the layer, and the canvas's next idle-frame recovery then
+            # committed it as an undo step the user had just cancelled (the
+            # 2026-10-14 audit, finding plotter-mode-32).
+            if tab is not None:
+                tab.doc.cancel_stroke()
+                tab.doc.cancel_object_edit()
+                tab.doc.cancel_group_edit()
             state.clear_drag()
         elif state.selected_objects:
             state.select_object(None)
@@ -1056,7 +1110,46 @@ def _locked_toast(ctx: Any, layer: Any) -> None:
     in two workspaces of one app cost one click in one and a hunt through the
     layer list in the other. ``ctx.toast`` has taken an action all along.
     """
-    docmodes.refuse(ctx, f"{layer.name} is locked.", action="unlock", action_arg=str(layer.uid))
+    # Which layer *holds* the lock. ``layer_locked`` resolves a group's lock down
+    # onto its children, so the leaf can be refused while its own flag is clear;
+    # the 2026-10-14 audit (finding plotter-mode-07) found the toast then saying
+    # "<leaf> is locked." with an Unlock that did nothing, because
+    # ``unlock_layer`` finds the leaf's own flag already false. Name the group
+    # that holds it and hand *its* uid to the action, so the button does what it
+    # says.
+    holder = _lock_holder(ctx, layer)
+    if holder is layer:
+        message = f"{layer.name} is locked."
+    else:
+        message = f"{layer.name} is locked by its group {holder.name}."
+    docmodes.refuse(ctx, message, action="unlock", action_arg=str(holder.uid))
+
+
+def _lock_holder(ctx: Any, layer: Any) -> Any:
+    """The layer whose own flag locks ``layer``: itself, else the nearest group above.
+
+    ``layer`` when nothing resolves (no tab, a layer already gone), so the caller
+    keeps the sentence it always had.
+    """
+    if getattr(layer, "locked", False):
+        return layer
+    state = getattr(ctx.state, "plotter", None)
+    tab = None if state is None else state.active
+    if tab is None:
+        return layer
+    doc = tab.doc
+    try:
+        parent = doc.parent_uid_of(layer.uid)
+        while parent is not None:
+            group = doc.layer(parent)
+            if group is None:
+                break
+            if getattr(group, "locked", False):
+                return group
+            parent = doc.parent_uid_of(parent)
+    except KeyError:
+        pass
+    return layer
 
 
 def unlock_layer(ctx: Any, uid: str) -> None:
@@ -1278,6 +1371,16 @@ def _paste_object(ctx: Any, state: PlotterState, tab: PlotterDoc) -> None:
     if layer_locked(tab.doc, layer):
         _locked_toast(ctx, layer)
         return
+    if isinstance(state.clipboard.obj.shape, TileShape) and not tile_gid_resolves(
+        tab.doc, state.clipboard.obj.shape.gid
+    ):
+        # Cut, then the tileset removed, then pasted: the gid would land in a
+        # map ``read_rmap`` refuses to reopen (the 2026-10-14 audit, finding
+        # plotter-mode-01).
+        state.clipboard = None
+        state.clipboard_doc = ""
+        docmodes.refuse(ctx, "That object used a tileset this map no longer has.")
+        return
     copy = dataclasses.replace(
         state.clipboard.obj,
         uid=new_uid(),
@@ -1285,7 +1388,12 @@ def _paste_object(ctx: Any, state: PlotterState, tab: PlotterDoc) -> None:
         x=state.clipboard.obj.x + tab.doc.tile_w,
         y=state.clipboard.obj.y + tab.doc.tile_h,
     )
-    tab.doc.add_object(layer.uid, copy)
+    try:
+        tab.doc.add_object(layer.uid, copy)
+    except ValueError as exc:
+        # The map's object ceiling (the 2026-10-14 audit, finding plotter-map-06).
+        docmodes.refuse(ctx, str(exc))
+        return
     state.select_object(copy.uid)
 
 
@@ -1329,7 +1437,12 @@ def _duplicate_object(ctx: Any, state: PlotterState, tab: PlotterDoc) -> None:
         x=found.x + tab.doc.tile_w,
         y=found.y + tab.doc.tile_h,
     )
-    tab.doc.add_object(layer.uid, copy)
+    try:
+        tab.doc.add_object(layer.uid, copy)
+    except ValueError as exc:
+        # The map's object ceiling (the 2026-10-14 audit, finding plotter-map-06).
+        docmodes.refuse(ctx, str(exc))
+        return
     state.select_object(copy.uid)
     ctx.toast(f"Duplicated {found.name or 'the object'}.")
 

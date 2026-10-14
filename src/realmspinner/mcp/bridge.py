@@ -137,8 +137,15 @@ class _VersionMismatch(Exception):
     the two fatal cases)."""
 
 
-def _hello(conn: Any) -> dict[str, Any] | None:
+def _hello(conn: Any, why: list[str] | None = None) -> dict[str, Any] | None:
     """Send `hello`, bounded by `SETUP_TIMEOUT`, and return its header.
+
+    *why*, when given, receives one sentence saying what went wrong whenever
+    this returns `None` or raises `_VersionMismatch`, so a caller that can
+    report to an agent (:meth:`_Session._ensure_connected`) tells it the real
+    reason. The 2026-10-14 audit (finding agents-host-01) found the reason
+    went only to stderr, which MCP clients rarely show, while every
+    `tools/call` said the agent switch was off even when it was on.
 
     `None` covers every outcome that means "this connection is not usable,
     but not because of a real disagreement": no reply within
@@ -157,6 +164,12 @@ def _hello(conn: Any) -> dict[str, Any] | None:
             "treating this connection as unreachable.",
             file=sys.stderr,
         )
+        if why is not None:
+            why.append(
+                f"Realmspinner accepted the agent connection but did not answer within "
+                f"{SETUP_TIMEOUT:.0f}s -- it may be busy or hung. The agent switch is on; "
+                "try again in a moment."
+            )
         return None
     # The 2026-09-16 audit (agents-04): every `recv_bytes()` call on this
     # pipe omitted stdlib's own `maxlength` argument, so `Connection.
@@ -171,22 +184,26 @@ def _hello(conn: Any) -> dict[str, Any] | None:
     if "error" in header:
         err = header["error"]
         if err.get("code") == "rpc_version":
-            print(
+            message = (
                 "Realmspinner speaks a different agent RPC version than this bridge "
                 f"understands (bridge: {RPC_VERSIONS}, Realmspinner supports: "
                 f"{err.get('supported')}). "
-                "Update Realmspinner or this bridge so the two match.",
-                file=sys.stderr,
+                "Update Realmspinner or this bridge so the two match."
             )
+            print(message, file=sys.stderr)
+            if why is not None:
+                why.append(message)
             raise _VersionMismatch(err)
         if err.get("code") == "busy":
-            print(
+            message = (
                 "Realmspinner already has another agent client connected -- "
-                "only one is served at a time. Try again once it disconnects.",
-                file=sys.stderr,
+                "only one is served at a time. Try again once it disconnects."
             )
         else:
-            print(f"Realmspinner refused the agent connection: {err}", file=sys.stderr)
+            message = f"Realmspinner refused the agent connection: {err}"
+        print(message, file=sys.stderr)
+        if why is not None:
+            why.append(message)
         return None
     return header
 
@@ -241,6 +258,24 @@ class _Session:
         #: only (modern clients re-poll `tools/list` themselves, per its own
         #: `ttlMs` cache hint, rather than being pushed a notification).
         self.pending_notifications: list[bytes] = []
+        #: Why the last :meth:`_ensure_connected` failed, when Realmspinner
+        #: *did* answer the pipe -- `None` when nothing answered at all, which
+        #: is the only case the "switch it on in Settings" text is true of.
+        self.unavailable_reason: str | None = None
+        #: The operation ids *this* Realmspinner connection minted for
+        #: task-mode calls, oldest first (a dict used as an ordered set,
+        #: bounded by `protocol.MAX_TASK_CLOCKS`). Realmspinner numbers its
+        #: operations `op-1`, `op-2`, ... afresh on every connection, so an id
+        #: from an earlier connection names nothing -- or, worse, an unrelated
+        #: task that now carries the same number. The 2026-10-14 audit
+        #: (finding agents-protocol-03) found `tasks/get` for such an id
+        #: answered from the new connection's operation; only an id minted on
+        #: the live connection is asked about.
+        self._live_tasks: dict[str, None] = {}
+
+    def unavailable_message(self) -> str:
+        """What a tool refusal says when :meth:`_ensure_connected` failed."""
+        return self.unavailable_reason or NOT_ACCEPTING_MESSAGE
 
     @classmethod
     def connected(cls, home: Any, conn: Any, hello_header: dict[str, Any]) -> _Session | None:
@@ -277,15 +312,21 @@ class _Session:
         """
         if self.conn is not None:
             return True
+        self.unavailable_reason = None
         conn = _connect(self.home)
         if conn is None:
             return False
+        why: list[str] = []
         try:
-            header = _hello(conn)
+            header = _hello(conn, why)
         except (OSError, EOFError, ValueError):
             # Studio dropped the connection (or sent a bad frame) during
             # set-up: the same "not usable" outcome as a timeout (agents-10).
             header = None
+            why.append(
+                "Realmspinner dropped the agent connection while it was being set up. "
+                "The agent switch is on; try again in a moment."
+            )
         except _VersionMismatch:
             # Unlike `main`'s own start-up path, a reconnect has nowhere to
             # fall back to except "not connected right now" -- there is no
@@ -295,12 +336,15 @@ class _Session:
             # refusal rather than this process taking itself down.
             with contextlib.suppress(OSError):
                 conn.close()
+            self.unavailable_reason = why[0] if why else None
             return False
         if header is None:
             with contextlib.suppress(OSError):
                 conn.close()
+            self.unavailable_reason = why[0] if why else None
             return False
         self.conn = conn
+        self._live_tasks.clear()
         self.call_timeout = float(header.get("call_timeout", 30.0))
         # The 2026-10-03 audit's agents-36: a catalogue re-fetch that raised
         # here left the half-dead connection assigned (the next call was sent
@@ -322,6 +366,7 @@ class _Session:
             with contextlib.suppress(OSError):
                 self.conn.close()
         self.conn = None
+        self._live_tasks.clear()
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> bytes:
         """The `call_tool` callback `protocol.bridge_dispatch` invokes for a
@@ -329,10 +374,11 @@ class _Session:
         real answer, and each gets its own honest `isError` text rather than
         a dropped connection or a silent retry:
 
-        * Realmspinner cannot be reached at all (nothing was listening, and a
-          fresh :meth:`_ensure_connected` attempt failed too) -- the same
-          "not accepting agent connections" remedy this module has always
-          printed to stderr at start-up.
+        * Realmspinner cannot be reached (a fresh :meth:`_ensure_connected`
+          attempt failed) -- said as :meth:`unavailable_message` words it: the
+          "not accepting agent connections" remedy only when nothing answered
+          the pipe, and otherwise the reason Realmspinner gave (another agent
+          client attached, a different RPC version, no answer to `hello`).
         * The reply outran `call_timeout + 5s` on `conn.poll` -- Realmspinner may
           or may not have run the call; lockstep framing means this process
           cannot tell which without reading a reply that might never come.
@@ -353,7 +399,7 @@ class _Session:
             # misleading. agent_host's own refusal for the same "nothing
             # ran" state (`rpc.fail("Realmspinner's agent server was switched
             # off.")`) carries no recovery at all; match it here.
-            result = protocol.fail(NOT_ACCEPTING_MESSAGE)
+            result = protocol.fail(self.unavailable_message())
             return json.dumps(result, separators=(",", ":")).encode("utf-8")
 
         request = rpc.encode_request("call", tool=name, args=arguments)
@@ -438,8 +484,8 @@ class _Session:
         """
         if not self._ensure_connected():
             return _fail_bytes(
-                "This task-mode call never reached Realmspinner, so nothing "
-                f"started. Safe to retry once Realmspinner is reachable. {NOT_ACCEPTING_MESSAGE}"
+                "This task-mode call never reached Realmspinner, so nothing started. "
+                f"Safe to retry once Realmspinner is reachable. {self.unavailable_message()}"
             )
 
         request = rpc.encode_request("call", tool=name, args=arguments, wait=False)
@@ -485,6 +531,10 @@ class _Session:
             # A reply arrived, so the request was sent -- but with nothing to
             # poll, this is the "outcome unknown" case, not "never started".
             return _fail_bytes(lost_message, recovery="read_scene")
+        self._live_tasks.pop(operation_id, None)
+        if len(self._live_tasks) >= protocol.MAX_TASK_CLOCKS:
+            del self._live_tasks[next(iter(self._live_tasks))]
+        self._live_tasks[operation_id] = None
         return operation_id, header.get("status", "working")
 
     def get_task(self, task_id: str) -> tuple[str, bytes | None] | None:
@@ -493,8 +543,11 @@ class _Session:
         recognise); otherwise `(status, body)` where *body* is the raw
         result bytes Realmspinner already spliced (never `json.loads`-ed here,
         the same discipline :meth:`call_tool` already keeps), present only
-        for a terminal status."""
-        if not self._ensure_connected():
+        for a terminal status.
+
+        An id this connection did not mint is "no such task" without asking
+        (see `_live_tasks`)."""
+        if task_id not in self._live_tasks or not self._ensure_connected():
             return None
         request = rpc.encode_request("status", operation_id=task_id)
         try:
@@ -512,8 +565,9 @@ class _Session:
 
     def cancel_task(self, task_id: str) -> str | None:
         """The `cancel_task` callback for `tasks/cancel` -- RPC v1's
-        `cancel` op. `None` for "no such task"."""
-        if not self._ensure_connected():
+        `cancel` op. `None` for "no such task", including an id this
+        connection did not mint (see `_live_tasks`)."""
+        if task_id not in self._live_tasks or not self._ensure_connected():
             return None
         request = rpc.encode_request("cancel", operation_id=task_id)
         try:
@@ -555,6 +609,24 @@ class _Session:
             return None
         return None
 
+    def _is_static_resource(self, uri: str) -> bool:
+        """Whether the catalogue carries *uri*'s content inline -- the one
+        marker of a resource that is the same for every session and so safe
+        to cache as public.
+
+        The 2026-10-14 audit (finding agents-host-08) found this decided by
+        `uri.endswith("/scene") or uri.endswith("/render/last")`, which this
+        leaf cannot tie to `agent_resources.DYNAMIC_URIS` (it may not import
+        studio), so a third dynamic resource would have been cached as public
+        for 60 s with nothing failing. The catalogue already says it:
+        `catalogue_resources` gives only the static entries a `text`, and a
+        resource it does not list at all is treated as private too -- the
+        safe side to be wrong on."""
+        return any(
+            entry.get("uri") == uri and "text" in entry
+            for entry in self.catalogue.get("resources", [])
+        )
+
     def read_resource(self, uri: str) -> dict[str, Any] | None:
         """The `read_resource` callback `protocol.bridge_dispatch` invokes
         for `resources/read`. `None` means "not found", the same "cannot
@@ -590,7 +662,7 @@ class _Session:
                 "mimeType": mime,
                 "blob": base64.b64encode(body).decode("ascii"),
             }
-        private = uri.endswith("/scene") or uri.endswith("/render/last")
+        private = not self._is_static_resource(uri)
         return {
             "contents": [content],
             "ttlMs": 0 if private else 60000,

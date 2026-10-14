@@ -368,18 +368,24 @@ class Index:
             # here, before the "is this citation even a fit" budget check
             # below, and not be skipped for the first citation the way that
             # one deliberately still is.
-            idxs = sorted(groups[key])
-            chunk = self.chunks[idxs[0]]
-            pieces: list[str] = []
+            #
+            # The cap is filled in *rank* order, best chunk first, and the
+            # chunks that made it are only then put back in document order
+            # (the 2026-10-14 audit, finding familiar-core-02): filling in
+            # document order let earlier weak hits of the same section use up
+            # the cap and drop the chunk that actually matched the question,
+            # so the model was handed a section excerpt without its answer.
+            kept: list[int] = []
             regrouped_tokens = 0
-            for i in idxs:
-                piece = self.chunks[i].text
-                piece_tokens = _whitespace_token_count(piece)
-                if pieces and regrouped_tokens + piece_tokens > _MAX_CITATION_TOKENS:
+            for i in groups[key]:
+                piece_tokens = _whitespace_token_count(self.chunks[i].text)
+                if kept and regrouped_tokens + piece_tokens > _MAX_CITATION_TOKENS:
                     break
-                pieces.append(piece)
+                kept.append(i)
                 regrouped_tokens += piece_tokens
-            text = "\n\n".join(pieces)
+            idxs = sorted(kept)
+            chunk = self.chunks[idxs[0]]
+            text = "\n\n".join(self.chunks[i].text for i in idxs)
             chunk_tokens = regrouped_tokens
             if citations and used_tokens + chunk_tokens > budget_tokens:
                 break

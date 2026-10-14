@@ -602,11 +602,7 @@ def next_step(ctx: Any, job: dict[str, Any]) -> tuple[str, bool, str, Callable[[
     done = job.get("status") == "done"
     why = _why_not_finished(job, str(job.get("status") or ""))
     kind = create_assets.asset_type_from_params(job.get("params") or {}, stage=job.get("stage", ""))
-    if (
-        job.get("stage") == "reference"
-        and kind in canvas_kinds()
-        and "input.png" in (job.get("files") or [])
-    ):
+    if make_3d_offered(job):
         return "Make 3D", done, why, lambda: make_3d(ctx, job)
     if kind == "sprite_sheet":
         return "Export sprite sheet...", done, why, lambda: stages.go(ctx, "export", follow=False)
@@ -622,6 +618,24 @@ def canvas_kinds() -> tuple[str, ...]:
     from . import canvas
 
     return canvas.MAKE_3D_KINDS
+
+
+def make_3d_offered(job: dict[str, Any]) -> bool:
+    """Whether Make 3D applies to this row at all, finished or not. **Pure.**
+
+    One question for the canvas overlay (``canvas.make_3d_job``), the inspector's
+    Next step and the tray card, because ``canvas.MAKE_3D_KINDS`` says it is shared
+    "so the two cannot disagree". The 2026-10-14 audit, finding
+    create-workspace-07: the card tested only "a reference with an ``input.png``",
+    so a Sprite Sheet's first-step character reference had a live Make 3D on its
+    card and none on its canvas or in its Next step.
+    """
+    kind = create_assets.asset_type_from_params(job.get("params") or {}, stage=job.get("stage", ""))
+    return (
+        job.get("stage") == "reference"
+        and kind in canvas_kinds()
+        and "input.png" in (job.get("files") or [])
+    )
 
 
 def selected_actions(ctx: Any, job: dict[str, Any]) -> None:
@@ -1039,7 +1053,8 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
         # probe exists.
         #
         # The mislabel was not merely imprecise. Until the speckle floor was
-        # fixed (dev/measurements/2026-09-06-speckle-composition-floor.md) the
+        # fixed (dev/measurements/2026-09-06-speckle-composition-floor.md [lost; re-measure to
+        # change]) the
         # composition term clamped to zero on every real reference, so an
         # ordinary generation with no anchor rendered "judge: 0% likely a
         # keeper" -- the app asserting, in the trained probe's name, that a
@@ -1160,12 +1175,11 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
         ):
             _rig(ctx, job)
     else:
-        is_reference = job.get("stage") == "reference" and "input.png" in (job.get("files") or [])
         if widgets.disabled_button(
             f"Make 3D##result-3d-{job_id}",
-            done and is_reference,
+            done and make_3d_offered(job),
             half,
-            reason="A finished reference image is required.",
+            reason="A finished 3D-model reference image is required.",
         ):
             make_3d(ctx, job)
 

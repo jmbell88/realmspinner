@@ -34,6 +34,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from ..core.safeio import atomic
 from . import manifest as manifest_mod
 from . import recipe as recipe_mod
 from . import suite as suite_mod
@@ -464,7 +465,7 @@ def _run_unit(
     elapsed = time.monotonic() - started
     if job_id is not None:
         _copy_artifacts(config.job_dir(job_id), item_dir, keep_source=keep_source)
-    (item_dir / "job.json").write_text(json.dumps(job, indent=2, default=str), encoding="utf-8")
+    atomic.write_text(item_dir / "job.json", json.dumps(job, indent=2, default=str))
 
     record = {
         "key": unit.key,
@@ -693,7 +694,7 @@ def purge_media(run_dir: Path) -> dict[str, Any]:
             doc["freed_bytes"] = int(previous.get("freed_bytes") or 0) + freed
             doc["files"] = list(previous.get("files") or ()) + removed
             doc["purged_at"] = previous.get("purged_at") or doc["purged_at"]
-    (run_dir / PURGED_FILE).write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    atomic.write_text(run_dir / PURGED_FILE, json.dumps(doc, indent=2))
     return doc
 
 

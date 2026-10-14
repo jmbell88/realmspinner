@@ -162,12 +162,17 @@ See [Templates](23-generating-meshes.md#templates).
 
 ## Adding a clip mapping table
 
-"Import clip" brings an externally authored animation (a Mixamo download, a Rigify metarig export)
+The clip importer brings an externally authored animation (a Mixamo download, a Rigify metarig export)
 onto a Realmspinner skeleton, and a **clip mapping table** is what tells it which external bone plays
-which template bone. A table is a JSON file in `src/realmspinner/templates/clip_maps/`, one per external
-rig family — `mixamo.json` and `rigify.json` ship today, both targeting the `humanoid` template
-only; nothing maps onto `quadruped`, `bird` or `blob` yet, so importing onto one of those is not
-offered.
+which template bone. **Read this before adding one:** the importer is a deferred back end
+(`service.clip_import`, with `clipmaps` and `cliptransfer` behind it). It was reached from Poser's
+**Import clip**, and no control in the app calls it since Poser was removed, so a table you add is
+loaded and validated but nothing a user can press reaches it yet. The animation importer that is
+reachable today is Clay's **Import Animation**, which reads `.glb` only and does its own matching by
+bone name (`kernels/mesh/animimport.py`). A table is a JSON file in
+`src/realmspinner/templates/clip_maps/`, one per external rig family — `mixamo.json` and `rigify.json`
+ship today, both targeting the `humanoid` template only; nothing maps onto `quadruped`, `bird` or `blob`
+yet, so importing onto one of those is not offered.
 
 A table declares:
 
@@ -263,7 +268,10 @@ checkout, use `claude mcp add realmspinner -- uv run realmspinner mcp` instead.
 The bridge does not need the app to already be running. Start it first and it serves the tool list
 saved from the previous session — enough for your agent's client to see what Clay can do — and only
 dials into the app on the first tool call that actually needs it; if nothing answers at that point,
-the call comes back refused, naming the same Settings switch, rather than the bridge giving up.
+the call comes back refused, naming the same Settings switch; if the app does answer but cannot serve the call
+(another agent client is already attached, the two sides speak different RPC versions, or the app
+does not answer in time), the refusal says that instead, so you are not sent to toggle a switch that
+is already on.
 If the app closes while a call is in flight, you get an explicit refusal saying the call may or may
 not have completed, never a guess either way. Reconnecting after that — whether the app closed
 mid-call or was simply never open at start-up — opens a new tab in the app, not a resume of
@@ -387,8 +395,9 @@ The whole Clay surface is thirty-four tools. **Reading**: `clay_scene`, `clay_me
 box. **Operations**: `clay_op`, which runs any row of Clay's operation registry, and `clay_uv`, which is
 unwrap, pack or transform. **History and folding**: `clay_undo`, `clay_redo`, `clay_checkpoint`,
 `clay_restore`, `clay_batch` and `clay_program`. **References**: `clay_reference_add`, `_list`, `_get`
-and `_remove`. And `clay_export`. There is no figure, boolean, modifier, collider or diagnosis tool,
-because Clay has none of those things.
+and `_remove`. And `clay_export`. There is no figure, modifier, collider or diagnosis tool, because Clay has none of
+those things; the booleans (Union, Difference and Intersect Objects) are rows of the operation
+registry, so they run through `clay_op`.
 
 Exporting does what pressing the button does: it saves the model, writes a GLB, and mints a Library
 entry, so what an agent makes is an ordinary asset with no history of being unusual. Every mesh export
@@ -642,12 +651,14 @@ workspaces, or the footer — and `MODES` is asserted to be its flattening, so t
 If a section's size changes, the comment stating that size is read as data by `tests/studio/test_modes.py`
 and changes with it.
 
-**The partition.** `WORK_MODES`, `WORKSPACE_MODES` and `main._SINGLE_PANE_MODES` must partition the
-mode keys exactly, because `_build_ui`'s dispatch ends in a bare `else`. A mode in the right set with
-no arm of its own is the failure this is worth spelling out: it draws Inker's workspace, tools and
-all, while every membership test in the tree passes. The scan over `_build_ui`'s own source that
-catches it was written the day Mason hit it. `VIEWPORT_MODES` and `NAV_KEY_MODES` are narrower and
-most modes join neither.
+**The partition.** `VIEWPORT_MODES`, `WORKSPACE_MODES` and `main._SINGLE_PANE_MODES` must partition the
+mode keys exactly, because `_build_ui`'s dispatch ends in a bare `else`. (`WORK_MODES`, the modes that
+own a viewport or a form, contains both of the other two sets rather than partitioning anything: a new
+viewport or workspace mode joins it as well, but it is not a fourth set to place a mode in.) A mode in
+the right set with no arm of its own is the failure this is worth spelling out: it draws Inker's
+workspace, tools and all, while every membership test in the tree passes. The scan over `_build_ui`'s
+own source that catches it was written the day Mason hit it. `NAV_KEY_MODES` is narrower, and most
+modes do not join it.
 
 **The shell.** A workspace mode's arm in `_shortcut` ends with its own `return`, consumed or not, or
 a later mode inherits keys it never claimed. `DROP_REFUSALS` needs an entry saying, in the mode's own

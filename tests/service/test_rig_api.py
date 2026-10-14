@@ -362,11 +362,14 @@ def test_a_job_pose_file_missing_bones_is_refused_cleanly_not_a_key_error(svc, a
     assert not called
 
 
-# --- the skeleton editor (P3: service/rig.py) --------------------------------
+# --- adjust_joints on a rig that carries its own skeleton ---------------------
+#
+# ``edit_skeleton`` and ``limb_presets`` (the viewer's skeleton editor doors) had no caller
+# once Poser left and were deleted in the 2026-10-14 audit's cleanup round, with their tests.
 
 
 def _rigged_job_full(svc, assets, *, skeleton_field=None, root=None, mirror_pairs=None, bones=None):
-    """A rig.json with everything ``edit_skeleton``/``adjust_joints`` read:
+    """A rig.json with everything ``adjust_joints`` reads:
     bounds (for ``validate_skeleton``'s far-outside check) and, optionally, a
     skeleton already recorded as custom.
 
@@ -392,65 +395,6 @@ def _rigged_job_full(svc, assets, *, skeleton_field=None, root=None, mirror_pair
     return job_id, fitted
 
 
-def test_editing_the_skeleton_queues_a_rerig(svc, assets):
-    job_id, fitted = _rigged_job_full(svc, assets)
-    edited = skeleton.add_bone(fitted, "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5])
-    out = svc_rig.edit_skeleton(svc, job_id, {"bones": edited})
-    assert out["skeleton"] == "custom"
-    rig_job = svc.store.get(out["id"])
-    assert rig_job["kind"] == "rig"
-    assert rig_job["params"]["source_job"] == job_id
-    assert rig_job["params"]["skeleton"] == "custom"
-    assert rig_job["params"]["root"] == "hips"
-    assert any(b["name"] == "tail_01" for b in rig_job["params"]["bones"])
-    assert rig_job["params"]["adjusted"] is True
-
-
-def test_editing_the_skeleton_unchanged_reports_template(svc, assets):
-    job_id, fitted = _rigged_job_full(svc, assets)
-    out = svc_rig.edit_skeleton(svc, job_id, {"bones": fitted})
-    assert out["skeleton"] == "template"
-
-
-def test_editing_the_skeleton_on_an_unrigged_job_is_invalid(svc, assets):
-    job_id = _finished_mesh_job(svc, assets)
-    with pytest.raises(Invalid):
-        svc_rig.edit_skeleton(svc, job_id, {"bones": []})
-
-
-def test_editing_the_skeleton_on_a_missing_job_is_not_found(svc):
-    with pytest.raises(NotFound):
-        svc_rig.edit_skeleton(svc, "0123456789ab", {"bones": []})
-
-
-def test_editing_the_skeleton_rejects_a_bad_payload_with_a_field(svc, assets):
-    job_id, fitted = _rigged_job_full(svc, assets)
-    dupe = [dict(fitted[0], name=fitted[1]["name"])] + fitted[1:]
-    with pytest.raises(Invalid) as caught:
-        svc_rig.edit_skeleton(svc, job_id, {"bones": dupe})
-    assert caught.value.field == "bones"
-
-
-def test_editing_the_skeleton_without_blender_is_refused_at_the_door(svc, assets, monkeypatch):
-    job_id, fitted = _rigged_job_full(svc, assets)
-    monkeypatch.setattr(
-        doctor, "blender_check", lambda **_kw: doctor.Check(
-            name="Blender (rigging)", ok=False, detail="bpy is not installed", fatal=False,
-        ),
-    )
-    with pytest.raises(Invalid, match="Blender"):
-        svc_rig.edit_skeleton(svc, job_id, {"bones": fitted})
-    assert len(svc.store.list()) == 1  # only the source mesh job
-
-
-def test_limb_presets_lists_the_shipped_presets(svc):
-    entries = svc_rig.limb_presets()
-    keys = {e["key"] for e in entries}
-    assert keys == {"arm", "leg", "tail", "wing", "antenna"}
-    assert all(set(e) == {"key", "label", "bone_count"} for e in entries)
-    assert all(e["bone_count"] > 0 for e in entries)
-
-
 def test_adjusting_joints_on_a_custom_rig_is_accepted(svc, assets):
     """A joint move on a custom skeleton must be checked against *its own*
     structure, not the base template's -- validating against the template
@@ -459,7 +403,9 @@ def test_adjusting_joints_on_a_custom_rig_is_accepted(svc, assets):
     silently resetting the rig back to template shape."""
     template = templates.get_template("humanoid")
     fitted = skeleton.fit_template(template, [-1, -1, 0], [1, 1, 2])
-    custom_bones = skeleton.add_bone(fitted, "hips", "tail_01", [0, -0.1, 0.5], [0, -0.3, 0.5])
+    custom_bones = [dict(b) for b in fitted] + [
+        {"name": "tail_01", "parent": "hips", "head": [0, -0.1, 0.5], "tail": [0, -0.3, 0.5]}
+    ]
     job_id, bones = _rigged_job_full(
         svc, assets, skeleton_field="custom", root="hips", bones=custom_bones
     )

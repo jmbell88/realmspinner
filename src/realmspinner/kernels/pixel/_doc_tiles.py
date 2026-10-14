@@ -73,6 +73,17 @@ from .tiles import (
 )
 from .undo import CompoundEdit, LayerAddEdit, one_step
 
+#: The most cells a raster-to-tilemap conversion will cut.
+#:
+#: The 2026-10-14 audit, finding inker-panes-03: ``convert_layer_to_tilemap`` is
+#: a Python loop on the frame thread, so 1x1 tiles on a 512x512 canvas (262,144
+#: cells) froze the window for 1.6 s and a 2048x2048 one for about 25 s, once per
+#: cel of an animated track. It lives here, at the op, because the tile-size
+#: popup is only one door; any other caller meets the same ceiling. The number is
+#: chosen so the worst accepted cut stays well under half a second (a 2048x2048
+#: canvas still cuts at 8x8).
+MAX_TILE_CELLS = 65_536
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .document import Document
 
@@ -654,6 +665,12 @@ class TileOps:
         self.commit_floating()
         width, height = self.size
         grid_h, grid_w = grid_shape((width, height), tile_w, tile_h)
+        if grid_h * grid_w > MAX_TILE_CELLS:
+            raise ValueError(
+                f"{tile_w}x{tile_h} tiles would cut this canvas into "
+                f"{grid_h * grid_w:,} cells; a conversion takes at most "
+                f"{MAX_TILE_CELLS:,}. Make the tiles bigger"
+            )
         track = self._track_of_row(layer_uid)
         slots = (
             [(None, self.stack[self.stack.index_of(layer_uid)])]

@@ -325,21 +325,26 @@ def dedup_tiles(
 
     With ``orientations``, the key is the lexicographic minimum over the eight
     dihedral variants, so a tile that is another tile flipped or turned is a
-    duplicate. A non-square tile transposes to a different shape, whose bytes
-    simply never collide with the untransposed ones -- so the four transposing
-    variants cost nothing and refuse nothing there.
+    duplicate. A non-square tile transposes to a different shape, which the
+    key keeps apart from the untransposed ones (see below) -- so the four
+    transposing variants add nothing there and merge nothing wrongly.
+
+    **The key carries the shape as well as the bytes** (the 2026-10-14 audit,
+    finding packwright-14). Bytes alone are shapeless: a transposed ``(w, h)``
+    variant of one tile and an untransposed ``(h, w)`` variant of a different,
+    non-dihedral tile can flatten to the same bytes, and the second was dropped
+    -- which shifts every later cell of the tileset. The default key had the same
+    collision between sprites of different shapes.
     """
-    seen: set[bytes] = set()
+    seen: set[tuple[tuple[int, ...], bytes]] = set()
     kept: list[Sprite] = []
     for sprite in sprites:
         tile = np.asarray(sprite.pixels)
         if orientations:
-            key = min(
-                np.ascontiguousarray(_variant(tile, *flags)).tobytes()
-                for flags in _DIHEDRAL
-            )
+            variants = (np.ascontiguousarray(_variant(tile, *flags)) for flags in _DIHEDRAL)
+            key = min((one.shape, one.tobytes()) for one in variants)
         else:
-            key = tile.tobytes()
+            key = (tile.shape, tile.tobytes())
         if key in seen:
             continue
         seen.add(key)

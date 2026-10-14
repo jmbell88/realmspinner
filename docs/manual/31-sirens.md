@@ -34,7 +34,9 @@ A document you have to configure before it can play anything is one where a begi
 note is silent for a reason nothing on screen explains.
 
 A document that cannot be opened is refused with the reason rather than a generic failure, and a
-file too big to be a song is refused before a byte of it is read.
+file too big to be a song is refused before a byte of it is read. **Save As** onto a file another
+open song tab already holds is refused, and a name that does not end in `.rsng` has it added rather
+than replacing what follows the last dot.
 
 ## The five channels
 
@@ -120,10 +122,14 @@ does this, and without it a typed note is silent for a reason that is invisible.
 **Typing everything else.** The instrument and parameter columns take **two hex digits**: the first
 fills the left-hand digit and the second the right, and while an entry is half done the caret rings
 the one character it is waiting for rather than the whole cell. The volume column takes **one** digit,
-`0` to `F`. The effect column takes an effect's **letter**, from the table below.
+`0` to `F`. The effect column takes an effect's **letter**, from the table below. The numeric keypad types the
+same hex digits, and keypad plus and minus step the octave like `=` and `-`.
 
-A digit replaces one half of what is already there rather than starting a fresh value, so fixing the
-right-hand digit of `4F` is one keystroke on the second character. Moving the caret — an arrow key, a
+A digit replaces one half of what is already there rather than starting a fresh value: the first
+digit you type rewrites only the left-hand half and keeps the right, and the second rewrites only the
+right-hand half and keeps the left. There is no way to put the caret on the second character first,
+so fixing the right-hand digit of `4F` is two keystrokes — type the left-hand digit again, then the
+new right-hand one. Moving the caret — an arrow key, a
 click, anything — ends a half-finished entry, so the second digit can never land in a cell you have
 left. Two things are refused rather than written: a letter the engine has no effect for, and an
 instrument number past `7F`, which is a slot no song can hold. In both cases nothing happens at all,
@@ -187,6 +193,10 @@ Put the caret in the effect column and press the letter; the two digits go in th
 A letter that is not in this table writes nothing, so the table is also the whole list of what the
 effect column will accept.
 
+You can also right-click an effect cell: a list of every effect opens with its letter and a one-line
+purpose, and picking one writes it. It is the way to choose an effect without the piano letters
+getting in the way.
+
 | Letter | What it does |
 | --- | --- |
 | `0xy` | Arpeggio: cycle the note, +x and +y semitones, one per tick |
@@ -235,8 +245,9 @@ effects**, where selecting it points the grid at it — so the list is not every
 removing an entry from the order does not delete the pattern — the whole point of an order list is
 that a pattern can appear in it several times, or not at all.
 
-Each order row carries its own three buttons: **▲**/**▼** move the entry, the middle one points it
-at a different pattern, and the bin takes it out. A pattern's own row has **Duplicate** — a chorus
+Each order row carries its own four buttons: **▲**/**▼** move the entry, the third points it at a
+different pattern, and the bin takes it out. An entry whose pattern appears more than once in the
+order is marked **×N**, N being how many entries name it. A pattern's own row has **Duplicate** — a chorus
 is usually the verse with two rows changed, and a copy is one undo step, named `verse 2` so the two
 can be told apart in the list — a name field, and **Delete**, which asks first when the order list
 plays that pattern and names how many entries go with it. All of it is one Ctrl+Z.
@@ -263,7 +274,8 @@ pane of their own underneath it.
 The list gives each instrument a name, one of the four kinds — pulse, triangle, noise, sample — and
 a number. **The number is what the grid's instrument column holds** and what you type there. It is a
 per-document slot rather than a position in the list, so removing an instrument does not renumber the
-ones after it and does not silently repoint the notes that named them. A song holds 128.
+ones after it and does not silently repoint the notes that named them. Those notes play silently, and still do after a
+save and reopen; an undo puts the instrument back. A song holds 128.
 
 A new instrument is a plain sustained tone at full volume with a short decay on release: audible
 immediately, and obviously a starting point.
@@ -307,9 +319,9 @@ An instrument of kind **sample** plays a recording instead of synthesising one, 
 you play it at: `C-4` is its recorded speed, an octave up is twice as fast. Import a `.wav` from the
 instrument panel, or drop one on the window while Sirens is in front. A song holds 64, and one
 sample runs to ten minutes — long enough for a whole track from Muse, and past that the import is
-refused rather than trimmed. A song's samples also share one ceiling of four times that in all, which
-only a hand-made or damaged `.rsng` can reach: opening one that decodes to more is refused by name
-rather than run out of memory.
+refused rather than trimmed. A song's samples also share one ceiling of four times that in all. Adding a sample
+that would take the song past it is refused by name, and so is opening a `.rsng` that decodes to
+more, rather than running out of memory.
 
 Two files with the same name are two samples rather than one overwriting the other. Removing a sample
 leaves the instruments that named it alone, and the instrument panel says, in as many words, that

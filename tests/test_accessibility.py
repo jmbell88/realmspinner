@@ -483,6 +483,39 @@ def test_every_reserving_mode_is_a_real_mode() -> None:
     assert not unknown, f"not modes: {unknown}"
 
 
+#: The keys a mode binds that imgui's keyboard navigation would otherwise also
+#: take. Two spellings, because the modes use both: a ``pygame.K_*`` constant
+#: (Inker, Muse, Plotter, Review, Sirens) and a ``pygame.key.name`` string
+#: compared with ``==`` or ``in`` (Clay's ``name == "left"``, Inker's walk).
+_ARROW_CONSTANTS = re.compile(r"K_(UP|DOWN|LEFT|RIGHT|SPACE)\b")
+_ARROW_NAMES = re.compile(
+    r"""\bname\s*(?:==|in)\s*[^\n]*["'](?:up|down|left|right|space)["']"""
+)
+
+
+def _binding_modes(modes_root: Path) -> set[str]:
+    """The modes under ``modes_root/<mode>/`` whose code binds the arrows or Space.
+
+    The 2026-10-14 audit, finding shell-chrome-02: the scan read
+    ``studio/<mode>_mode.py``, a path no mode has had since the restructure
+    into ``studio/modes/<mode>/``, so the set was always empty and the test
+    below passed whatever a mode bound -- and its regex knew only the ``K_*``
+    spelling, which Clay never uses. Every ``.py`` under a mode's directory is
+    read (Inker and Sirens bind in ``keys.py``, not ``mode.py``), except the
+    ``agent/`` tool surface, where "space" is an argument name and not a key.
+    """
+    found: set[str] = set()
+    for mode_dir in sorted(p for p in modes_root.iterdir() if p.is_dir()):
+        for path in mode_dir.rglob("*.py"):
+            if "agent" in path.relative_to(mode_dir).parts[:-1]:
+                continue
+            text = path.read_text(encoding="utf-8")
+            if _ARROW_CONSTANTS.search(text) or _ARROW_NAMES.search(text):
+                found.add(mode_dir.name)
+                break
+    return found
+
+
 def test_the_reserving_modes_are_the_ones_that_bind_arrows() -> None:
     """The declaration against the source that does the binding.
 
@@ -492,13 +525,8 @@ def test_the_reserving_modes_are_the_ones_that_bind_arrows() -> None:
     """
     from realmspinner.studio import modes
 
-    arrows = re.compile(r"K_(UP|DOWN|LEFT|RIGHT|SPACE)\b")
-    binders = {
-        mode
-        for mode in modes.KEYS
-        for path in [SRC / "studio" / f"{mode}_mode.py"]
-        if path.exists() and arrows.search(path.read_text(encoding="utf-8"))
-    }
+    binders = _binding_modes(SRC / "studio" / "modes") & set(modes.KEYS)
+    assert binders, "the scan found no mode that binds arrows: it is reading the wrong place"
     missing = sorted(binders - modes.NAV_KEY_MODES)
     assert not missing, (
         f"these modes bind arrows or Space but do not reserve them: {missing}"

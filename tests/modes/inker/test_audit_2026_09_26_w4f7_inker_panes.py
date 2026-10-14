@@ -637,8 +637,10 @@ def test_the_symmetry_axis_field_shows_and_preserves_the_real_centre(ui, monkeyp
     ui.end()
     ui.end_frame()
 
-    assert calls == [[31.5, 15.5]], "the field must show the real canvas centre, not (0, 0)"
-    assert state.symmetry_axis == (99.0, 15.5), (
+    # ``w / 2, h / 2``: the axis is in continuous image coordinates since the 2026-10-14
+    # audit's inker-paint-01 (F16), where it used to be the index-space (31.5, 15.5).
+    assert calls == [[32.0, 16.0]], "the field must show the real canvas centre, not (0, 0)"
+    assert state.symmetry_axis == (99.0, 16.0), (
         "editing X must not jump the untouched Y mirror to 0"
     )
 

@@ -37,6 +37,7 @@ from __future__ import annotations
 import contextlib
 import os
 import secrets
+import time
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,39 @@ def _tmp_name(name: str) -> str:
     return f".{name}.{secrets.token_hex(4)}.tmp"
 
 
+#: How many times :func:`replace` tries a rename a reader is holding up, and the
+#: pause before the first retry (it grows linearly). Module-level so a test
+#: shrinks the pause rather than sleeping through it.
+REPLACE_ATTEMPTS = 6
+REPLACE_PAUSE = 0.05
+
+
+def replace(tmp: Path, dest: Path) -> None:
+    """``os.replace(tmp, dest)``, riding out a reader that has *dest* open.
+
+    The 2026-10-14 audit, findings packwright-16 and service-assets-05: every
+    staging door in the package did exactly one ``os.replace``. On Windows a
+    handle open on the destination without ``FILE_SHARE_DELETE`` -- an antivirus
+    scan, the indexer, a decode or a download stream still reading the served
+    name, another tab's concurrent replace -- fails the rename with
+    ``PermissionError`` (WinError 5) for as long as the handle lives, and that
+    is a moment, not a verdict. ``kernels/rig/store.finalize_rig`` (ten tries)
+    and ``pipelines/postprocess._replace_or_accept`` (three) already ride it
+    out; a user-picked export, a Save As, a hand-edit save or a derived artifact
+    failed on the same collision and lost the write. Only ``PermissionError`` is
+    retried -- a missing directory or a full disk will not clear by waiting --
+    and the last one is raised as it came, with the real traceback.
+    """
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            os.replace(tmp, dest)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_PAUSE * (attempt + 1))
+
+
 @contextlib.contextmanager
 def staged(path: Path) -> Iterator[Path]:
     """Yield a staging path beside *path*, renamed onto it on a clean exit.
@@ -83,7 +117,7 @@ def staged(path: Path) -> Iterator[Path]:
     tmp = path.with_name(_tmp_name(path.name))
     try:
         yield tmp
-        os.replace(tmp, path)
+        replace(tmp, path)
     finally:
         with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
@@ -119,7 +153,7 @@ def staged_set(files: Mapping[Path, bytes]) -> None:
             staged.append((tmp, target))
             tmp.write_bytes(blob)
         for tmp, target in staged:
-            os.replace(tmp, target)
+            replace(tmp, target)
     finally:
         for tmp, _target in staged:
             with contextlib.suppress(OSError):

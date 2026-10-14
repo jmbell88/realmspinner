@@ -32,7 +32,7 @@ WIRE_TINT = (0.05, 0.05, 0.06, 0.75)
 #: y=0 -- are not exactly coplanar. Without it the two z-fight: which one wins
 #: a given pixel flickers with the camera angle, and a grid that flickers
 #: reads as broken rather than as "on top of something". Pushed *down* rather
-#: than pulling the grid up, so ``grid.py`` -- shared with Mason, Poser and
+#: than pulling the grid up, so ``grid.py`` -- shared with Mason and
 #: the asset viewer, none of which ever draw a ground plane under it -- needs
 #: no change at all for this.
 GROUND_Y_OFFSET = -0.001
@@ -155,14 +155,8 @@ class Renderer:
         wire_overlay: bool = False,
         alpha: float = 1.0,
         ground: bool = False,
-        keep_alpha: bool = False,
     ) -> None:
         """One frame: the grid, the model, and the overlays over it.
-
-        ``keep_alpha`` blends the alpha channel separately, so a render against
-        a transparent clear ends with the fragments' own alpha rather than its
-        square. Only the direction strip reads that channel back, and the
-        interactive viewport is left on the blend it has always had.
 
         ``wireframe`` *replaces* the fill and ``wire_overlay`` draws over it,
         and the two are different questions: the first is a shading mode -- show
@@ -194,22 +188,7 @@ class Renderer:
 
         ctx.enable(moderngl.DEPTH_TEST)
         ctx.enable(moderngl.BLEND)
-        if keep_alpha:
-            # Colour blends as ever; alpha gets its own ``ONE, ONE_MINUS_SRC_ALPHA``.
-            # The single-pair form below scales the *alpha channel* by the
-            # source alpha as well, so a translucent fragment against a
-            # transparent clear stored colour ``c*a`` with alpha ``a*a`` and
-            # ``capture.unpremultiply``'s division returned ``c/a`` -- the
-            # 2026-10-03 audit's create-42, a direction strip showing translucent
-            # materials too bright and too transparent.
-            ctx.blend_func = (
-                moderngl.SRC_ALPHA,
-                moderngl.ONE_MINUS_SRC_ALPHA,
-                moderngl.ONE,
-                moderngl.ONE_MINUS_SRC_ALPHA,
-            )
-        else:
-            ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+        ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
 
         if ground and self.grid.span > 0.0:
             self.ground.set_span(self.grid.span)
@@ -228,13 +207,25 @@ class Renderer:
             # need a barycentric shader instead. Left as-is deliberately --
             # this app ships a window, not a web page.
             translucent = alpha < 0.999
-            if translucent:
-                ctx.depth_mask = False
-            ctx.wireframe = wireframe
-            self._draw_model(gpu, camera, view, proj, model_matrix, flat, alpha)
-            ctx.wireframe = False
-            if translucent:
-                ctx.depth_mask = True
+            # The 2026-10-14 audit, finding create-viewer-01: this assigned
+            # ``ctx.depth_mask``, which moderngl's Context does not have (only
+            # ``Framebuffer.depth_mask`` exists), so it made an inert Python
+            # attribute and X-ray still wrote depth -- a translucent object
+            # drawn first hid every object behind it. The write is switched
+            # off on the framebuffer ``viewport.use()`` just bound, and put
+            # back in a ``finally`` so a draw that raises cannot leave the
+            # viewport's depth buffer frozen for the next frame.
+            fbo = getattr(ctx, "fbo", None) if translucent else None
+            depth_was = fbo.depth_mask if fbo is not None else True
+            if fbo is not None:
+                fbo.depth_mask = False
+            try:
+                ctx.wireframe = wireframe
+                self._draw_model(gpu, camera, view, proj, model_matrix, flat, alpha)
+            finally:
+                ctx.wireframe = False
+                if fbo is not None:
+                    fbo.depth_mask = depth_was
             if wire_overlay and not wireframe:
                 # A second pass over the same geometry, edges only, pulled a
                 # hair toward the eye. Without the polygon offset the lines sit

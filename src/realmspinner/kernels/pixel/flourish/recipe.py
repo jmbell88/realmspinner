@@ -184,6 +184,39 @@ def clamp_layer(layer: Layer) -> Layer:
     )
 
 
+def _surviving_phases(restriction: tuple[str, ...], names: set[str]) -> tuple[str, ...]:
+    """A layer's phase restriction, minus the phases the clamp cut.
+
+    The 2026-10-14 audit, finding inker-flourish-12: an empty tuple means
+    "every phase", and filtering a *non-empty* restriction down to the phases
+    that survive could leave exactly that -- a layer listed only for ``p12``
+    (past ``MAX_PHASES``) rendered in ``p0`` after loading. A restriction that
+    named phases and kept none stays as it was, dangling names and all: no
+    phase carries them, so :meth:`Layer.active_in` is false everywhere, which
+    is what the author asked for.
+    """
+    kept = tuple(n for n in restriction if n in names)
+    return kept if kept or not restriction else tuple(restriction)
+
+
+def _six_digit_colour(entry: Any) -> str | None:
+    """``entry`` as a ``#rrggbb`` the pixel pass can read, or None.
+
+    The 2026-10-14 audit, finding inker-flourish-11: ``clamp`` kept every entry
+    ``prims.parse_color`` accepts, which includes ``#RRGGBBAA``, but pixel mode
+    reads the palette with ``pipelines.pixel.parse_hex``, which takes six
+    digits only -- so a recipe holding ``#112233ff`` loaded cleanly and every
+    pixel-mode render then failed with "not a hex colour". A palette swatch has
+    no alpha, so an eight-digit entry is kept as its colour.
+    """
+    try:
+        prims.parse_color(str(entry))
+    except ValueError:
+        return None
+    text = str(entry).strip().lstrip("#")
+    return f"#{text[:6]}"
+
+
 def clamp(recipe: Recipe) -> Recipe:
     """Every field inside its range; every layer's parameters filled and clamped."""
     raw_phases = [
@@ -203,28 +236,33 @@ def clamp(recipe: Recipe) -> Recipe:
     # spans. Renumbered here, the one place every phase name is decided, so
     # every reader downstream can go on trusting the name is unique without
     # having to learn about position.
-    seen: dict[str, int] = {}
+    #
+    # The 2026-10-14 audit, finding inker-flourish-10: the renumbering counted
+    # raw names only, so ``["a", "a", "a 2"]`` became ``["a", "a 2", "a 2"]``
+    # and the collision was back. A renumbered name is now chosen against every
+    # name already taken *and* every name a later phase asks for, so an explicit
+    # "a 2" keeps its name and the repeat moves out of its way.
+    wanted = {phase.name for phase in raw_phases}
+    taken: set[str] = set()
     deduped: list[Phase] = []
     for phase in raw_phases:
-        count = seen.get(phase.name, 0)
-        seen[phase.name] = count + 1
-        name = phase.name if count == 0 else f"{phase.name} {count + 1}"
+        name = phase.name
+        if name in taken:
+            count = 2
+            while f"{phase.name} {count}" in taken or f"{phase.name} {count}" in wanted:
+                count += 1
+            name = f"{phase.name} {count}"
+        taken.add(name)
         deduped.append(phase if name == phase.name else replace(phase, name=name))
     phases = tuple(deduped) or (Phase("main", 12, True),)
     names = {p.name for p in phases}
     layers = tuple(
-        replace(clamp_layer(each), phases=tuple(n for n in each.phases if n in names))
+        replace(clamp_layer(each), phases=_surviving_phases(each.phases, names))
         for each in recipe.layers[:MAX_LAYERS]
     )
     palette = None
     if recipe.palette:
-        kept = []
-        for entry in recipe.palette:
-            try:
-                prims.parse_color(str(entry))
-            except ValueError:
-                continue
-            kept.append(str(entry))
+        kept = [c for c in map(_six_digit_colour, recipe.palette) if c is not None]
         palette = tuple(kept) or None
     return replace(
         recipe,
@@ -378,6 +416,32 @@ def pixel_bake_bytes(recipe: Recipe, directions: int | None = None) -> int:
     )
 
 
+#: The byte ceiling this build holds for a painterly bake's cels at once.
+#: Painterly ``bake`` keeps a uint8 RGBA cel for every active layer of every
+#: frame of every direction, plus one composite per frame-direction, and
+#: ``MAX_BAKE_COST`` prices render *time*, not that: 1024x1024, two layers and
+#: 100 frames at ``supersample=1`` passes the time budget and holds about
+#: 1.2 GiB (and ``_place`` then builds a second copy as document cels). 1 GiB
+#: is more than twice the biggest shipped preset at the largest direction count
+#: it could be asked for (``fireball``, 16 directions, ~430 MiB) and a hard stop
+#: on a hand-edited preset or ``.ora`` that is not. The 2026-10-14 audit,
+#: finding inker-flourish-18; the pixel-mode twin is
+#: :data:`MAX_PIXEL_BAKE_BYTES`.
+MAX_PAINTERLY_BAKE_BYTES = 1024 * 1024 * 1024
+
+
+def painterly_bake_bytes(recipe: Recipe, directions: int | None = None) -> int:
+    """The bytes painterly ``bake()`` holds for ``recipe``: per frame, one
+    composite plus a cel for every layer active in that frame's phase, each a
+    ``width x height x 4`` uint8 array, for every direction."""
+    count = int(directions) if directions is not None else int(recipe.directions)
+    cels = sum(
+        int(phase.frames) * (1 + sum(1 for each in recipe.layers if each.active_in(phase.name)))
+        for phase in recipe.phases
+    )
+    return int(recipe.width) * int(recipe.height) * 4 * cels * max(1, count)
+
+
 def check_bake_cost(recipe: Recipe, directions: int | None = None) -> None:
     """Refuse a bake before it is submitted, rather than let it freeze
     Regenerate indefinitely or raise ``MemoryError`` partway through with no
@@ -394,6 +458,15 @@ def check_bake_cost(recipe: Recipe, directions: int | None = None) -> None:
             f"the {MAX_BAKE_COST:,} this build will bake in one request -- "
             "lower the size, supersampling, frame count, directions or layers"
         )
+    if recipe.mode != "pixel":
+        held = painterly_bake_bytes(recipe, directions)
+        if held > MAX_PAINTERLY_BAKE_BYTES:
+            raise ValueError(
+                f"this effect would hold about {held:,} bytes of frame cels at "
+                f"once, past the {MAX_PAINTERLY_BAKE_BYTES:,} this build will "
+                "bake in one request -- lower the size, frame count, "
+                "directions or layers"
+            )
     if recipe.mode == "pixel":
         held = pixel_bake_bytes(recipe, directions)
         if held > MAX_PIXEL_BAKE_BYTES:
@@ -491,7 +564,11 @@ def from_dict(raw: dict[str, Any]) -> Recipe:
         raw_width, raw_height = 128, 128
     recipe = Recipe(
         name=str(raw.get("name") or "Effect"),
-        seed=_as_int(raw.get("seed") or 1, 1),
+        # Only a missing or unreadable seed is 1. ``or 1`` also turned a real seed
+        # of 0 into 1 (the 2026-10-14 audit, finding inker-flourish-07), though
+        # the inspector's Seed field and a model diff both allow 0 and a recipe
+        # file must render the same bytes each time it is opened.
+        seed=_as_int(raw.get("seed", 1), 1),
         width=_as_int(raw_width, 128),
         height=_as_int(raw_height, 128),
         supersample=_as_int(raw.get("supersample", 4), 4),

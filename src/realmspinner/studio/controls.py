@@ -212,6 +212,7 @@ def _finish_item(
     either way. Unset ``REALMSPINNER_UI_PROBE`` and it is one attribute lookup.
     """
 
+    _reap_stale_gesture()
     if probe.ENABLED:
         probe.record(
             label=label,
@@ -743,6 +744,30 @@ def fold_undo(history: Any) -> None:
         if history is not None:
             _gesture = (history, history.mark())
     elif _gesture is not None and imgui.is_item_deactivated():
+        close_gesture()
+
+
+def _reap_stale_gesture() -> None:
+    """Close a stored gesture when no item is active any more.
+
+    The 2026-10-14 audit (finding shell-widgets-03): the only exits were the
+    slider's own deactivation, a tab close and a mode switch. A drag whose item
+    stopped being drawn for any other reason (a tab switched inside a mode, a
+    pane collapsed or hidden, a keyboard selection change mid-drag) never saw
+    its deactivation, so ``UndoStack`` held the gesture open -- no eviction past
+    the depth cap (122 steps against 64 in the probe) -- until some other
+    slider activated, and that activation folded every unrelated edit since
+    into one ``CompoundEdit``. ``_finish_item`` is the chokepoint every control
+    passes through each frame it is drawn, so it is the hook: a drag in flight
+    keeps its item active, and the moment imgui has no active item the gesture
+    is over whoever drew it."""
+    if _gesture is None:
+        return
+    try:
+        active = imgui.is_any_item_active()
+    except (AttributeError, RuntimeError, TypeError):
+        return
+    if not active:
         close_gesture()
 
 

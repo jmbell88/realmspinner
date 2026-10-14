@@ -29,6 +29,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # sdxl_cfg and sdxl_cfg_pag (three more, the distilled tiers, until they were
 # retired 2026-10-11) -- and pixel sheets cost 0.2 GB more. Recorded in
 # dev/measurements/2026-08-11-default-base-model.md.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 #
 # The key is only meaningful against ``models.BASE_MODELS``, which this module
 # may not import (that would just move the layer violation rather than close
@@ -261,6 +262,25 @@ _ENV_TEX_RES = (128, 4096)
 _ENV_MAX_TOKENS = 1 << 20
 _ENV_DECIM_MAX = 1 << 16
 _ENV_ATLAS = (256, 8192)
+# The 2026-10-14 audit (finding service-gates-10): the retry counts and the three
+# loopback ports had no upper bound (a negative retry was silently clamped by
+# ``max(0, ...)`` with no note), and the two registry-keyed strings were raw. A
+# retry is minutes of the serial GPU worker, so ten is far past any sane ask.
+_ENV_RETRIES_MAX = 10
+_ENV_PORT = (1, 65535)
+# ``models.BASE_MODELS``' and ``kernels.rig.templates.templates()``' keys,
+# restated because this layer may not import either (the 2026-09-17 layering
+# pass moved ``DEFAULT_BASE_MODEL`` here for exactly that reason). A typo in
+# ``REALMSPINNER_RIG_TEMPLATE`` made every rig request refuse "That skeleton is
+# not available" at a control the user never touched, and one in
+# ``REALMSPINNER_T2I_MODEL`` made every re-texture that omitted ``base_model``
+# refuse "unknown base model".
+# ``tests/test_audit_2026_10_14_f02.py`` fails if either drifts.
+_ENV_BASE_MODELS = ("sdxl_cfg", "sdxl_cfg_pag", "flux_klein")
+_ENV_RIG_TEMPLATES = (
+    "biped_tail", "bird", "blank", "blob", "fish", "humanoid", "insect",
+    "quadruped", "serpent",
+)
 
 
 def _env_choice(name: str, default: str, choices: tuple[str, ...]) -> str:
@@ -423,24 +443,21 @@ class Config:
     # Default triangle profile for a new job. See pipelines/optimize.PROFILES.
     #
     # "standard" (50,000 triangles), not "raw", since 2026-09-23
-    # (dev/measurements/2026-09-23-default-mesh-budget.md): every generated
-    # mesh landed at ~267k-298k faces -- trellis-server's own quadric simplify
-    # to ~300k, with no second pass -- which is a source mesh, not a game
-    # asset, and the complaint that triggered this change said so in as many
-    # words. The per-tier corpus qualification that used to hold every named
-    # tier out of the generate forms never produced a usable result (0 of 20
-    # accepted on 2026-08-13), so it is retired in favour of a check on every
-    # job instead of a sample of three: `tiercheck.compare` now guards every
-    # `pipelines.optimize.run` pass and refuses to publish a tier that dropped
-    # UVs, a material assignment or a PBR texture. `resolve_profile`
-    # (service/_jobs_create.py) downgrades a *defaulted* tier to raw when
-    # gltfpack is not installed, rather than refusing the job outright.
-    # **What is still unguarded is silhouette damage** -- no number here
-    # scores a mangled blade or a lost finger; the eye catches that, and
-    # Retarget -> Raw rebuilds from source.glb, which is never touched. Set
-    # REALMSPINNER_MESH_PROFILE=raw to go back to the old default.
-    # Its dev/measurements document (2026-09-23-default-mesh-budget.md) is gone with the
-    # backup (confirmed 2026-09-28): re-measure to change.
+    # (dev/measurements/2026-09-23-default-mesh-budget.md [lost; re-measure to change]): every
+    # generated mesh landed at ~267k-298k faces -- trellis-server's own quadric simplify to ~300k,
+    # with no second pass -- which is a source mesh, not a game asset, and the complaint that
+    # triggered this change said so in as many words. The per-tier corpus qualification that used to
+    # hold every named tier out of the generate forms never produced a usable result (0 of 20
+    # accepted on 2026-08-13), so it is retired in favour of a check on every job instead of a
+    # sample of three: `tiercheck.compare` now guards every `pipelines.optimize.run` pass and
+    # refuses to publish a tier that dropped UVs, a material assignment or a PBR texture.
+    # `resolve_profile` (service/_jobs_create.py) downgrades a *defaulted* tier to raw when gltfpack
+    # is not installed, rather than refusing the job outright. **What is still unguarded is
+    # silhouette damage** -- no number here scores a mangled blade or a lost finger; the eye catches
+    # that, and Retarget -> Raw rebuilds from source.glb, which is never touched. Set
+    # REALMSPINNER_MESH_PROFILE=raw to go back to the old default. Its dev/measurements document
+    # (2026-09-23-default-mesh-budget.md) is gone with the backup (confirmed 2026-09-28): re-measure
+    # to change.
     mesh_profile: str = field(
         default_factory=lambda: _env_choice(
             "REALMSPINNER_MESH_PROFILE", "standard", _ENV_MESH_PROFILES
@@ -449,6 +466,7 @@ class Config:
     # The game-ready remesh's default triangle budget, when nothing asks for a
     # gltfpack tier by name and Blender is on this machine
     # (dev/measurements/2026-09-23-default-mesh-budget.md).
+    # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     # ``service._jobs_create.resolve_lowpoly`` is the door that reads this;
     # 5000 is the measured pick (4,996 triangles achieved on the raccoon, good
     # fidelity, ~6 s). 0 turns the remesh off -- a model job then falls back to
@@ -499,7 +517,9 @@ class Config:
     # The ceiling still ends the loop rather than a verdict, so past it the
     # user gets the last draw and the model stage gets its ordinary refusal.
     reference_retries: int = field(
-        default_factory=lambda: max(0, _env_int("REALMSPINNER_REFERENCE_RETRIES", 2))
+        default_factory=lambda: _env_int(
+            "REALMSPINNER_REFERENCE_RETRIES", 2, lo=0, hi=_ENV_RETRIES_MAX
+        )
     )
     # How many extra times the trellis stage may run when the finished mesh
     # audits worse than mesh_hole_max. 0 -- off -- because a retry is two
@@ -507,25 +527,24 @@ class Config:
     # than a repair: the second reconstruction can perfectly well be worse than
     # the first, which is why the loop keeps whichever attempt measured best
     # rather than whichever came last. Graded on 2026-09-02
-    # (dev/measurements/2026-09-02-hole-audit-vs-grade.md): the loop was run
-    # for real on the five meshes the trigger still fires on under v0.6.0 and
-    # the reviewer graded the kept attempts 0 of 5 usable -- the trigger sees
-    # perforated skins, which that release fixed, and what remains is open
-    # forms a reroll cannot close.
+    # (dev/measurements/2026-09-02-hole-audit-vs-grade.md [lost; re-measure to change]): the loop
+    # was run for real on the five meshes the trigger still fires on under v0.6.0 and the reviewer
+    # graded the kept attempts 0 of 5 usable -- the trigger sees perforated skins, which that
+    # release fixed, and what remains is open forms a reroll cannot close.
     mesh_retries: int = field(
-        default_factory=lambda: max(0, _env_int("REALMSPINNER_MESH_RETRIES", 0))
+        default_factory=lambda: _env_int(
+            "REALMSPINNER_MESH_RETRIES", 0, lo=0, hi=_ENV_RETRIES_MAX
+        )
     )
     # The worst-view see-through fraction past which a mesh is worth redoing.
     # 0.07 is measured, not guessed, the same way trellis_band was settled by a
-    # sweep: dev/measurements/2026-08-04-hole-rate-baseline.md ran the whole
-    # core-v1 suite at two seeds and found the hole rate sharply bimodal, with
-    # *nothing at all* between 0.0308 and 0.1010 -- 22 of 37 meshes below the
-    # gap and 15 above it, out to 0.556. 0.07 is the midpoint of that empty gap
-    # rather than a percentile, so it is the value furthest from either cluster
-    # and the one least disturbed by a future sample shifting one of them; any
-    # threshold inside the gap selects the identical fifteen meshes.
-    # Its dev/measurements document is gone with the backup (confirmed
-    # 2026-09-28): re-measure to change.
+    # sweep: dev/measurements/2026-08-04-hole-rate-baseline.md [lost; re-measure to change] ran the
+    # whole core-v1 suite at two seeds and found the hole rate sharply bimodal, with *nothing at
+    # all* between 0.0308 and 0.1010 -- 22 of 37 meshes below the gap and 15 above it, out to 0.556.
+    # 0.07 is the midpoint of that empty gap rather than a percentile, so it is the value furthest
+    # from either cluster and the one least disturbed by a future sample shifting one of them; any
+    # threshold inside the gap selects the identical fifteen meshes. Its dev/measurements document
+    # is gone with the backup (confirmed 2026-09-28): re-measure to change.
     mesh_hole_max: float = field(
         default_factory=lambda: _env_float("REALMSPINNER_MESH_HOLE_MAX", 0.07)
     )
@@ -545,6 +564,7 @@ class Config:
     # (dev/measurements/2026-09-07-mesh-probe-preregistration.md). Retention
     # keeps an accept *in place*; this keeps everything that was judged
     # *somewhere*.
+    # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     evidence_dir: Path = field(
         default_factory=lambda: _env_path("REALMSPINNER_EVIDENCE_DIR", _home() / "evidence")
     )
@@ -576,7 +596,9 @@ class Config:
         )
     )
     trellis_port: int = field(
-        default_factory=lambda: _env_int("REALMSPINNER_TRELLIS_PORT", 17971)
+        default_factory=lambda: _env_int(
+            "REALMSPINNER_TRELLIS_PORT", 17971, lo=_ENV_PORT[0], hi=_ENV_PORT[1]
+        )
     )
     # Seconds of queue inactivity before the trellis server is stopped to free VRAM.
     trellis_idle_timeout: float = field(
@@ -598,13 +620,17 @@ class Config:
         )
     )
     familiar_port: int = field(
-        default_factory=lambda: _env_int("REALMSPINNER_FAMILIAR_PORT", 17972)
+        default_factory=lambda: _env_int(
+            "REALMSPINNER_FAMILIAR_PORT", 17972, lo=_ENV_PORT[0], hi=_ENV_PORT[1]
+        )
     )
     # The retrieval child's own loopback port (EmbeddingGemma 2, a second
     # ``llama-server`` beside Familiar's). Its own variable and its own key and
     # port-owner files, so the two children can never reclaim each other.
     familiar_embed_port: int = field(
-        default_factory=lambda: _env_int("REALMSPINNER_FAMILIAR_EMBED_PORT", 17973)
+        default_factory=lambda: _env_int(
+            "REALMSPINNER_FAMILIAR_EMBED_PORT", 17973, lo=_ENV_PORT[0], hi=_ENV_PORT[1]
+        )
     )
     # Seconds of inactivity before the Familiar child is stopped to free VRAM.
     familiar_idle_timeout: float = field(
@@ -634,8 +660,8 @@ class Config:
     # Base model used when a job doesn't name one. Sampler settings are not
     # configurable here on purpose -- they belong to the checkpoint (models.py).
     t2i_model: str = field(
-        default_factory=lambda: os.environ.get(
-            "REALMSPINNER_T2I_MODEL", DEFAULT_BASE_MODEL
+        default_factory=lambda: _env_choice(
+            "REALMSPINNER_T2I_MODEL", DEFAULT_BASE_MODEL, _ENV_BASE_MODELS
         )
     )
     # trellis-server.exe's WebP textures declare EXT_texture_webp as required,
@@ -660,6 +686,7 @@ class Config:
     # dev/measurements/2026-08-01-trellis-band.md (the document was backfilled
     # on 2026-09-11 after an audit found this table living only here, in the one
     # constant CLAUDE.md names as the example of a corpus-keyed one).
+    # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     # (`realmspinner sweep`, one reference image, seed 42, res 1024,
     # hole_fraction @ 1024) -- worst-view see-through fraction:
     #
@@ -698,6 +725,7 @@ class Config:
     # as sweep axes for the props-v1 hole question (dev/measurements/
     # 2026-08-30-sdxl-cfg-props.md); a winning rung becomes a default here by
     # a measurement doc, not before.
+    # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     trellis_gss: float | None = field(
         default_factory=lambda: _env_opt_positive_float("REALMSPINNER_TRELLIS_GSS")
     )
@@ -720,6 +748,7 @@ class Config:
     # 1024, 1024 at 512), the texture-detail twin of trellis_tex_res. None
     # omits the flag. Both are sweep axes for dev/measurements/
     # 2026-09-03-trellis-detail-sweep.md; a default moves by that document.
+    # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     trellis_decim: int | None = field(
         default_factory=lambda: _env_opt_int(
             "REALMSPINNER_TRELLIS_DECIM", None, lo=0, hi=_ENV_DECIM_MAX
@@ -753,6 +782,7 @@ class Config:
     # `unload()` returned 0.1 GiB of it, because the allocator's arenas outlive
     # every reference. Turning this on restores that leak
     # (dev/measurements/2026-08-22-trampoline-child-pids.md).
+    # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     t2i_in_process: bool = field(
         default_factory=lambda: _env_bool("REALMSPINNER_T2I_IN_PROCESS", False)
     )
@@ -799,7 +829,9 @@ class Config:
     # Validated against templates.templates() at request time, not here -- config
     # is imported by everything and must not pull the template registry in.
     rig_template: str = field(
-        default_factory=lambda: os.environ.get("REALMSPINNER_RIG_TEMPLATE", "humanoid")
+        default_factory=lambda: _env_choice(
+            "REALMSPINNER_RIG_TEMPLATE", "humanoid", _ENV_RIG_TEMPLATES
+        )
     )
     # Wall-clock ceiling for one Blender subprocess. Automatic weights on a
     # 300k-face mesh are minutes of CPU; anything past this is a hang, and a
@@ -824,9 +856,14 @@ class Config:
         # ``pose_fit`` above (the 2026-09-26 audit, service-gates-06).
         default_factory=lambda: _env_bool("REALMSPINNER_DEFORM_QA", True)
     )
-    # A sheet is one EEVEE render per cell -- 8 yaws times however many poses.
-    # Generous because the cell count is user-chosen, but still bounded: this
-    # runs on the serial queue and a hang would block every later job.
+    # Wall-clock ceiling for one of the Blender runs that render a set of
+    # frames: the two a re-texture makes (its ten view renders and its
+    # projection bake, ``_q_sprite``) and the rig's deformation-QA sheet
+    # (``_q_rig``). The 2026-10-14 audit (finding poser-jobs-06) found this
+    # still described as a sprite-sheet render long after that pipeline was
+    # removed, so a user who set the variable to cut off a stuck sprite render
+    # changed how long a bake could run instead. Generous, but still bounded:
+    # these run on the serial queue and a hang would block every later job.
     sheet_timeout: float = field(
         default_factory=lambda: _env_float("REALMSPINNER_SHEET_TIMEOUT", 1800.0)
     )
@@ -982,6 +1019,31 @@ class Setting:
     env: str
     value: str
     from_env: bool
+    #: Why a set variable did **not** take (``""`` when it did, or is unset):
+    #: the 2026-10-14 audit (finding service-gates-09) found the readout drawing
+    #: a variable the parser rejected, or a blank one, as set by the environment
+    #: with the default it fell back to -- answering "did my setting take" yes.
+    rejected: str = ""
+
+
+def _env_status(env: str) -> tuple[bool, str]:
+    """``(the variable took effect, why it did not)`` for one ``SETTINGS`` variable.
+
+    Not simply ``env in os.environ`` (the 2026-10-14 audit, finding
+    service-gates-09). A blank or whitespace value reads as unset everywhere the
+    parsers look, and a value one of them rejected is in ``INVALID_ENV`` with
+    the raw text it saw -- compared against the *current* text, so a variable
+    fixed since the process started is not still reported as bad.
+    """
+    raw = os.environ.get(env)
+    if raw is None:
+        return False, ""
+    if not raw.strip():
+        return False, "blank, so the default applies"
+    for name, seen, expected in INVALID_ENV:
+        if name == env and seen == raw:
+            return False, f"rejected (expected {expected}), so the default applies"
+    return True, ""
 
 
 def effective(config: Config | None = None) -> list[Setting]:
@@ -1010,12 +1072,14 @@ def effective(config: Config | None = None) -> list[Setting]:
     out: list[Setting] = []
     for name, env in SETTINGS:
         value = getattr(config, name, None)
+        applied, rejected = _env_status(env)
         out.append(
             Setting(
                 name=name,
                 env=env,
                 value="(unset)" if value is None else str(value),
-                from_env=env in os.environ,
+                from_env=applied,
+                rejected=rejected,
             )
         )
     for name, env in SWITCHES:

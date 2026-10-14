@@ -111,14 +111,11 @@ rectangles, tags, durations and pivots, in plain JSON, for you to read with what
 Packwright's sidecar is TexturePacker's format instead, which a great many 2D toolchains already
 understand.
 
-**An export never overwrites what is already in your export folder.** If `Knight-frames`,
-`Knight-godot` or `Knight.png` and `Knight.json` are already there — from an earlier export, from a
-second character that is also called Knight, or from a folder of your own — the new export takes the
-next free name (`Knight-frames-2`, `Knight-godot-2`, `Knight-2.png`) and leaves the existing one exactly
-as it was. A Godot scene's `.glb` and `.tscn` take the new name with it, so the folder stays
-self-consistent. The one exception is a deliberate one: an export asked to replace (the app only does
-so when you say so) swaps the folder whole, and even then it refuses a folder that Realmspinner did not
-write. An agent's `character_export` never replaces anything; a repeat export lands beside the first.
+**An export never overwrites what is already in your export folder.** If `Knight-godot` is already
+there — from an earlier export, from a second character that is also called Knight, or from a folder
+of your own — a new **Export for Godot...** takes the next free name (`Knight-godot-2`) and leaves
+the existing one exactly as it was. The scene's `.glb` and `.tscn` take the new name with it, so the
+folder stays self-consistent.
 
 ## Tiled and Aseprite: read this before relying on it
 

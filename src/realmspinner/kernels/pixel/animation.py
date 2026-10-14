@@ -772,6 +772,22 @@ class Animation:
             if layer.uid == layer_uid
         }
 
+    def linked_slots(self) -> frozenset[tuple[int, int]]:
+        """Every slot whose cel is shared with at least one other slot.
+
+        **One pass for the whole grid.** :meth:`is_linked` answers one slot by
+        scanning every cel in the document, and the timeline asked it for every
+        cell on every draw -- (tracks x frames) scans of (tracks x frames) cels,
+        measured at 236 ms of ``is_linked`` alone per frame for 20 tracks x 200
+        frames, with nothing playing or changing (the 2026-10-14 audit, finding
+        inker-paint-03). Counting objects once and reading the answer per cell
+        is linear, so a draw asks this once and looks each cell up.
+        """
+        counts: dict[int, int] = {}
+        for layer in self.cels.values():
+            counts[id(layer)] = counts.get(id(layer), 0) + 1
+        return frozenset(key for key, layer in self.cels.items() if counts[id(layer)] > 1)
+
     def is_linked(self, track_uid: int, frame_uid: int) -> bool:
         layer = self.cels.get((track_uid, frame_uid))
         if layer is None:

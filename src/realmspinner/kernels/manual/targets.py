@@ -133,7 +133,9 @@ HELP_TARGETS: dict[str, tuple[str, str | None]] = {
     # them sat on ``20-overview#the-modes`` between phases 2 and 5 -- a
     # placeholder rather than a missing button, because a (?) that appears
     # later is one users learn to look for later. Six entries rather than one
-    # chapter-wide target for Troupe's reason: the question differs per pane.
+    # chapter-wide target because the question differs per pane (the 2026-10-14
+    # audit, finding docs-A-B-14, dropped an appeal to a mode this file no
+    # longer carries).
     # What a render is and why Play is greyed is the transport's; what an order
     # list is *for* is the order panel's; which number a cell holds is the
     # instrument list's; what a release point splits is the envelope editor's;

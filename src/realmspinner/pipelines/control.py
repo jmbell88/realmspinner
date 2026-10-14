@@ -32,6 +32,35 @@ DEFAULT_HIGH = 200
 # torch-free, which test_offline.py asserts exactly. No such module exists yet.
 PREPROCESSORS = ("canny",)
 
+# The range a "Start from this image" reference is fitted to, long side. The
+# 2026-10-14 audit, finding pipelines-image-01: the frame used to be the
+# reference's own size with no ceiling, so a phone photo made SDXL sample and
+# VAE-decode at 4000x4000 with the checkpoint already resident and VRAM
+# admission (which prices the spec's 1024 square) blind to it, and a 64x64
+# reference sampled at 64x64, far below what SDXL draws coherently.
+INIT_MAX_LONG_SIDE = 1024
+INIT_MIN_LONG_SIDE = 512
+
+
+def fit_init_frame(width: int, height: int) -> tuple[int, int]:
+    """The ``(width, height)`` a ``width`` x ``height`` init picture is drawn at.
+
+    Aspect is kept and the long side is clamped into
+    [:data:`INIT_MIN_LONG_SIDE`, :data:`INIT_MAX_LONG_SIDE`]; both sides are
+    snapped to the VAE's stride of 8 (floor 8). A picture already inside the
+    range keeps its size, so Inker's ``send_size`` crops pass through. Pure, so
+    the worker that draws the structure hint and the pipeline that denoises
+    the picture agree on one frame (the 2026-10-14 audit, finding
+    pipelines-image-03).
+    """
+    width, height = max(1, int(width)), max(1, int(height))
+    long_side = max(width, height)
+    scale = min(max(long_side, INIT_MIN_LONG_SIDE), INIT_MAX_LONG_SIDE) / long_side
+    return (
+        max(8, int(round(width * scale / 8)) * 8),
+        max(8, int(round(height * scale / 8)) * 8),
+    )
+
 
 def _letterbox(image: PILImage, size: int) -> PILImage:
     """Fit ``image`` into a size x size RGB frame on black, preserving aspect.
@@ -57,18 +86,31 @@ def canny(
     *,
     low: int = DEFAULT_LOW,
     high: int = DEFAULT_HIGH,
-    size: int | None = None,
+    size: int | tuple[int, int] | None = None,
 ) -> PILImage:
-    """An RGB Canny edge map, optionally letterboxed to ``size`` x ``size``.
+    """An RGB Canny edge map, optionally fitted to ``size``.
 
-    Edges are detected *before* padding, so the black bars never register as a
+    An int ``size`` letterboxes to a ``size`` x ``size`` square, with the edges
+    detected *before* padding so the black bars never register as a
     frame-shaped rectangle of structure the model then tries to honour.
+
+    A ``(width, height)`` ``size`` is a frame the hint must equal exactly --
+    the init frame, when a start picture and a ControlNet are combined. The
+    picture is resized to it *first* and edges are drawn there, so the hint
+    lines up with the picture being denoised: the 2026-10-14 audit, finding
+    pipelines-image-03, found the square letterbox traced a distorted copy of
+    a non-square reference, bars and all.
     """
     import cv2
     import numpy as np
     from PIL import Image
 
     rgb = image.convert("RGB")
+    if isinstance(size, tuple):
+        if rgb.size != size:
+            rgb = rgb.resize(size, Image.LANCZOS)
+        edges = cv2.Canny(np.array(rgb), low, high)
+        return Image.fromarray(np.stack([edges] * 3, axis=-1), mode="RGB")
     edges = cv2.Canny(np.array(rgb), low, high)
     out = Image.fromarray(np.stack([edges] * 3, axis=-1), mode="RGB")
     return _letterbox(out, size) if size else out
@@ -78,7 +120,7 @@ def hint(
     kind: str,
     image: PILImage,
     *,
-    size: int,
+    size: int | tuple[int, int],
     low: int = DEFAULT_LOW,
     high: int = DEFAULT_HIGH,
 ) -> PILImage:
@@ -111,7 +153,7 @@ def write_hint(
     dest: Path,
     *,
     kind: str,
-    size: int,
+    size: int | tuple[int, int],
     low: int = DEFAULT_LOW,
     high: int = DEFAULT_HIGH,
 ) -> dict[str, Any]:
@@ -144,7 +186,9 @@ def write_hint(
         "kind": kind,
         "low": low,
         "high": high,
-        "size": size,
+        # An int, whichever shape ``size`` took: the recorded block is read back
+        # as JSON and means "the hint's long side", the same as hint_report's.
+        "size": max(size) if isinstance(size, tuple) else size,
         "edge_fraction": edge_fraction(out),
     }
 

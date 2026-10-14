@@ -298,13 +298,13 @@ class TranslateGizmo(Gizmo):
     """Three arrows on the world axes; a drag slides along one.
 
     With ``planes=True`` it also carries three square handles (XY, YZ, XZ) that
-    slide the gizmo freely in that plane. Off by default: Mason and Poser move
+    slide the gizmo freely in that plane. Off by default: Mason and the pose editor move
     things along an axis and have no use for a handle that moves two at once --
     Clay, which edits vertices on a grid, is the caller that turns it on.
     """
 
     #: Class-level so a stand-in that borrows ``hit`` without ``__init__`` (the
-    #: Poser viewer's tests do) sees "no plane handles" rather than a missing field.
+    #: pose viewer's tests do) sees "no plane handles" rather than a missing field.
     planes = False
 
     def __init__(self, ctx: Any, programs: Any, planes: bool = False) -> None:

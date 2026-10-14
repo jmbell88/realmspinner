@@ -24,6 +24,15 @@ from .edits import ObjectAddEdit, ObjectPropsEdit, ObjectRemoveEdit
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .tilemap import MapDoc
 
+#: The most objects one map holds, summed over every object layer, and the one
+#: number every door reads: :meth:`ObjectOps.add_object` (which Paste and
+#: Duplicate go through), the layer copy, and ``rmap``'s reader. The 2026-10-14
+#: audit (finding plotter-map-06) found only the reader enforcing it, so a map
+#: built at the editing door past it saved and then failed to reopen. Not a fact
+#: about this format: it mirrors ``tmx.MAX_OBJECTS``, and nobody draws a hundred
+#: thousand objects by hand.
+MAX_OBJECTS = 100_000
+
 
 def object_bounds(obj: MapObject) -> tuple[float, float, float, float]:
     """The object's axis-aligned box in *map* pixels, rotation included.
@@ -106,12 +115,33 @@ class ObjectOps:
                     return (int(layer.uid), int(obj.uid))
         return None
 
+    def object_total(self: MapDoc) -> int:
+        """Every object on every object layer, groups walked -- what the ceiling counts."""
+        return sum(len(getattr(layer, "objects", ())) for layer in self.all_layers())
+
+    def refuse_if_too_many_objects(self: MapDoc, added: int = 1) -> None:
+        """Refuse an add that would take the map past :data:`MAX_OBJECTS`.
+
+        Public because the layer copy (``_map_layers.duplicate_layer``) takes an
+        object count of its own to this door: a copy mints an id per object, so
+        it asks before the copy is made, not after.
+        """
+        held = self.object_total()
+        if held + int(added) > MAX_OBJECTS:
+            raise ValueError(
+                f"this map already holds {held} objects; {MAX_OBJECTS} is the "
+                "most this build keeps"
+            )
+
     def add_object(
         self: MapDoc, layer_uid: int, obj: MapObject, *, index: int | None = None
     ) -> MapObject:
         layer = self.layer(layer_uid)
         if not isinstance(layer, ObjectLayer):
             raise KeyError(f"no object layer {layer_uid}")
+        # Before an id is minted or a step pushed, so a refusal leaves neither
+        # a burnt id nor a half-made undo step.
+        self.refuse_if_too_many_objects()
         # ``0`` is "unassigned" -- every caller that builds a fresh object
         # leaves it at the dataclass default, and this is the one place that
         # mints a real one. A caller that already set one (adopted from an
@@ -280,6 +310,27 @@ class ObjectOps:
         )
         return True
 
+    def cancel_object_edit(self: MapDoc) -> bool:
+        """Close the session and put the object back as it stood. -> whether one was open.
+
+        Pushes **no** step: the drag is abandoned, not committed. Esc is the
+        caller, and the 2026-10-14 audit (finding plotter-mode-32) found it
+        clearing the drag state while the document kept the half-dragged
+        object, which the next idle frame then committed as a step of its own.
+        An object deleted mid-drag has nothing to restore.
+        """
+        session, self._object_edit = self._object_edit, None
+        if session is None:
+            return False
+        layer = self.layer(session["layer_uid"])
+        if not isinstance(layer, ObjectLayer):
+            return True
+        if any(o.uid == session["obj_uid"] for o in layer.objects):
+            self._apply_object_props(
+                session["layer_uid"], session["obj_uid"], session["before"]
+            )
+        return True
+
     # -- the group edit session ------------------------------------------------
     #
     # The session above, over several objects, and deliberately a *parallel*
@@ -378,6 +429,22 @@ class ObjectOps:
         # objects happened to move would be one the history panel labels two
         # different ways for one action.
         self.compound(steps)
+        return True
+
+    def cancel_group_edit(self: MapDoc) -> bool:
+        """:meth:`cancel_object_edit` for the group session: restore every member."""
+        session, self._group_edit = self._group_edit, None
+        if session is None:
+            return False
+        layer = self.layer(session["layer_uid"])
+        if not isinstance(layer, ObjectLayer):
+            return True
+        live = {o.uid for o in layer.objects}
+        for member in session["members"]:
+            if member["obj_uid"] in live:
+                self._apply_object_props(
+                    session["layer_uid"], member["obj_uid"], member["before"]
+                )
         return True
 
     def place_object(self: MapDoc, **values: Any) -> None:

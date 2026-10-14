@@ -51,27 +51,12 @@ def load(directory: Path, params: dict[str, Any]) -> list[dict[str, Any]]:
                     "path": store.sprite_draft_png_path(directory, record["id"], letter),
                 }
             )
-    for record in store.list_sheets(directory):
-        sheet_id = record["id"]
-        reduced = store.read_sheet_pixel(directory, sheet_id)
-        source = reduced if reduced and reduced.get("cells") else record
-        path = (
-            store.sheet_pixel_png_path(directory, sheet_id)
-            if source is reduced
-            else (store.sheet_png_path(directory, sheet_id))
-        )
-        cells = source.get("cells") or []
-        if cells:
-            output.append(
-                {
-                    **record,
-                    **source,
-                    "name": record.get("name") or "Rendered sheet",
-                    "path": path,
-                    "columns": source.get("columns", record.get("columns", 1)),
-                    "rows": source.get("rows", record.get("rows", 1)),
-                }
-            )
+    # The 2026-10-14 audit, findings create-brief-01 and service-kinds-01: a loop
+    # over ``store.list_sheets`` stood here, and eed32549 deleted the rendered-sheet
+    # store with the character-sheet pipeline, so ``load`` raised AttributeError
+    # for every job and threw away the tileset and draft records gathered above.
+    # Nothing writes a rendered sheet any more; a retired row's files stay on disk
+    # for the Library and are not drawn here.
     return output
 
 
@@ -179,23 +164,22 @@ def draw(ctx: Any, width: float, height: float) -> bool:
     if job is None or job.get("status") != "done":
         return False
     kind = assets.asset_type_from_params(job.get("params") or {}, stage=job.get("stage", ""))
-    if kind not in ("tileset", "sprite_sheet", "character") and ctx.state.create.stage != "pose":
+    # The 2026-10-14 audit, finding create-workspace-04: ``"character"`` stood
+    # here for the character-sheet pipeline's rendered sheets, which eed32549
+    # deleted; a character is a 3D model and has no exported cells to draw.
+    if kind not in ("tileset", "sprite_sheet") and ctx.state.create.stage != "pose":
         return False
     records = request(ctx, job)
     if not records:
         return False
     preview = ctx.state.preview
     if job.get("stage") == "model" and ctx.state.create.stage != "pose":
-        changed, view = controls.segmented_choice(
-            "create-model-view",
-            (("result", "Model"), ("sheet", "Exported sheets")),
-            ctx.state.create.preview_mode,
-            compact=True,
-        )
-        if changed:
-            ctx.state.create.preview_mode = view
-        if view == "result":
-            return False
+        # A mesh is the viewport's, not this pane's. This used to offer a
+        # "Model / Exported sheets" toggle for the rendered sheets a mesh row
+        # carried, and the 2026-10-14 audit (finding create-workspace-04) found
+        # nothing left to toggle to: the only records ``load`` still returns are
+        # a tileset's and a sprite draft's, and neither belongs to a model row.
+        return False
     names = [(str(i), str(r.get("name") or "Sheet")) for i, r in enumerate(records)]
     selection = str(preview.get("create_atlas_choice", "0"))
     target = preview.get("create_atlas_focus")

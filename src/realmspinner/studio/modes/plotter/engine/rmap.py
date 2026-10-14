@@ -87,6 +87,14 @@ without the record the atlas is just an image, so an old reader would slice it
 on the grid size and hand every cell of the map a different tile. A tileset that
 is an ordinary sliced atlas keeps its old version.
 
+**Version 12 is a Wang set's and colour's own tile and class**: the
+representative ``tile`` and Tiled ``class`` that ``tsx`` reads and writes on
+both records. Written only when one is non-default, and gated for the standing
+reason -- a version 8 to 11 reader drops the keys and hands back a tileset
+someone else's editor would now draw differently, which is the silent edit the
+format's "holds everything" promise forbids. A foreign set with neither keeps
+its old version.
+
 Versions 1 and 2 are still read, through tolerant defaults rather than a branch
 per version -- the ``locked`` precedent. A version 1 file predates projections
 and is orthogonal by definition; a version 2 file has no tint, offset, parallax
@@ -99,8 +107,9 @@ additive defaults, not two independent writers.
 **A half-read document is worse than a refused one.** A file from a newer
 version, a layer whose array is the wrong shape or dtype, a tileset naming a
 member the archive does not carry, a gid no tileset accounts for, tilesets whose
-firstgids do not increase: each is refused, because each of them opens as a map
-that looks nearly right and can be saved back over the original.
+firstgids do not increase or whose id ranges overlap: each is refused, because
+each of them opens as a map that looks nearly right and can be saved back over
+the original.
 """
 
 from __future__ import annotations
@@ -131,7 +140,9 @@ from .....kernels.grid2d.tileset import (
 )
 from .....kernels.grid2d.wang import WangColour, WangSet
 from . import project
-from ._map_layers import MAX_GROUP_DEPTH
+from ._map_layers import MAX_GROUP_DEPTH, MAX_LAYER_NODES
+from ._map_objects import MAX_OBJECTS
+from ._map_tilesets import MAX_TILESETS, PixelBudget, refuse_overlapping_tilesets
 from .pngio import png_bytes
 from .props import read_rmap_properties, write_rmap_properties
 from .tilemap import (
@@ -153,8 +164,11 @@ from .tilemap import (
     shape_kind,
 )
 
-VERSION = 11
-#: Named stamps; written when the map carries one. The new ceiling.
+VERSION = 12
+#: A foreign Wang set's or colour's representative ``tile`` and custom ``class``;
+#: written when one is non-default. The new ceiling.
+WANG_DETAIL_VERSION = 12
+#: Named stamps; written when the map carries one and no Wang detail.
 STAMPS_VERSION = 11
 #: Infinite maps; written when the map is one and it carries no stamp.
 INFINITE_VERSION = 10
@@ -197,6 +211,17 @@ RMAP_SUFFIX = ".rmap"
 # too: a test lowers it rather than building a gigabyte.
 MAX_DECOMPRESSED_BYTES = 1 << 30
 
+# The manifest member's own ceiling. ``MAX_DECOMPRESSED_BYTES`` bounds the
+# archive's total, but the manifest is the one member parsed into Python
+# objects, and parsed JSON is ~18-23 times its text: the 2026-10-14 audit
+# (finding plotter-map-03) fed ``read_rmap`` a 32 KiB archive whose manifest
+# inflated to 32 MiB of ``[],`` and watched it take 5 s and peak at 725 MiB --
+# about 23 GiB at the archive ceiling, from a file far under the 100 MB open
+# ceiling. 64 MiB holds the manifest of a map at ``MAX_OBJECTS`` objects (each
+# is a few hundred bytes of indented JSON) with room, and no map this editor
+# writes is near it. Read from module globals at call time, so a test lowers it.
+MAX_MANIFEST_BYTES = 64 << 20
+
 # ``MAX_DECOMPRESSED_BYTES`` bounds the archive's total unpacked size, but a
 # manifest can spend that whole budget on repetition rather than bulk: a
 # tileset list naming the same small image a thousand times, or a layer tree a
@@ -207,9 +232,13 @@ MAX_DECOMPRESSED_BYTES = 1 << 30
 # reason: a document with a thousand layers, a thousand tilesets or a hundred
 # thousand objects is not one anyone drew by hand, and is far past the largest
 # map this editor's own writer has ever produced.
-MAX_TILESETS = 1000
-MAX_LAYER_NODES = 1000
-MAX_OBJECTS = 100_000
+#
+# ``MAX_TILESETS``, ``MAX_LAYER_NODES`` and ``MAX_OBJECTS`` are imported above
+# rather than restated: the 2026-10-14 audit (finding plotter-map-06) found the
+# editing doors had no ceiling, so a map built through ``add_tileset`` /
+# ``add_*_layer`` / ``add_object`` past it saved and then failed to reopen here.
+# The doors and this reader now read one number, so no state is reachable that
+# this build will not read back.
 
 #: Every shape by the name it answers to, which is the reverse of
 #: :data:`~._map_model.SHAPE_KINDS` and the only thing this codec needs: the
@@ -539,23 +568,36 @@ def _tile_meta_from(entries: Any) -> dict[int, TileMeta]:
 
 
 def _wangset_entry(wangset: Any) -> dict[str, Any]:
-    return {
+    entry: dict[str, Any] = {
         "name": wangset.name,
         "kind": wangset.kind,
-        "colours": [
-            {
-                "name": colour.name,
-                "colour": colour.colour,
-                "probability": float(colour.probability),
-            }
-            for colour in wangset.colours
-        ],
+        "colours": [_wangcolour_entry(colour) for colour in wangset.colours],
         # Sorted, so two saves of one document are byte identical: a dict's
         # insertion order is a property of how the set was read.
         "tiles": {
             str(local): list(wangset.tiles[local]) for local in sorted(wangset.tiles)
         },
     }
+    # Only when set, so every set that carries neither re-saves byte-stable and
+    # :func:`_document_version` is the one place that decides what these cost.
+    if wangset.tile != -1:
+        entry["tile"] = int(wangset.tile)
+    if wangset.klass:
+        entry["class"] = str(wangset.klass)
+    return entry
+
+
+def _wangcolour_entry(colour: Any) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "name": colour.name,
+        "colour": colour.colour,
+        "probability": float(colour.probability),
+    }
+    if colour.tile != -1:
+        entry["tile"] = int(colour.tile)
+    if colour.klass:
+        entry["class"] = str(colour.klass)
+    return entry
 
 
 def _wangsets_from(entries: Any) -> tuple[Any, ...]:
@@ -576,6 +618,10 @@ def _wangsets_from(entries: Any) -> tuple[Any, ...]:
                         name=str(colour.get("name", "")),
                         colour=str(colour.get("colour", "#ffffff")),
                         probability=float(colour.get("probability", 1.0)),
+                        # Absent before version 12, where the absence meant
+                        # the defaults (``tsx``'s own: no tile, no class).
+                        tile=int(colour.get("tile", -1)),
+                        klass=str(colour.get("class", "")),
                     )
                     for colour in (entry.get("colours") or ())
                 ),
@@ -583,6 +629,8 @@ def _wangsets_from(entries: Any) -> tuple[Any, ...]:
                     int(local): tuple(int(slot) for slot in slots)
                     for local, slots in (entry.get("tiles") or {}).items()
                 },
+                tile=int(entry.get("tile", -1)),
+                klass=str(entry.get("class", "")),
             )
         )
     return tuple(out)
@@ -634,7 +682,20 @@ def _document_version(doc: MapDoc) -> int:
     ``ObjectLayer.color`` was exactly that: the one decoration on the object
     arm below that nothing looked at.
     """
-    # Stamps first: 11 is the ceiling, so nothing below can override it. Gated
+    # Wang detail first: 12 is the ceiling. The 2026-10-14 audit, finding
+    # plotter-map-08, found a set's ``tile`` and ``class`` and each colour's
+    # dropped by this codec although ``tsx`` reads and writes all four -- and a
+    # version 8-11 reader would drop them again in silence, so a document that
+    # carries one declares the version that knows the keys.
+    if any(
+        wangset.tile != -1
+        or wangset.klass
+        or any(colour.tile != -1 or colour.klass for colour in wangset.colours)
+        for ref in doc.tilesets
+        for wangset in ref.tileset.wangsets
+    ):
+        return WANG_DETAIL_VERSION
+    # Stamps next: 11 is the ceiling for what is left. Gated
     # like every field here -- the ``stamps`` key is written unconditionally, so
     # a document carrying one while declaring version 10 would hand an older
     # reader a file it drops the stamps out of in silence.
@@ -834,6 +895,22 @@ def manifest_json(doc: MapDoc) -> str:
     return json.dumps(payload, sort_keys=True, indent=2)
 
 
+def _info(name: str) -> zipfile.ZipInfo:
+    """A member's directory entry: the fixed timestamp and **deflate**.
+
+    ``ZipInfo`` defaults to ``ZIP_STORED`` and ``writestr`` honours the entry's
+    own method over the archive's, so the ``ZIP_DEFLATED`` ``rmap_bytes`` opens
+    with never reached the manifest or a layer array (the 2026-10-14 audit,
+    finding plotter-map-07): an all-empty 512 x 512 layer saved as 1,049,821
+    bytes where deflated it is 65,238, and two empty 4096 x 4096 layers saved as
+    128 MiB, past the 100 MiB this build's own open door allows. The PNG members
+    pass ``ZIP_STORED`` explicitly, which overrides this.
+    """
+    info = zipfile.ZipInfo(name, _EPOCH)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    return info
+
+
 def rmap_bytes(doc: MapDoc) -> bytes:
     """The document as the bytes of a ``.rmap`` archive.
 
@@ -854,21 +931,21 @@ def rmap_bytes(doc: MapDoc) -> bytes:
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
         # First member, so a reader can identify the file without a full
         # directory scan and a human running ``unzip -p`` gets the readable half.
-        zf.writestr(zipfile.ZipInfo(MANIFEST, _EPOCH), manifest)
+        zf.writestr(_info(MANIFEST), manifest)
         for index, layer in enumerate(doc.tile_layers()):
             zf.writestr(
-                zipfile.ZipInfo(f"{LAYER_DIR}/{index}.npy", _EPOCH),
+                _info(f"{LAYER_DIR}/{index}.npy"),
                 _npy_bytes(layer.data),
             )
         for slot in sorted(doc.stamps):
             zf.writestr(
-                zipfile.ZipInfo(f"{STAMP_DIR}/{int(slot)}.npy", _EPOCH),
+                _info(f"{STAMP_DIR}/{int(slot)}.npy"),
                 _npy_bytes(doc.stamps[slot].cells),
             )
         for index, image in enumerate(_image_layers(doc)):
             # Stored, not deflated, for the tileset PNG's reason below.
             zf.writestr(
-                zipfile.ZipInfo(f"{IMAGE_DIR}/{index}.png", _EPOCH),
+                _info(f"{IMAGE_DIR}/{index}.png"),
                 png_bytes(image.pixels),
                 zipfile.ZIP_STORED,
             )
@@ -876,7 +953,7 @@ def rmap_bytes(doc: MapDoc) -> bytes:
             # Stored, not deflated: a PNG is already compressed, and deflating
             # it again spends time to make it marginally bigger.
             zf.writestr(
-                zipfile.ZipInfo(f"{TILESET_DIR}/{index}.png", _EPOCH),
+                _info(f"{TILESET_DIR}/{index}.png"),
                 png_bytes(ref.tileset.pixels),
                 zipfile.ZIP_STORED,
             )
@@ -977,8 +1054,23 @@ def _read_layer_array(raw: bytes, width: int, height: int, name: str) -> np.ndar
     return np.ascontiguousarray(array).copy()
 
 
+class _Pictures(dict):
+    """The decoded-picture cache of one ``read_rmap`` call, with its pixel budget.
+
+    A dict keyed by member name, as before, that also carries the
+    :class:`~._map_tilesets.PixelBudget` every *distinct* member is charged to:
+    the 2026-10-14 audit (finding plotter-map-02) found only the per-picture
+    ceiling, so a manifest naming many distinct members decoded and kept all of
+    them. A repeated reference is a cache hit and costs nothing.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.budget = PixelBudget()
+
+
 def _read_picture(
-    zf: zipfile.ZipFile, name: str, what: str, cache: dict[str, np.ndarray] | None = None
+    zf: zipfile.ZipFile, name: str, what: str, cache: _Pictures | None = None
 ) -> np.ndarray:
     # ``pixelguard`` for the ceiling and, incidentally, for the ``with`` this
     # never had: ``Image.open`` is lazy and holds its file object open, so every
@@ -994,7 +1086,11 @@ def _read_picture(
     # owned copy rather than a view.
     if cache is not None and name in cache:
         return cache[name]
-    picture = pixelguard.decode_rgba(io.BytesIO(_member(zf, name, what)), what)
+    with pixelguard.opened(io.BytesIO(_member(zf, name, what)), what) as image:
+        # Charged from the header, before ``convert`` allocates.
+        if cache is not None:
+            cache.budget.charge(image.width, image.height, what)
+        picture = np.asarray(image.convert("RGBA"), dtype=np.uint8).copy()
     if cache is not None:
         cache[name] = picture
     return picture
@@ -1037,13 +1133,22 @@ def _finite(number: float, what: str) -> float:
     return number
 
 
-def _pair(entry: dict[str, Any], key: str, default: tuple[float, float]) -> tuple[float, float]:
-    """``offset`` and ``parallax``: two floats."""
+def _pair(
+    entry: dict[str, Any],
+    key: str,
+    default: tuple[float, float],
+    *,
+    what: str | None = None,
+) -> tuple[float, float]:
+    """``offset`` and ``parallax``: two floats.
+
+    ``what`` names the owner for the one caller that is not a layer -- the map's
+    parallax origin -- which the 2026-10-14 audit (finding plotter-map-05) found
+    refused as "a layer's parallax_origin".
+    """
     raw = _two(entry, key, default)
-    return (
-        _finite(float(raw[0]), f"a layer's {key}"),
-        _finite(float(raw[1]), f"a layer's {key}"),
-    )
+    label = what or f"a layer's {key}"
+    return (_finite(float(raw[0]), label), _finite(float(raw[1]), label))
 
 
 def _three(entry: dict[str, Any], key: str, default: Any) -> Any:
@@ -1155,7 +1260,7 @@ def _read_layers(
     zf: zipfile.ZipFile,
     doc: MapDoc,
     budget: _ReadBudget,
-    pictures: dict[str, np.ndarray],
+    pictures: _Pictures,
 ) -> list[Layer]:
     """One list of manifest layer entries, as layers. Recursive through groups.
 
@@ -1388,7 +1493,10 @@ def read_rmap(data: bytes) -> MapDoc:
     """
     try:
         return _read_rmap(data)
-    except (TypeError, AttributeError, OverflowError) as exc:
+    except (TypeError, AttributeError, OverflowError, IndexError, KeyError) as exc:
+        # ``IndexError`` and ``KeyError`` too: the 2026-10-14 audit (finding
+        # plotter-map-12) found a short ``offset`` or a collision point with no
+        # numbers leaving as one of those, which the open door does not frame.
         raise ValueError(f"this map document holds a malformed value: {exc}") from exc
 
 
@@ -1415,6 +1523,14 @@ def _read_rmap(data: bytes) -> MapDoc:
             )
 
         try:
+            # Its declared size is checked first, from the directory, before
+            # ``read`` or the parser allocate a byte of it.
+            declared = int(zf.getinfo(MANIFEST).file_size)
+            if declared > MAX_MANIFEST_BYTES:
+                raise ValueError(
+                    f"this map's manifest unpacks to {declared} bytes, past the "
+                    f"{MAX_MANIFEST_BYTES} this build will parse"
+                )
             manifest = json.loads(zf.read(MANIFEST))
         except (
             zipfile.BadZipFile,
@@ -1484,9 +1600,15 @@ def _read_rmap(data: bytes) -> MapDoc:
             manifest.get("backgroundcolor"), "a map background colour"
         )
         doc.class_name = str(manifest.get("class", ""))
-        doc.parallax_origin = _pair(manifest, "parallax_origin", (0.0, 0.0))
+        doc.parallax_origin = _pair(
+            manifest, "parallax_origin", (0.0, 0.0), what="the map's parallax_origin"
+        )
         skew = _two(manifest, "skew", (0, 0))
         doc.skew_x, doc.skew_y = int(skew[0]), int(skew[1])
+        # The 2026-10-14 audit, finding plotter-map-04: a zero determinant is a
+        # grid ``cell_at`` cannot invert, and a ``.rmap`` this build wrote could
+        # carry it forward into the next open.
+        project.check_skew(doc.projection, doc.tile_w, doc.tile_h, doc.skew_x, doc.skew_y)
         stagger = _three(manifest, "stagger", ("y", "odd", 0))
         # Falling back like both Tiled readers (``tmx._offset_fields``) and
         # refusing like the settings setter, for ``renderorder``'s reason above:
@@ -1519,7 +1641,7 @@ def _read_rmap(data: bytes) -> MapDoc:
         # Shared across every tileset image and every image-layer picture in
         # this call: a manifest can name one member from several entries, and
         # without this each reference pays its own PNG decode.
-        pictures: dict[str, np.ndarray] = {}
+        pictures = _Pictures()
 
         previous = 0
         for entry in raw_tilesets:
@@ -1585,6 +1707,11 @@ def _read_rmap(data: bytes) -> MapDoc:
                     source=str(entry.get("source", "")),
                 )
             )
+
+        # After every tileset is built, before any layer is: the ranges are only
+        # known once each image has been sliced, and a refusal here still
+        # precedes every layer array's decode.
+        refuse_overlapping_tilesets(doc.tilesets)
 
         try:
             doc.layers.extend(

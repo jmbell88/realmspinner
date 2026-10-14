@@ -440,12 +440,11 @@ def delete_pose(job_dir: Path, pose_id: str) -> bool:
 
 # --- the deformation QA sheet -----------------------------------------------
 #
-# One per rig, overwritten by the next rig, and deliberately *not* in sheets/:
-# it is a review artifact about the rig, not a sprite sheet the user asked for.
-# (``sheets/`` itself is where the retired character-sheet kinds wrote --
-# ``retired.py`` -- and nothing lists or deletes it any more.) It lands in the
-# source job's directory beside rig.glb for the reason the rig itself does --
-# it describes that mesh.
+# One per rig, overwritten by the next rig: a review artifact about the rig, not
+# something the user asked for. It lands in the source job's directory beside
+# rig.glb for the reason the rig itself does -- it describes that mesh. (A
+# directory the retired character-sheet kinds once wrote is not touched by this
+# and nothing lists or deletes it any more -- ``retired.py``.)
 
 RIG_QA_PNG = "rig_qa.png"
 RIG_QA_JSON = "rig_qa.json"

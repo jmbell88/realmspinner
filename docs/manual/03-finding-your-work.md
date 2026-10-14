@@ -120,7 +120,7 @@ measured against. The verdict rows survive; the pixels behind them do not.
 
 The asymmetry is the whole point. Prune protects your judged work; clean does not. If you have been
 grading meshes or labelling references, that judged material is training data and evidence, and
-clean is the one button that throws it away. Your pose library, style anchors and settings survive
+clean is the one button that throws it away. Your style anchors and settings survive
 both.
 
 ## Getting an asset somewhere else
@@ -138,8 +138,8 @@ rename — it is the way an asset crosses into another part of the app:
 
 ## Rows that behave oddly
 
-A few rows in the library are not assets in their own right. A rig, a sprite sheet, a character
-sheet, a re-texture — each of these is a *product of another asset*. It has no thumbnail of its own
+A few rows in the library are not assets in their own right. A rig, a sprite sheet,
+a re-texture — each of these is a *product of another asset*. It has no thumbnail of its own
 and no directory of its own; it writes into the directory of the job it was made from.
 
 The app knows this and opens them onto the screen that actually shows them, rather than onto the

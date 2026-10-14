@@ -146,7 +146,10 @@ def _vectors(body: dict[str, Any], expected: int) -> np.ndarray:
     for index, vector in enumerate(slots):
         try:
             row = np.asarray(vector, dtype=np.float32)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:
+            # OverflowError: an integer too large for float32 (10**400) is not
+            # a ValueError, and escaped embed() past the BM25 fallback (the
+            # 2026-10-14 audit, finding familiar-core-07).
             raise EmbedBadResponse("an embedding is not a list of numbers") from exc
         if row.shape != (NATIVE_DIM,):
             raise EmbedBadResponse(

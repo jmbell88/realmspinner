@@ -11,8 +11,17 @@ Pure in the ``sheetout`` sense minus its one exception: stdlib, numpy and a lazy
 Pillow, and *no* import from ``pipelines`` either, because a GIF carries its own
 timing in its own frames and there is no sidecar format to be the authority on.
 
-Three things about the format decide everything below, and each of them is a
+Four things about the format decide everything below, and each of them is a
 place a naive encode goes quietly wrong.
+
+**Identical consecutive frames merge into one.** Pillow's multi-frame writer
+drops a frame that is pixel-for-pixel the previous one and adds its duration
+to that one, and nothing in the encoder options turns that off: four frames
+of which three are the same come back from a reopened file as two, at 300 and
+100 ms. Playback is exactly the same and the *count* is not, so a held pose
+exported to GIF and opened again is one longer frame, not several -- the
+2026-10-14 audit, finding inker-codecs-14, which found the manual promising
+one frame per frame. A sheet or an ``.ora`` is the way to keep frame identity.
 
 **A GIF pixel is a palette index, and one index may be transparent.** So alpha
 is not stored, it is *thresholded*: a pixel is either fully there or fully gone,

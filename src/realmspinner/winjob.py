@@ -249,6 +249,7 @@ def tracked() -> dict[int, str]:
 # holding 6.3 GiB, understating the app by a third at the moment it was
 # deciding whether to admit the next job
 # (dev/measurements/2026-08-22-trampoline-child-pids.md).
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 #
 # The register already exists and was simply never read: a process created by a
 # process in a job is assigned to that job at creation, so the whole tree is in

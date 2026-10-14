@@ -39,11 +39,10 @@ def linked(mesh: Mesh, verts: np.ndarray) -> np.ndarray:
     the mesh, not the square root of its size, so four disconnected quad
     strips two faces wide totalling 200k vertices took 11.1 s -- 11 seconds on
     the frame thread for one L key (dev/measurements/
-    2026-09-13-native-batch-10-candidates.md, §1). ``connected_components``
-    answers the same question -- which vertices share a component with the
-    seeds -- in one pass over the whole graph regardless of its shape, and
-    ``adjacency`` is already cached per mesh so the graph itself costs
-    nothing extra to build here.
+    2026-09-13-native-batch-10-candidates.md [lost; re-measure to change], §1).
+    ``connected_components`` answers the same question -- which vertices share a component with the
+    seeds -- in one pass over the whole graph regardless of its shape, and ``adjacency`` is already
+    cached per mesh so the graph itself costs nothing extra to build here.
     """
     seeds = np.unique(np.asarray(verts, dtype="i8").reshape(-1))
     count = len(mesh.positions)

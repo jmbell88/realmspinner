@@ -82,7 +82,7 @@ def _open(frames: int = 4, *, layout: str | None = None):
     if layout is not None:
         # Construction-time state, exactly as an imported sheet carries it --
         # no undo op edits a layout, so setting it directly is what loading one
-        # does (``ora._read`` and ``sheetin.document_from_sheet`` both assign
+        # does (``ora``'s reader and ``sheetin``'s document builders both assign
         # ``anim.layout``).
         doc.anim.layout = DirectionalLayout.of(layout)
     tab = InkerDoc(doc=doc, title="walk.ora")

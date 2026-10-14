@@ -29,7 +29,7 @@ from typing import Any
 
 import numpy as np
 
-from ....kernels.pixel import walk
+from ....kernels.pixel import ora, walk
 from ....kernels.pixel.walk import gait
 from ....kernels.pixel.walk import rig as R
 
@@ -40,6 +40,18 @@ GRAB_PX = 9.0
 
 #: Radius the joint dots are drawn at, in design pixels.
 JOINT_R = 4.0
+
+#: How far past the canvas edge a joint or the ground line may be put, in
+#: document pixels.
+#:
+#: The 2026-10-14 audit, finding inker-mode-14: nothing clamped a drag, and the
+#: render's cost grows with the distance of a joint from its part (rotsprite
+#: pads a plane out to the pivot) -- on a 64x64 rig a wrist at (400, 400) took
+#: 1.2 s, at 5000 px 17.6 s and at 1e7 px 55 s, for the preview and again for
+#: the bake. One drag past the edge at low zoom pinned the task thread. A little
+#: room outside the canvas stays, because a hand that swings off the edge is a
+#: real thing to want to see.
+JOINT_MARGIN = 16.0
 
 NOTHING_OPEN = "Nothing is open."
 BUSY = "The document is busy -- a save, an export or playback is still running."
@@ -100,6 +112,15 @@ class WalkSession:
     #: A finished background render, ``(stamp, composites, raw)``, written by the
     #: task thread (one attribute store) and adopted by the frame thread.
     _ready: tuple[Any, ...] | None = None
+    #: ``(stamp, message)`` of a background render that raised, written by the
+    #: task thread and read by the frame thread, which says it once and stops
+    #: asking for that stamp. The 2026-10-14 audit, finding inker-mode-15: a
+    #: render that fails deterministically never lands, so ``frames`` saw a
+    #: stamp that never matched and resubmitted it every frame -- a toast and a
+    #: burned worker thread per frame, the shape ``matte_preview`` latches
+    #: against in ``studio/shell/tasks.py``.
+    _failed: tuple[Any, ...] | None = None
+    _failure_told: bool = False
 
 
 # -- opening and closing ---------------------------------------------------------------
@@ -267,16 +288,23 @@ def set_joint(ctx: Any, tab: Any, name: str, point: tuple[float, float]) -> bool
     open_session = session(ctx.state.inker, tab)
     if open_session is None or name not in R.JOINTS:
         return False
+    width, height = open_session.size
+    point = (_clamp(point[0], width), _clamp(point[1], height))
     open_session.rig = walk.set_joint(open_session.rig, name, point)
     _settle(open_session)
     return True
+
+
+def _clamp(value: float, extent: int) -> float:
+    """*value* held to the canvas plus :data:`JOINT_MARGIN` either side."""
+    return max(-JOINT_MARGIN, min(float(value), float(extent) + JOINT_MARGIN))
 
 
 def set_ground(ctx: Any, tab: Any, y: float) -> bool:
     open_session = session(ctx.state.inker, tab)
     if open_session is None:
         return False
-    open_session.rig = walk.set_ground(open_session.rig, y)
+    open_session.rig = walk.set_ground(open_session.rig, _clamp(y, open_session.size[1]))
     _settle(open_session)
     return True
 
@@ -449,12 +477,14 @@ def _request(ctx: Any, open_session: WalkSession, stamp: tuple[Any, ...]) -> Non
     rig, settings, size = open_session.rig.copy(), open_session.settings, open_session.size
 
     def work() -> None:
-        raw = walk.frames(rig, settings)
-        open_session._ready = (
-            stamp,
-            walk.composite_frames(rig, settings, size, rendered=raw),
-            raw,
-        )
+        try:
+            raw = walk.frames(rig, settings)
+            composites = walk.composite_frames(rig, settings, size, rendered=raw)
+        except Exception as exc:  # noqa: BLE001 - latched, then said on the frame thread
+            open_session._failure_told = False
+            open_session._failed = (stamp, str(exc) or type(exc).__name__)
+            return
+        open_session._ready = (stamp, composites, raw)
 
     ctx.submit(f"inker-walkview:{open_session.tab_uid}", work)
 
@@ -472,6 +502,12 @@ def frames(open_session: WalkSession, ctx: Any = None) -> list[np.ndarray]:
     stamp = (open_session.rig.rev, open_session.settings)
     if ctx is not None:
         _adopt_ready(open_session)
+        failed = open_session._failed
+        if failed is not None and failed[0] == stamp:
+            if not open_session._failure_told:
+                open_session._failure_told = True
+                ctx.toast(f"The walk preview could not be drawn: {failed[1]}.", "error")
+            return open_session._frames
         if stamp != open_session._stamp:
             _request(ctx, open_session, stamp)
         return open_session._frames
@@ -579,7 +615,34 @@ def bake_reason(state: Any, tab: Any) -> str:
         return NOT_OPEN
     if getattr(tab, "busy", False):
         return BUSY
-    return walk.refusal(open_session.rig) or walk.too_large(open_session.size)
+    return (
+        walk.refusal(open_session.rig)
+        or walk.too_large(open_session.size)
+        or _unsavable(open_session.rig, open_session.size)
+    )
+
+
+def _unsavable(rig: Any, size: tuple[int, int]) -> str:
+    """Why the baked walk could never be saved as ``.ora``, or ``""``.
+
+    The 2026-10-14 audit, finding inker-mode-05: ``too_large`` bounds the canvas
+    at a million pixels, but a baked walk holds one independent cel per assigned
+    part per frame -- up to 14 x 8 = 112 -- and ``ora``'s reopen budget is
+    ``67,108,864 // (w * h)`` of them, so a fully assigned rig over about
+    775x775 baked, opened in a new tab and then could not be saved (Save, Save
+    As, the journal's copy), while the manual tells the user to keep it. Judged
+    by the writer's own number, before anything is built.
+    """
+    parts = sum(1 for name in rig.order if rig.parts[name].assigned)
+    cels = parts * walk.WALK_FRAMES
+    allowed = ora.layer_budget(*size)
+    if cels > allowed:
+        return (
+            f"A walk cycle of {parts} parts holds {cels} layers, and a "
+            f"{size[0]}x{size[1]} drawing can be saved with at most {allowed}. "
+            "Scale the drawing down first."
+        )
+    return ""
 
 
 def bake(ctx: Any, tab: Any) -> bool:
@@ -588,6 +651,12 @@ def bake(ctx: Any, tab: Any) -> bool:
     The document is built off the frame thread (audit inker-19: 3.0 s at
     512x512), from a snapshot of the rig, so a drag after the press cannot reach
     into it. -> whether the request was accepted.
+
+    The task's answer carries the session it was cut from beside the document
+    (the 2026-10-14 audit, finding inker-72): cancelling and re-entering Walk
+    while the bake ran leaves *a* session open on the tab, so "is one open" let
+    the old rig's document land over the new one's work. The landing compares
+    the session by identity.
     """
     state = ctx.state.inker
     open_session = session(state, tab)
@@ -598,7 +667,10 @@ def bake(ctx: Any, tab: Any) -> bool:
     matte = getattr(tab.doc, "matte", None)
 
     def work() -> Any:
-        return walk.document(rig, settings, size, matte=matte)
+        return {
+            "doc": walk.document(rig, settings, size, matte=matte),
+            "session": open_session,
+        }
 
     return bool(ctx.submit(f"inker-walkbake:{tab.uid}", work))
 

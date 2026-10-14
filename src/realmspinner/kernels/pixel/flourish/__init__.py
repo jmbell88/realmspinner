@@ -33,13 +33,11 @@ The Inker document that *hosts* a recipe -- a layer group whose cels are these
 renders -- is ``_doc_flourish`` one level up; this package never learns what a
 document is.
 
-**A second caller arrived on 2026-09-05**: ``realmspinner.characters.effects`` builds
-a one-layer flame recipe and renders it onto the cells of a Troupe character
-sheet, so a species whose theme declares ``effects=("embers",)`` comes out on
-fire. It imports ``recipe`` and ``render`` at function scope only (pinned by
-``tests/characters/test_characters_imports.py``) and adds nothing here -- it is
-a reader, and the reason the package is headless is exactly so a caller that is
-not Inker can be one.
+**The package is headless so a caller that is not Inker can read it.** The one
+that did, ``realmspinner.characters.effects`` (a flame rendered onto the cells of
+a character sheet), left with the sheet (the 2026-10-14 audit, finding
+poser-characters-05); Inker is the sole caller again, and the reason to stay
+headless is unchanged.
 """
 
 from __future__ import annotations

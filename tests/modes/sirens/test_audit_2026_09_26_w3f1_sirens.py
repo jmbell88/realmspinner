@@ -564,7 +564,10 @@ def test_save_as_asks_before_a_forced_rsng_suffix_replaces_a_different_file(monk
 
     ctx = FakeCtx()
     tab = _tab(ctx)
-    existing = tmp_path / "song.rsng"
+    # ``.rsng`` is appended to a name that lacks it, not swapped for its tail
+    # (the 2026-10-14 audit, finding sirens-playback-03): ``song.txt`` lands on
+    # ``song.txt.rsng``, which is the file this test pre-creates.
+    existing = tmp_path / "song.txt.rsng"
     existing.write_bytes(b"old bytes")
     picked = tmp_path / "song.txt"
 
@@ -592,7 +595,9 @@ def test_save_as_replaces_the_file_once_confirmed(monkeypatch, tmp_path):
 
     ctx = FakeCtx()
     tab = _tab(ctx)
-    existing = tmp_path / "song.rsng"
+    # ``song.txt`` lands on ``song.txt.rsng`` (the 2026-10-14 audit, finding
+    # sirens-playback-03).
+    existing = tmp_path / "song.txt.rsng"
     existing.write_bytes(b"old bytes")
     picked = tmp_path / "song.txt"
 

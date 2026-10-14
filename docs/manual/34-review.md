@@ -32,7 +32,9 @@ not a sweep: it has no settings axes and cannot be deleted, it simply empties as
 A mesh verdict is a **grade from −5 to +5**, not a yes or no. **+5** means it ships as-is, **+3**
 means usable, **0** means no opinion either way, and **−5** means nothing about it is recoverable.
 
-`1`–`5` file +1 to +5. `R` arms the negative sign, so the next `1`–`5` files −1 to −5. `0` is its
+`1`–`5` file +1 to +5. `R` arms the negative sign, so the next `1`–`5` files −1 to −5 (inside a guided
+pass `R` is Reject instead, as the Grade field's help says, and the other negative grades are on the
+buttons). `0` is its
 own key, because zero has no sign to arm and is a real answer rather than a refusal to give one.
 That is eleven values inside six keys, which is what keeps a pass moving. `Esc` clears a pending
 sign. `S` skips to the next unverdicted unit, and `Left` / `Right` step through the list. Every one
@@ -163,7 +165,10 @@ verdicts below are computed from. More seeds means more pairs per axis value.
 Every unit goes through the same front door as an ordinary job — the same validation, the same
 VRAM admission — and admission is all-or-nothing: one bad unit refuses the whole sweep, naming
 itself, before anything is queued. Sweep units are hidden from the library so a launched sweep
-does not bury your real assets; Review is where they live.
+does not bury your real assets; Review is where they live. A sweep whose units reach the 3D engine is
+refused up front, with a sentence pointing at Settings → Models, on a computer where the engine has not
+been downloaded; and a sweep refused for a missing model or pack shows an **Install** button under the
+form, so the fix is one press away.
 
 Deleting a sweep deletes its jobs and meshes but keeps every verdict filed on them — what the
 sweep taught outlives what it built.
@@ -237,8 +242,8 @@ there is never any doubt which question a keypress answered.
 There are two passes because the same image is two different things, and "good" means opposite
 things about them:
 
-- **Good 2D asset?** — judge the finished picture: composition, style, drama.
-- **Good to reconstruct?** — judge it as input for the mesh: one subject, plain background, a
+- **Label: good 2D asset?** — judge the finished picture: composition, style, drama.
+- **Label: good to reconstruct?** — judge it as input for the mesh: one subject, plain background, a
   neutral pose.
 
 A dramatic plate with pillars and a cast shadow is a better asset and a worse blank, which is why
@@ -261,7 +266,7 @@ and you would never learn it was wrong.
 
 It also does not file a verdict of its own yet. Doing that means picking a probability above which
 the app says "accept", and that number would then be baked into everything already recorded, so it
-waits on a measurement rather than on a guess. The **Good 2D asset?** question and the mesh judge are
+waits on a measurement rather than on a guess. The **Label: good 2D asset?** question and the mesh judge are
 the two still to come; the mesh one needs enough accepted meshes to learn from, which is what the
 review loop is building.
 
@@ -306,6 +311,8 @@ is 2 verdicts away" — rather than only that nothing has ranked yet.
 "Apply to forms" writes one into the Reference and Mesh stage forms, the seven engine axes under
 **Advanced** fold's engine group included — a configuration ranked from sweep units necessarily carries whatever
 those units were launched with (see [Generating meshes](23-generating-meshes.md#advanced)).
+**Show examples** beside a ranked configuration opens the Library scoped to the jobs its verdicts were drawn
+from; the Library says how many it is scoped to and offers **Show all** to lift the scope.
 
 While you are judging a sweep unit whose subject has five or more verdicts of its own, the ranking
 above leads with "Top configurations for this subject" instead of the pooled list — what makes a good

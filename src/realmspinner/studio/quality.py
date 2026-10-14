@@ -12,6 +12,7 @@ widget layer into a frame.
 
 See ``dev/measurements/2026-08-09-rebaseline.md`` and ``judge.py``'s module
 docstring for the measurement itself.
+(Document lost with the 2026-09-20 backup; re-measure before changing this.)
 """
 
 from __future__ import annotations

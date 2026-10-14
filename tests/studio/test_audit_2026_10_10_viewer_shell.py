@@ -80,21 +80,20 @@ def test_the_zoom_out_button_takes_the_camera_further_away(monkeypatch):
     assert camera._goal_distance > before
 
 
-# --- create-32: frame_bounds targets the box's own centre --------------------
+# --- create-32: Camera.frame targets the box's own centre --------------------
 
 
-def test_frame_bounds_puts_the_boxs_own_centre_in_view():
+def test_camera_frame_puts_the_boxs_own_centre_in_view():
     # The 2026-10-10 audit: Camera.frame aimed at (0, height/2, 0), which is the
     # centre of a box standing on the ground at the origin and nowhere else; a
-    # caller-supplied box (Poser's skeleton preview) is not placed.
+    # caller-supplied box is not placed. (It was found through
+    # ``Viewer.frame_bounds``, Poser's skeleton-preview door, deleted on
+    # 2026-10-14; ``Camera.frame`` is the behaviour that stays.)
     lo = np.array([2.0, 5.0, -3.0])
     hi = np.array([3.0, 7.0, -1.0])
-    viewer = object.__new__(viewer_embed.Viewer)
-    viewer.camera = Camera(aspect=1.0)
-    viewer.renderer = SimpleNamespace(fit_grid=lambda *_a: None)
-    viewer._render_dirty = False
-    viewer.frame_bounds(lo, hi)
-    centre = _ndc(viewer.camera, (lo + hi) / 2)
+    camera = Camera(aspect=1.0)
+    camera.frame(lo, hi)
+    centre = _ndc(camera, (lo + hi) / 2)
     assert abs(centre[0]) < 1e-6 and abs(centre[1]) < 1e-6
 
 

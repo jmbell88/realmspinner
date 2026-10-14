@@ -13,8 +13,15 @@ and ``test_editor_shell.py`` all already saying otherwise.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
+
+log = logging.getLogger(__name__)
+
+#: Modes whose status read has already been logged as failing, so a mode whose
+#: ``tool_label`` raises says so once and not on every frame.
+_FAILED: set[str] = set()
 
 
 @dataclass(frozen=True)
@@ -92,7 +99,10 @@ def items(ctx: Any) -> list[StatusItem]:
             return out
         try:
             module = mode_manifest.module_of(entry)
-            tab = module.active(ctx)
+            # The probe is a ``getattr``, so only an ``AttributeError`` raised inside
+            # the mode's own code is the one the guard below reports.
+            active = getattr(module, "active", None)
+            tab = active(ctx) if active is not None else None
             if tab is not None:
                 dirty = " *" if bool(getattr(tab, "dirty", False)) else ""
                 out.append(StatusItem("document", f"{_document_name(tab)}{dirty}"))
@@ -105,7 +115,12 @@ def items(ctx: Any) -> list[StatusItem]:
                 if zoom is not None:
                     out.append(StatusItem("zoom", f"{float(zoom) * 100:.0f}%"))
         except (AttributeError, ImportError):
-            pass
+            # Not silent: a broken ``tool_label`` deleted the document, tool and zoom
+            # readouts every frame with nothing in the log (the 2026-10-14 audit, finding
+            # shell-chrome-11). Once per mode, since this runs every frame.
+            if mode not in _FAILED:
+                _FAILED.add(mode)
+                log.warning("the %s status readouts failed and are dropped", mode, exc_info=True)
 
     agent_host = getattr(ctx, "agent_host", None)
     if agent_host is not None and agent_host.connected:

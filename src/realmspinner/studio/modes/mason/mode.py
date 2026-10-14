@@ -192,7 +192,12 @@ def _over_max_placed(doc: Any, adding: int) -> int | None:
     """
     from .engine import scene as msc
 
-    total = len(doc.all_nodes()) + adding
+    # The 2026-10-14 audit, finding mason-mode-08: this used to count the scene
+    # tree alone (``len(doc.all_nodes())``), while ``MasonDoc._check_max_placed``
+    # -- and the reader -- count the tree *and* every prefab template, so near the
+    # ceiling a placement this check allowed made ``add_node`` raise a bare
+    # ``ValueError`` out of a key handler. ``placed_total`` is that same number.
+    total = doc.placed_total() + adding
     return total if total > msc.MAX_PLACED else None
 
 
@@ -394,7 +399,7 @@ def place_armed(ctx: Any, point: Any = None) -> int | None:
     return uid
 
 
-def _drop_placed_to_ground(ctx: Any, doc: Any, uid: int) -> None:
+def _drop_placed_to_ground(ctx: Any, doc: Any, uid: int, *, deferred: bool = False) -> None:
     """Rest a just-placed root node's box on the terrain (or ``y = 0``).
 
     The 2026-10-03 audit's mason-33: ``state.snap_ground`` was honoured by a
@@ -421,6 +426,14 @@ def _drop_placed_to_ground(ctx: Any, doc: Any, uid: int) -> None:
         source.primitives(node.ref)
     box = msc.world_bounds(doc, source, uids=[uid])
     if box is None:
+        # The 2026-10-14 audit, finding mason-mode-11: a library asset's first
+        # placement in a session has no box until its parse lands, and nothing
+        # re-ran the drop then, so the first instance of every asset sat
+        # centred on the click, half sunk, while later ones were right --
+        # against the manual's "a placement click ends on the ground". Asked
+        # again when the parse arrives; see :func:`_drop_when_parsed`.
+        if not deferred:  # a second miss is an empty asset: nothing will ever land
+            _drop_when_parsed(ctx, doc, node, source)
         return
     delta = mops.drop_to_ground(
         {uid: box}, terrain=doc.terrain, terrain_world=doc.terrain_world()
@@ -432,6 +445,43 @@ def _drop_placed_to_ground(ctx: Any, doc: Any, uid: int) -> None:
         translation=np.asarray(node.translation, dtype="f8") + np.asarray(delta, dtype="f8"),
         was=node.trs(),
     )
+
+
+def _drop_when_parsed(ctx: Any, doc: Any, node: Any, source: Any) -> None:
+    """Re-run the placement drop for a library asset whose geometry is still
+    parsing, on the frame its box first arrives.
+
+    A node the user has moved since (its translation is no longer where the
+    placement left it) is left alone: the drop was a part of the click that
+    placed it, not a claim on the node's position for ever. The doc is held
+    weakly, so a scene closed in the meantime is not kept alive by a parse.
+    """
+    import weakref
+
+    import numpy as np
+
+    from .engine import nodes as nd
+
+    when_resolved = getattr(source, "when_resolved", None)
+    if when_resolved is None or not isinstance(node, nd.MeshNode):
+        return
+    placed_at = np.array(node.translation, dtype="f8")
+    uid = node.uid
+    doc_ref = weakref.ref(doc)
+
+    def drop() -> None:
+        live = doc_ref()
+        found = None if live is None else live.node(uid)
+        if found is None or not np.array_equal(np.asarray(found.translation, "f8"), placed_at):
+            return
+        # Not into a document a save is encoding right now (``tab.saving``).
+        held = getattr(getattr(ctx, "state", None), "mason", None)
+        tab = next((t for t in (getattr(held, "docs", None) or []) if t.doc is live), None)
+        if tab is not None and tab.saving:
+            return
+        _drop_placed_to_ground(ctx, live, uid, deferred=True)
+
+    when_resolved(node.ref, drop)
 
 
 def _move_to(doc: Any, uid: int, point: Any) -> None:
@@ -503,6 +553,11 @@ def place_dropped_mesh(ctx: Any, job: Any, point: Any) -> int | None:
     uid = place_job(ctx, job)
     if uid is not None:
         _move_to(tab.doc, uid, point)
+        # The 2026-10-14 audit, finding mason-mode-11: this door never read
+        # ``snap_ground`` at all, so Drop to ground applied to an armed click
+        # and not to the drag the same asset arrives by.
+        if getattr(ensure(ctx), "snap_ground", False):
+            _drop_placed_to_ground(ctx, tab.doc, uid)
         tab.doc.collapse_since(mark)
     return uid
 
@@ -673,7 +728,12 @@ def ungroup_selected(ctx: Any) -> None:
             freed.append(child.uid)
         doc.remove_node(uid)
     doc.collapse_since(mark)
-    doc.select(freed)
+    # The 2026-10-14 audit, finding mason-mode-14: a nested group selected with
+    # its own parent is freed by the first pass and removed by the second, but
+    # its uid stayed in ``freed`` and ``select`` does not filter, so a single
+    # surviving node read "2 nodes selected" in Properties and Make prefab
+    # stayed greyed.
+    doc.select([uid for uid in freed if doc.node(uid) is not None])
 
 
 def _unique_prefab_name(doc: Any, base: str) -> str:
@@ -754,6 +814,16 @@ def define_prefab_from_selection(ctx: Any, name: str = "") -> str:
     instance.translation = node.translation
     instance.rotation = node.rotation
     instance.scale = node.scale
+    # The 2026-10-14 audit, findings mason-mode-06 and mason-engine-09: the
+    # template root is reset to neutral (``define_prefab`` does it for these
+    # four the way it does the TRS), so the node's own flags and user properties
+    # belong on the instance -- the one row the outliner shows and the Visible,
+    # Lock and Static toggles act on. Copied only here, with the TRS: an
+    # instance is a position plus these, nothing else.
+    instance.visible = bool(node.visible)
+    instance.locked = bool(node.locked)
+    instance.static = bool(node.static)
+    instance.properties = dict(node.properties)
     doc.remove_node(uid)
     doc.add_node(instance, parent_uid=parent_uid, index=index)
     doc.collapse_since(mark)
@@ -770,8 +840,8 @@ def prompt_define_prefab_from_selection(ctx: Any) -> None:
     :func:`define_prefab_from_selection` with no name at all, so there was
     nowhere in the whole gesture the chapter's naming step could happen --
     the template was silently named after the node it was made from. This
-    follows the house pattern (``poser_mode.name_pose``'s own ``ctx.prompts``
-    call) rather than inventing a second way to ask a one-line question.
+    follows the house pattern (one ``ctx.prompts`` call) rather than inventing a
+    second way to ask a one-line question.
     Seeded with the selected node's own name so confirming with no edit keeps
     today's behaviour exactly, and refused up front (no popup) for the same
     selection shapes :func:`define_prefab_from_selection` itself refuses, so a
@@ -1287,7 +1357,18 @@ def export_obj(ctx: Any, tab: MasonTab | None = None) -> None:
     # audit) is finally known.
     source = mason_assets.ensure(ctx)
     mason_assets.pin(source, doc)  # mason-23, 2026-10-03: see :func:`export_glb`
-    collected = objout.collect_jobs(doc, source)
+    # The 2026-10-14 audit, finding mason-mode-05: ``collect_jobs`` refuses a scene
+    # past the OBJ writer's vertex ceiling with a bare ``ValueError``, which
+    # used to land on the task thread (``TaskRunner`` toasts it) and, since
+    # mason-mode-12 moved this call here, escaped a Scene-pane draw on the frame
+    # thread -- the pane blinked to its failure placeholder and the manual's
+    # "It refuses past a million vertices" was never shown. Said as a refusal;
+    # nothing is built and no task is started.
+    try:
+        collected = objout.collect_jobs(doc, source)
+    except ValueError as exc:
+        docmodes.refuse(ctx, str(exc))
+        return
 
     def run() -> dict[str, Any] | None:
         path = dialogs.save_file("Export Mason scene as OBJ", f"{title}.obj", mason_io.OBJ_FILTER)
@@ -1648,7 +1729,17 @@ def on_task_done(ctx: Any, done: Any) -> None:
 
 def on_task_failed(ctx: Any, done: Any) -> None:
     """A failed save must not leave the document locked -- ``clay_mode``'s
-    own reason."""
+    own reason.
+
+    ``mason_assets`` gets first refusal here as it does in :func:`on_task_done`.
+    The 2026-10-14 audit, finding mason-mode-01: the shell sends a failed task
+    to the failure chain only, so a ``mason-asset:`` parse that failed (a deleted
+    job directory, a corrupt GLB) never reached the asset source -- the ref sat
+    in ``_pending`` for ever, was never recorded as missing, and every export
+    refused it as "still loading".
+    """
+    if mason_assets.on_task_done(ctx, done):
+        return
     if done.key.startswith("mason-open:"):
         # Before the tab lookup: an open that failed has no tab, only a path
         # that does not open.
@@ -1808,14 +1899,32 @@ def _ctrl_key(
 # --- crash recovery (UX-05) ---------------------------------------------------
 
 
-def _journal_encode(tab: Any) -> bytes:
+def _journal_snapshot(tab: Any) -> Any:
+    """The journal provider's encoder: the cheap half now, the archive later.
+
+    **Frame thread: ``serialize.snapshot`` only.** The 2026-10-14 audit, finding
+    mason-mode-13: ``rscn_bytes`` (the zip, the terrain ``.npy`` and one PNG per
+    texture) ran here on every autosave tick -- 111 ms of a 190 ms encode for a
+    20,001-node scene -- though :attr:`journal.Provider.encode` may return a
+    zero-argument callable that the write's task runs, and ``fileio``'s own
+    docstring says no encode runs on the frame thread. The snapshot holds the
+    scene as JSON and references to immutable arrays and images, so the closure
+    never touches the live document (Clay's ``_journal_snapshot``, same shape).
+    """
     from .engine import serialize
 
     tab.doc.view = {
         **{name: getattr(tab.view, name) for name in serialize.VIEW_FIELDS},
         "target": tuple(tab.view.target),
     }
-    return serialize.rscn_bytes(tab.doc)
+    snap = serialize.snapshot(tab.doc)
+    return lambda: serialize.snapshot_bytes(snap)
+
+
+def _journal_encode(tab: Any) -> bytes:
+    """:func:`_journal_snapshot` and its archive in one call -- for a caller
+    already off the frame thread (a test, a batch tool)."""
+    return _journal_snapshot(tab)()
 
 
 def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
@@ -1845,7 +1954,7 @@ def _load_recovery(path: Path, meta: dict[str, Any]) -> dict[str, Any] | None:
 
 
 JOURNAL = journal.tab_provider(
-    "mason", ".rscn", "scene", encode=_journal_encode, adopt=_journal_adopt
+    "mason", ".rscn", "scene", encode=_journal_snapshot, adopt=_journal_adopt
 )
 
 

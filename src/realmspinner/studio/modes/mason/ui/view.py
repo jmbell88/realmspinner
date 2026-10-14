@@ -516,6 +516,7 @@ class MasonView(FrameOps):
         it is open, which is measured and is why ``MAX_TERRAIN_SIDE`` is 256:
         at that side a rebuild alone is 5.65 ms, a third of a frame. See
         ``dev/measurements/2026-09-11-mason-scene-ceilings.md``.
+        (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 
         ``override`` is the resolver's nearest-ancestor material, part of what
         the pinned state is validated against for ``_entry_key``'s reason: a
@@ -1398,6 +1399,8 @@ class MasonView(FrameOps):
                 translation = t0 + inverse @ np.asarray(delta, dtype="f8")
                 if snap_on:
                     step = float(getattr(self.state, "snap_translate", 0.0))
+                    if not np.isfinite(step):
+                        step = 0.0  # mason-mode-03, 2026-10-14: inf * 0 is NaN
                     world_point = parent_world[:3, :3] @ translation + parent_world[:3, 3]
                     world_point = mops.snap_translation(world_point, step)
                     translation = inverse @ (world_point - parent_world[:3, 3])
@@ -1409,10 +1412,23 @@ class MasonView(FrameOps):
                     # delta in rather than the absolute orientation: an object
                     # tilted off the cardinal axes at rest is not yanked
                     # straight the instant the drag starts.
-                    turn = mops.snap_rotation(
-                        turn, float(getattr(self.state, "snap_rotate", 0.0))
-                    )
-                rotation = m3.quat_mul(turn, r0)
+                    degrees = float(getattr(self.state, "snap_rotate", 0.0))
+                    turn = mops.snap_rotation(turn, degrees if np.isfinite(degrees) else 0.0)
+                # The 2026-10-14 audit, finding mason-mode-04: ``turn`` is the gizmo's
+                # *world*-space rotation (the position half below uses it that way)
+                # but this composed it straight onto the node's *local* rotation,
+                # so a child of a rotated group turned about the group's frame's
+                # axis instead of the world axis the gizmo shows. The same turn
+                # in the parent's frame keeps the axis and the angle: only the
+                # vector part is carried through the parent's inverse basis.
+                local_axis = inverse @ turn[:3]
+                norm = float(np.linalg.norm(local_axis))
+                vector = float(np.linalg.norm(turn[:3]))
+                if norm > 1e-12 and vector > 1e-12:
+                    local_turn = np.array([*(local_axis / norm * vector), turn[3]], dtype="f8")
+                else:
+                    local_turn = turn
+                rotation = m3.quat_mul(local_turn, r0)
                 # The position orbits the pivot as well as the node turning on
                 # the spot, which is what makes a multi-node rotate turn the
                 # *arrangement* rather than spin each item where it stands.
@@ -1436,9 +1452,16 @@ class MasonView(FrameOps):
             # them"), and the cost of obeying it is a memo miss per mouse-move
             # on the nodes that are actually moving, which is the case the memo
             # was never there to serve.
-            node.translation = np.array(translation, dtype="f8")
-            node.rotation = np.array(rotation, dtype="f8")
-            node.scale = np.array(scale_out, dtype="f8")
+            written = [np.array(v, dtype="f8") for v in (translation, rotation, scale_out)]
+            if not all(np.isfinite(v).all() for v in written):
+                # The 2026-10-14 audit, finding mason-mode-03: a non-finite result
+                # (an inf snap step, a degenerate pivot) was written straight
+                # onto the node, and the release then raised from
+                # ``set_transform`` with ``_drag_start`` already cleared -- a NaN
+                # node with no undo step, in a scene that would not reopen. The
+                # node keeps what the last good frame wrote.
+                continue
+            node.translation, node.rotation, node.scale = written
             if delta is not None and source is not None:
                 self._drop_dragged_node_to_ground(doc, source, uid, inverse)
         doc.touch()

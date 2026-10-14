@@ -30,7 +30,9 @@ def test_movement_min_frames_docstring_does_not_claim_callers_that_do_not_exist(
     """troupe-04: ``movement_min_frames``'s docstring claimed
     ``characters/recipe.py`` and the retired Troupe door "still index"
     ``MOVEMENT_MIN_FRAMES`` directly -- both already call the function
-    instead, and nothing in ``src/`` indexes the dict directly any more."""
+    instead. The dict itself is gone since the 2026-10-14 audit (poser-22), so
+    the docstring must not name it either."""
     doc = inspect.getdoc(charsheet.movement_min_frames) or ""
     assert "still index" not in doc
     assert "callers that still index it directly" not in doc
+    assert not hasattr(charsheet, "MOVEMENT_MIN_FRAMES")

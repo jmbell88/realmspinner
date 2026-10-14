@@ -131,7 +131,39 @@ def select_folder(title: str, default_path: str = "") -> Path | None:
 
 
 def filters_for(name: str) -> list[str]:
-    return ARTIFACT_FILTERS.get(Path(name).suffix.lower(), ["All files", "*"])
+    """The save-dialog filter for *name*, matched on its trailing extension.
+
+    The 2026-10-14 audit (finding shell-chrome-05): this keyed on
+    ``Path(name).suffix``, which is empty for a bare ``".wav"`` (Muse's WAV
+    export passes exactly that) and is ``.png`` for ``x.9.png``, so the
+    ``.9.png`` row could never match and Muse's export fell to the
+    all-files filter -- which offers no extension and appends none, the failure
+    the table above exists to prevent. The longest key that ends the name wins,
+    so ``x.9.png`` finds the nine-patch row before the plain ``.png`` one."""
+    lowered = name.lower()
+    for key in sorted(ARTIFACT_FILTERS, key=len, reverse=True):
+        if lowered.endswith(key):
+            return ARTIFACT_FILTERS[key]
+    return ["All files", "*"]
+
+
+#: The frame on which the confirm queue last drew a question. imgui has one
+#: popup slot, and ``ConfirmQueue.draw`` and ``PromptQueue.draw`` both run every
+#: frame with their own ``_open`` flag: with one of each pending, each
+#: ``open_popup`` displaced the other and the two modals alternated, so clicks
+#: landed on a dialog that was gone next frame (the 2026-10-14 audit, finding
+#: shell-chrome-03). A question already asked and answered by the confirm queue
+#: -- the window's X, a task-raised discard -- outranks a rename prompt, so the
+#: prompt waits for the frame after the confirm is gone. ``None`` when the
+#: frame number is unreadable (a headless stub), which means no deferral.
+_confirm_drew_on: int | None = None
+
+
+def _frame_number() -> int | None:
+    try:
+        return int(imgui.get_frame_count())
+    except (AttributeError, RuntimeError, TypeError, ValueError):
+        return None
 
 
 @dataclass
@@ -383,6 +415,8 @@ class ConfirmQueue:
         confirm = self.pending
         if confirm is None:
             return
+        global _confirm_drew_on
+        _confirm_drew_on = _frame_number()
         # Sampled before this popup draws any widget of its own -- see
         # ``_confirm_cancelled_by_key`` for why it has to be "before", not
         # "after" the body runs.
@@ -551,6 +585,13 @@ class PromptQueue:
     def draw(self) -> None:
         prompt = self.pending
         if prompt is None:
+            return
+        frame = _frame_number()
+        if frame is not None and frame == _confirm_drew_on:
+            # See ``_confirm_drew_on``: one modal per frame. Forgetting that
+            # this one was opened makes the frame after the confirm is answered
+            # open it again, the way a displaced popup already does below.
+            prompt._open = False
             return
         appearing = not prompt._open
         if appearing:

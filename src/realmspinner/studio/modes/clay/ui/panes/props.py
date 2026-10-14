@@ -605,6 +605,34 @@ def _display_state(state: ClayState | None) -> ClayState:
     return _BARE_STATE
 
 
+#: Why a bone's Position, Rotation and Scale fields are greyed in Pose mode.
+POSE_FIELDS_WHY = (
+    "Pose mode shows the pose, and these fields are the bone's rest transform, which posing "
+    "never writes. Pose it with the gizmo or G, R, S, or leave Pose mode to edit the rest."
+)
+
+
+def transform_lock(doc: Any, obj: Any) -> str:
+    """Why *obj*'s Position, Rotation and Scale fields cannot be edited, or ``""``.
+
+    Two reasons, asked up front so the fields can be greyed once with the sentence rather than
+    refused afterwards: a bone in Pose mode (the 2026-10-14 audit, finding clay-panes-04), and a
+    shape weighted to a skeleton (finding clay-panes-05, where every keystroke that reached
+    ``set_transform`` toasted the document's refusal and the field snapped back).
+    """
+    if doc.pose_mode and obj.bone:
+        return POSE_FIELDS_WHY
+    return doc.transform_refusal(obj)
+
+
+def _shown_trs(doc: Any, obj: Any) -> tuple[Any, Any, Any]:
+    """The transform the fields display: the *posed* one for a bone in Pose mode, where the
+    viewport shows it, else the object's own."""
+    if doc.pose_mode and obj.bone:
+        return doc.posed_trs(obj, doc.pose_overrides())
+    return obj.trs()
+
+
 def _apply_transform(doc: Any, obj: Any, ctx: Any, **fields: Any) -> bool:
     """``doc.set_transform`` with the panel's refusal handling. -> whether it landed.
 
@@ -625,6 +653,15 @@ def _apply_transform(doc: Any, obj: Any, ctx: Any, **fields: Any) -> bool:
     # caller that reaches it another way. Silent: the greyed card says why, and a toast
     # per keystroke is the failure this door's docstring already avoids.
     if ctx is not None and clay_ops.gesture_live(ctx):
+        return False
+    if doc.pose_mode and obj.bone:
+        # The 2026-10-14 audit, finding clay-panes-04: in Pose mode a bone's fields showed its
+        # rest transform and wrote it, while the viewport showed the pose -- typing a value for
+        # a keyed property changed the document and nothing on screen. The fields are greyed
+        # (:func:`transform_lock`); this is the door under them, and it does not write the rest
+        # pose from Pose mode, which posing never does.
+        if ctx is None:
+            raise OpError(POSE_FIELDS_WHY)
         return False
     try:
         doc.set_transform(obj.uid, **fields)
@@ -686,11 +723,18 @@ def _transform(
             ui.length_unit = unit = picked
     was = tuple(v.copy() for v in obj.trs())
     changed = False
-    shown = units.vec_to_display(obj.translation, unit)
+    lock = transform_lock(doc, obj)
+    gate: dict[str, Any] = {"enabled": False, "reason": lock} if lock else {}
+    if lock:
+        widgets.muted_wrapped(lock)
+    src_t, src_r, src_s = _shown_trs(doc, obj)
+    shown = units.vec_to_display(src_t, unit)
     if parented:
-        edited, typed = controls.input_vec("local position##bt", list(shown), ("X", "Y", "Z"))
+        edited, typed = controls.input_vec(
+            "local position##bt", list(shown), ("X", "Y", "Z"), **gate
+        )
     else:
-        edited, typed = controls.input_vec("position##bt", list(shown), ("X", "Y", "Z"))
+        edited, typed = controls.input_vec("position##bt", list(shown), ("X", "Y", "Z"), **gate)
     # The 2026-09-07 audit's clay-01: these three fields fired ``set_transform``
     # -- an unconditional ``history.push`` -- on every keystroke, same as the
     # material sliders below already fold. ``InputFloat3``/``InputFloat4`` fire
@@ -706,7 +750,7 @@ def _transform(
     ]
     changed |= edited
     if show_scale:
-        edited, scale = _scale_row(doc, obj)
+        edited, scale = _scale_row(doc, obj, lock=lock)
         changed |= edited
     else:
         scale = [float(v) for v in obj.scale]
@@ -717,14 +761,18 @@ def _transform(
     # cached per object until something else moves the quaternion
     # (``transform_edit``'s docstring).
     euler_at = euler_key(ui, obj.uid)
-    euler = transform_edit.displayed_euler(ui.euler_cache, euler_at, obj.rotation)
+    if doc.pose_mode and obj.bone:
+        # A pose is not typed, so its angles stay out of the cache that remembers what was.
+        euler = m3.euler_xyz_from_quat(src_r)
+    else:
+        euler = transform_edit.displayed_euler(ui.euler_cache, euler_at, obj.rotation)
     if parented:
         edited, typed_euler = controls.input_vec(
-            "local rotation (deg)##br", list(euler), ("X", "Y", "Z")
+            "local rotation (deg)##br", list(euler), ("X", "Y", "Z"), **gate
         )
     else:
         edited, typed_euler = controls.input_vec(
-            "rotation (deg)##br", list(euler), ("X", "Y", "Z")
+            "rotation (deg)##br", list(euler), ("X", "Y", "Z"), **gate
         )
     controls.fold_undo(doc.history)
     widgets.help_marker(
@@ -751,16 +799,20 @@ def _transform(
         _dimensions(doc, obj, ctx=ctx, state=ui)
 
 
-def _scale_row(doc: Any, obj: Any) -> tuple[bool, list[float]]:
+def _scale_row(doc: Any, obj: Any, *, lock: str = "") -> tuple[bool, list[float]]:
     """The three scale boxes, folded -> ``(edited, the numbers shown)``.
 
     Two literal calls, one per parent state, for the reason ``_transform``'s
-    opening comment gives (the label-above-control scan reads literals).
+    opening comment gives (the label-above-control scan reads literals). *lock* is
+    :func:`transform_lock`'s sentence: the boxes are greyed with it, and show the posed
+    scale for a bone in Pose mode.
     """
+    gate: dict[str, Any] = {"enabled": False, "reason": lock} if lock else {}
+    shown = list(_shown_trs(doc, obj)[2])
     if obj.parent is not None:
-        edited, scale = controls.input_vec("local scale##bs", list(obj.scale), ("X", "Y", "Z"))
+        edited, scale = controls.input_vec("local scale##bs", shown, ("X", "Y", "Z"), **gate)
     else:
-        edited, scale = controls.input_vec("scale##bs", list(obj.scale), ("X", "Y", "Z"))
+        edited, scale = controls.input_vec("scale##bs", shown, ("X", "Y", "Z"), **gate)
     controls.fold_undo(doc.history)
     return edited, list(scale)
 
@@ -774,7 +826,7 @@ def scale_fields(doc: Any, obj: Any, *, ctx: Any = None) -> bool:
     under Position.
     """
     was = tuple(v.copy() for v in obj.trs())
-    edited, scale = _scale_row(doc, obj)
+    edited, scale = _scale_row(doc, obj, lock=transform_lock(doc, obj))
     if not edited:
         return False
     return _apply_transform(doc, obj, ctx, scale=scale, was=was)

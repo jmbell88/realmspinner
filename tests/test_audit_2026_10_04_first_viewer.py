@@ -58,7 +58,6 @@ def _posing_viewer() -> Viewer:
     viewer._grab = None
     viewer._pose_step = None
     viewer._deselect_on_click = False
-    viewer._rmb_at = None
     viewer._render_dirty = False
     viewer._last_mouse = (0.0, 0.0)
     viewer._rect = (0.0, 0.0, 100.0, 100.0)
@@ -192,7 +191,6 @@ def _rendering_viewer():
     viewer.compare_gpu = None
     viewer.placement = np.eye(4)
     viewer.gpu = None
-    viewer.onion = []
     viewer._last_render_key = None
     viewer._render_dirty = True
     viewer.viewport = SimpleNamespace(texture=object(), size=(100, 100))
@@ -233,46 +231,24 @@ def test_a_pose_session_still_redraws_when_the_selection_the_gizmo_follows_chang
     assert viewer.draws == 3
 
 
-def test_a_pose_session_redraws_when_poser_sets_the_onion_ghosts():
-    viewer = _rendering_viewer()
-    rect = (0.0, 0.0, 100.0, 100.0)
-    viewer.render(rect, 0.016)
-    viewer.render(rect, 0.016)
-    assert viewer.draws == 1
-
-    viewer.onion = [{"hips": [0.0, 0.0, 0.0, 1.0]}]
-    viewer.render(rect, 0.016)
-
-    assert viewer.draws == 2, "the ghosts are drawn from viewer.onion and nothing marked it dirty"
-
-
 # --- F19-4: the redraw key covers what the overlays read --------------------------
 
 
 def test_the_pose_redraw_key_covers_every_editor_field_the_overlays_read():
     """``_overlays``/``_active_gizmo`` read these from the editor besides the
     handle positions, selection and mode; the key must move with each, or the
-    frame draws a stale skeleton (draft contents at the same length, the root
-    that picks translate vs rotate rings, the handle names a rename changes)."""
+    frame draws a stale skeleton (the handle names a rename changes). The draft
+    and the root that used to be here went with Poser (the 2026-10-14 audit,
+    finding create-viewer-03)."""
     viewer = _rendering_viewer()
     editor = viewer.editor
     editor.handles = {"a": np.zeros(3), "b": np.ones(3)}
-    editor.draft = [
-        {"name": "a", "parent": None},
-        {"name": "b", "parent": "a"},
-        {"name": "c", "parent": "a"},
-    ]
-    editor.root = "a"
     rect = (0.0, 0.0, 100.0, 100.0)
     viewer.render(rect, 0.016)
     viewer.render(rect, 0.016)
     assert viewer.draws == 1
 
     steps = {
-        "a reparent at the same draft length": lambda: editor.draft.__setitem__(
-            2, {"name": "c", "parent": "b"}
-        ),
-        "a different root": lambda: setattr(editor, "root", "b"),
         "a handle renamed with its position kept": lambda: setattr(
             editor, "handles", {"a": np.zeros(3), "z": np.ones(3)}
         ),

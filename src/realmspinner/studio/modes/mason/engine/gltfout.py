@@ -60,6 +60,7 @@ __all__ = [
     "ExportedNode",
     "SceneExport",
     "TakenNames",
+    "UnexpandedInstance",
     "scene_glb",
     "scene_model",
     "unique_name",
@@ -186,6 +187,39 @@ class ExportedNode:
     dangling: bool
 
 
+#: Why a prefab instance did not expand, in words an export report can use.
+UNEXPANDED_REASONS = {
+    "missing": "its template no longer exists",
+    "cycle": "its template places itself, directly or through another template",
+    "depth": "its template is nested deeper than this build will expand",
+}
+
+
+@dataclass(frozen=True)
+class UnexpandedInstance:
+    """A visible prefab instance the walk could not expand, so the file has
+    nothing for it.
+
+    The 2026-10-14 audit's mason-engine-10: a ``PrefabNode`` whose template was
+    removed (the Prefabs pane's trash button) was silently dropped from Export
+    GLB, the manifest and Export OBJ, with no entry in ``unresolved``, the
+    manifest's ``missing`` or the OBJ's ``skipped`` -- although a dangling
+    library ref is reported in all three, and Chapter 28 promises the
+    exporters name what they dropped. The instance gets **no glTF node** (the
+    viewport draws nothing for it, and ``scene.walk`` says why that is the
+    rule), so it cannot ride ``unresolved``'s node index; this record carries
+    what a reader needs to find it in the outliner instead.
+    """
+
+    #: The instance's own name as the outliner shows it (not uniquified: it has
+    #: no name in the file to be unique against).
+    name: str
+    uid: int
+    template: str
+    #: ``"missing"``, ``"cycle"`` or ``"depth"``.
+    reason: str
+
+
 @dataclass(frozen=True)
 class SceneExport:
     """The model, plus the per-node record the manifest is written from."""
@@ -198,6 +232,8 @@ class SceneExport:
     #: ``Model.skipped_textures``' precedent: a loss that is stated is not the
     #: same as a loss that is invisible.
     unresolved: tuple[tuple[int, Ref], ...]
+    #: Prefab instances that expanded to nothing; see :class:`UnexpandedInstance`.
+    unexpanded: tuple[UnexpandedInstance, ...] = ()
 
 
 def scene_model(
@@ -214,7 +250,13 @@ def scene_model(
     here at all.
     """
     builder = _Builder(doc, source)
-    sc.walk(doc, builder.visit, include_hidden=include_hidden, enter=builder.visit)
+    sc.walk(
+        doc,
+        builder.visit,
+        include_hidden=include_hidden,
+        enter=builder.visit,
+        unexpanded=builder.unexpanded,
+    )
     return builder.finish()
 
 
@@ -254,6 +296,7 @@ class _Builder:
         self.lights: list[gltf.Light] = []
         self.records: list[ExportedNode] = []
         self.unresolved: list[tuple[int, Ref]] = []
+        self.dropped: list[UnexpandedInstance] = []
         #: ``(ref_key, id(material)) -> mesh index``. The ref half is what
         #: makes six hundred barrels one mesh; the material half is there
         #: because glTF hangs a material off the primitive, so an override is
@@ -340,6 +383,19 @@ class _Builder:
             )
         )
 
+    def unexpanded(
+        self, node: Node, path: tuple[int, ...], owner: int, reason: str
+    ) -> None:
+        """``scene.walk``'s report of an instance it could not expand."""
+        self.dropped.append(
+            UnexpandedInstance(
+                name=node.name.strip() or DEFAULT_NAMES["prefab"],
+                uid=int(node.uid),
+                template=str(getattr(node, "template", "")),
+                reason=reason,
+            )
+        )
+
     def finish(self) -> SceneExport:
         model = gltf.Model(
             self.nodes,
@@ -353,6 +409,7 @@ class _Builder:
             model=model,
             nodes=tuple(self.records),
             unresolved=tuple(self.unresolved),
+            unexpanded=tuple(self.dropped),
         )
 
     # -- geometry ----------------------------------------------------------
@@ -373,6 +430,18 @@ class _Builder:
         prims = list(self.source.primitives(ref))
         if not prims:
             return None
+        # The 2026-10-14 audit, finding mason-engine-01: since the shared
+        # writer began emitting JOINTS_0/WEIGHTS_0 for any primitive that
+        # carries them, a rigged library asset placed in a scene (Clay can now
+        # produce one) was written as a skinned primitive on a node with no
+        # skin -- glTF Validator's NODE_SKINNED_MESH_WITHOUT_SKIN -- and one
+        # whose joint index passed 255 made ``write_glb`` raise, refusing the
+        # whole scene's export. Mason places no skins (``scene.DrawNode.skin``
+        # is always ``None``), so the attributes describe a palette that is not
+        # in the file: dropped here, from copies, because the source's cached
+        # primitives are the viewport's too.
+        if any(p.joints is not None or p.weights is not None for p in prims):
+            prims = [replace(p, joints=None, weights=None) for p in prims]
         if material is not None:
             # ``replace`` rather than mutating what the source handed back:
             # the source caches its primitives and hands the same objects to

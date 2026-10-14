@@ -24,6 +24,7 @@ because ACE-Step's payload is flat scalars and lists with no PIL image in it.
 
 from __future__ import annotations
 
+import collections
 import contextlib
 import json
 import logging
@@ -36,7 +37,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .. import models, vram, winjob
+from .. import leases, models, vram, winjob
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +69,13 @@ extra, a broken venv -- and must be reported as that rather than as a hang in
 the first generate.
 """
 
+ERROR_TAIL_CHARS = 2000
+"""The most of the child's last output a ``ChildFailed`` message carries.
+
+``t2i_client``'s figure. The traceback of a child that died is at the end of what
+it printed, so the end is what is kept.
+"""
+
 
 class ChildFailed(RuntimeError):
     """The child could not serve a request. Carries the child's own message."""
@@ -83,6 +91,11 @@ class MusicCancelled(RuntimeError):
     """
 
 
+_CANCELLED_ANSWER: dict[str, Any] = {"kind": "error", "error": "cancelled", "cancelled": True}
+"""What a cancel the client acted on itself answers, in the child's own shape, so
+``generate`` raises ``MusicCancelled`` for it exactly as for a relayed one."""
+
+
 class MusicClient:
     """One resident child, and the requests that keep it warm."""
 
@@ -95,6 +108,13 @@ class MusicClient:
         self._model_dir = model_dir
         self._proc: subprocess.Popen[str] | None = None
         self._lines: Any = None
+        # The child's last forty lines of non-protocol output, for the message a
+        # death carries. The 2026-10-14 audit, finding muse-jobs-01: this client
+        # logged them at DEBUG and kept nothing, so a missing torch, a broken CUDA
+        # DLL or a CUDA OOM kill surfaced as a bare "exited during startup" with
+        # the traceback nowhere a user could read it. ``t2i_client`` has kept the
+        # same tail since the image child was written.
+        self._tail: collections.deque[str] = collections.deque(maxlen=40)
         # Serialises the whole exchange, not just the write: the protocol is one
         # terminal response per request with nothing to correlate them by, so
         # two callers interleaving would each read the other's answer.
@@ -121,7 +141,16 @@ class MusicClient:
         return self._model_dir
 
     def load(self, on_state: Callable[[str], None] | None = None) -> None:
-        with self._lock:
+        # The shared model lease is held across the exchange, as
+        # ``t2i_client`` holds it and ``Text2Image`` does in-process (the
+        # 2026-10-14 audit, finding service-queue-07): without one
+        # ``leases.MODELS.maintain()`` saw no users and a Download could start while
+        # the child was mid-``from_pretrained``. ``load`` and ``generate`` run on the
+        # worker's ``to_thread``; ``unload``, ``trim`` and ``close`` deliberately
+        # do not take it -- they run on the loop thread, which must never park
+        # behind a maintainer that holds the lease for as long as a fetch lasts,
+        # and they free the model rather than read it.
+        with leases.MODELS.use(), self._lock:
             self._request({"op": "load"}, on_state=on_state)
 
     def generate(
@@ -166,7 +195,7 @@ class MusicClient:
             "manual_seeds": [int(seed)] if seed is not None else None,
             **extra,
         }
-        with self._lock:
+        with leases.MODELS.use(), self._lock:
             resp = self._request(
                 payload, on_state=on_state, on_step=on_step, cancel_event=cancel_event
             )
@@ -227,8 +256,13 @@ class MusicClient:
 
     # --- the child ------------------------------------------------------------
 
-    def _start_child(self) -> None:
-        """Spawn the worker. Caller holds the lock."""
+    def _start_child(self, cancel_event: threading.Event | None = None) -> None:
+        """Spawn the worker. Caller holds the lock.
+
+        With ``cancel_event``, a Cancel pressed while the child is still starting
+        stops the wait: it raises ``MusicCancelled`` after killing the child, where
+        waiting for ``ready`` would hold the job for up to ``READY_TIMEOUT``.
+        """
         if self._closed.is_set():
             raise ChildFailed("the app is shutting down")
         argv = [*CHILD_ARGV, self.spec.key, str(self._model_dir)]
@@ -243,6 +277,7 @@ class MusicClient:
         # *real* interpreter in the job, since the pid Popen returned is a
         # trampoline under a uv venv
         # (dev/measurements/2026-08-22-trampoline-child-pids.md).
+        # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
         try:
             proc = subprocess.Popen(
                 argv,
@@ -271,6 +306,7 @@ class MusicClient:
         winjob.track(proc.pid, f"music {self.spec.key}")
 
         lines: Any = _queue.Queue()
+        self._tail.clear()
 
         def _pump(stream: Any) -> None:
             try:
@@ -294,21 +330,46 @@ class MusicClient:
 
         deadline = time.monotonic() + READY_TIMEOUT
         while True:
+            if cancel_event is not None and cancel_event.is_set():
+                # The 2026-10-14 audit, finding muse-jobs-04: the cancel used to be
+                # looked at only once a request was in flight, so a Cancel during
+                # the child's start waited out ``READY_TIMEOUT``. Nothing is lost
+                # by killing it -- ``_release_music`` unloads the child after every
+                # job, cancelled or not.
+                self._stop_child()
+                raise MusicCancelled
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 self._stop_child()
-                raise ChildFailed("the music worker did not start")
+                raise ChildFailed(self._died("the music worker did not start"))
             try:
-                raw = lines.get(timeout=remaining)
+                # Capped so a pending cancel is noticed promptly; not the timeout.
+                raw = lines.get(timeout=min(remaining, 0.2))
             except _queue.Empty:
                 continue
             if raw is None:
+                failure = self._died("the music worker exited during startup")
                 self._stop_child()
-                raise ChildFailed("the music worker exited during startup")
+                raise failure
             if MARKER not in raw:
-                log.debug("music worker: %s", raw.rstrip())
+                self._chatter(raw)
                 continue
             return
+
+    def _died(self, what: str) -> ChildFailed:
+        """``ChildFailed`` for a child that ended, with what it last printed."""
+        output = "\n".join(self._tail)[-ERROR_TAIL_CHARS:].strip()
+        return ChildFailed(f"{what}:\n{output}" if output else what)
+
+    def _chatter(self, line: str) -> None:
+        """Remember and log one line of the child's own output."""
+        text = line.rstrip()
+        if text:
+            # A progress bar rewrites its line with carriage returns; only the
+            # last redraw says anything, the rest would crowd out the traceback.
+            text = text.rsplit("\r", 1)[-1] or text
+            self._tail.append(text)
+        log.debug("music worker: %s", text)
 
     def _stop_child(self) -> None:
         """Kill the child and forget it. Caller holds the lock. Never raises."""
@@ -350,19 +411,35 @@ class MusicClient:
 
         if self._proc is None or self._proc.poll() is not None:
             self._stop_child()
-            self._start_child()
+            try:
+                self._start_child(cancel_event)
+            except MusicCancelled:
+                return dict(_CANCELLED_ANSWER)
         proc, lines = self._proc, self._lines
         assert proc is not None and proc.stdin is not None
         try:
             proc.stdin.write(json.dumps(payload) + "\n")
             proc.stdin.flush()
         except (OSError, ValueError) as exc:
+            failure = self._died(f"the music worker went away: {exc}")
             self._stop_child()
-            raise ChildFailed(f"the music worker went away: {exc}") from exc
+            raise failure from exc
 
         cancelled_sent = False
+        stepping = False
         deadline = time.monotonic() + SILENCE_TIMEOUT
         while True:
+            if cancel_event is not None and cancel_event.is_set() and not stepping:
+                # The 2026-10-14 audit, finding muse-jobs-04. The child looks at a
+                # cancel only at the sampler's first step, so before one has been
+                # reported it is loading a checkpoint or encoding source audio and
+                # would keep doing so, with the job held, for tens of seconds to
+                # minutes after the user pressed Cancel. Relaying bought nothing:
+                # ``_release_music`` kills the child after the job whatever the
+                # outcome. So it is killed here and the answer is the one a
+                # relayed cancel would have produced.
+                self._stop_child()
+                return dict(_CANCELLED_ANSWER)
             if cancel_event is not None and cancel_event.is_set() and not cancelled_sent:
                 # Written from this thread rather than watched from another: the
                 # only thing this thread does between lines is wait, and a
@@ -376,10 +453,11 @@ class MusicClient:
                     pass
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                self._stop_child()
-                raise ChildFailed(
+                failure = self._died(
                     f"the music worker said nothing for {SILENCE_TIMEOUT:.0f}s"
                 )
+                self._stop_child()
+                raise failure
             try:
                 # Capped so a pending cancel is noticed promptly even while the
                 # child is quiet mid-step; the cap is not the timeout.
@@ -387,20 +465,21 @@ class MusicClient:
             except _queue.Empty:
                 continue
             if raw is None:
+                failure = self._died("the music worker exited without answering")
                 self._stop_child()
-                raise ChildFailed("the music worker exited without answering")
+                raise failure
             # Any line at all is a sign of life, chatter included: a checkpoint
             # read prints for a long time without the worker emitting a state.
             deadline = time.monotonic() + SILENCE_TIMEOUT
             at = raw.find(MARKER)
             if at < 0:
-                log.debug("music worker: %s", raw.rstrip())
+                self._chatter(raw)
                 continue
             if at:
                 # A response can share a physical line with the progress bar
                 # that was mid-update when it was written; the prefix is that
                 # bar, and it is chatter like any other.
-                log.debug("music worker: %s", raw[:at].rstrip())
+                self._chatter(raw[:at])
             try:
                 msg = json.loads(raw[at + len(MARKER) :])
             except ValueError as exc:
@@ -412,6 +491,9 @@ class MusicClient:
                     on_state(str(msg.get("text") or ""))
                 continue
             if kind == "step":
+                # From the first step the sampler is the one looking at the
+                # cancel, and it answers within a step; see the kill above.
+                stepping = True
                 if on_step is not None:
                     on_step(int(msg.get("step", 0)), int(msg.get("total", 0)))
                 continue

@@ -707,25 +707,56 @@ class LegacyFields:
     locked: bool = False
 
 
+#: The most modifiers one object's stored list may hold and still be read.
+#:
+#: The 2026-10-14 audit, finding clay-mesh-model-04: the length of this list is
+#: a count read from an untrusted file, and nothing bounded it -- one object
+#: with a million modifiers (a file of 30 MB) cost 3.2 s here and 2.3 s in
+#: :func:`migrate` when valid, and when malformed it produced a million
+#: sentences and a million ``doc.notices``, all before the bake's work budget
+#: (which bounds running modifiers, not parsing them) applied. A stack Clay's
+#: modifier panel ever offered held a handful; the v3 fixtures hold at most
+#: three. A list past this is refused whole, in one sentence, before its first
+#: item is looked at.
+MAX_MODIFIERS_PER_OBJECT = 256
+
+#: How many "was dropped" sentences one object's list names in full; the rest are
+#: counted in one trailing sentence, the way :func:`_bake` collapses its own.
+_UNREADABLE_NAMED = 3
+
+
 def read_fields(entry: dict[str, Any]) -> LegacyFields:
     """Lift an object entry's dead fields. Never raises: a hand-edited field of
     the wrong shape is dropped, and named in the notice."""
     out = LegacyFields()
     raw = entry.get("modifiers")
-    if isinstance(raw, list):
+    if isinstance(raw, list) and len(raw) > MAX_MODIFIERS_PER_OBJECT:
+        out.unreadable.append(
+            f"its {len(raw):,} modifiers were dropped: Clay reads at most "
+            f"{MAX_MODIFIERS_PER_OBJECT:,} on one object"
+        )
+    elif isinstance(raw, list):
         seen: set[int] = set()
         kept: list[_Modifier] = []
+        unnamed = 0
         for item in raw:
             try:
                 built = _parse_modifier(item)
                 if built.id in seen:
                     raise ValueError(f"it shares id {built.id} with another")
             except ValueError as exc:
-                label = item.get("kind", "a") if isinstance(item, dict) else "a"
-                out.unreadable.append(f"the {label} modifier was dropped: {exc}")
+                # Named in full for the first few; the rest are counted, so a list
+                # of malformed modifiers is a few sentences and not one each.
+                if len(out.unreadable) < _UNREADABLE_NAMED:
+                    label = item.get("kind", "a") if isinstance(item, dict) else "a"
+                    out.unreadable.append(f"the {label} modifier was dropped: {exc}")
+                else:
+                    unnamed += 1
                 continue
             seen.add(built.id)
             kept.append(built)
+        if unnamed:
+            out.unreadable.append(f"{unnamed:,} more modifiers were dropped as well")
         out.modifiers = tuple(kept)
     elif raw is not None:
         out.unreadable.append("its modifier list was malformed and was dropped")
@@ -1007,6 +1038,19 @@ def _bake(
                     grown = _KINDS[mod.kind][2](mesh, mod.as_dict(), limit=room)
                 else:
                     grown = _KINDS[mod.kind][2](mesh, mod.as_dict())
+                # The 2026-10-14 audit, finding clay-mesh-model-05: size and growth
+                # were checked and finiteness was not, so a mesh near float32's
+                # ceiling under a rotated radial array came out with ``inf``
+                # positions, was adopted below with a notice that it was applied,
+                # and could then never be saved or journalled. ``set_mesh`` refuses
+                # the same state (``ClayDoc._refuse_unstorable``); the migration
+                # reached the mesh by another door, so it asks the same question.
+                if not np.isfinite(grown.positions).all() or (
+                    grown.uv is not None and not np.isfinite(grown.uv).all()
+                ):
+                    raise el.OpError(
+                        "it makes a position or a UV too large to store (past about 3e38)"
+                    )
                 grown_count = _triangle_count(grown)
                 _refuse_growth("This modifier", grown_count, room)
                 _refuse_vertex_growth(
@@ -1216,22 +1260,62 @@ def _drop(doc: ClayDoc, doomed: list[Obj]) -> None:
     """Remove *doomed* from a history-less document. A survivor under a removed
     object is lifted onto its nearest surviving ancestor, keeping its place in the
     world; one that cannot be lifted (a zero-scale ancestor) keeps its local
-    transform, the best a degenerate document allows."""
+    transform, the best a degenerate document allows.
+
+    The 2026-10-14 audit, finding clay-mesh-model-03: this asked ``doc`` for the
+    world matrix of every object whose parent was removed -- the removed
+    colliders themselves among them, which the loop below skipped -- and each
+    ask walked the whole chain, so dropping a chain of N nested colliders cost
+    N squared compositions (68 s at 4,000, the most a document may hold). Each
+    world is now composed once off its parent's, and only a survivor's is kept;
+    the nearest surviving ancestor of a removed object is likewise resolved once.
+    """
     gone = {o.uid for o in doomed}
-    orphans = {o.uid: doc.world_matrix(o.uid) for o in doc.objects if o.parent in gone}
-    for obj in doc.objects:
-        while obj.parent in gone:
-            obj.parent = doc.by_uid(obj.parent).parent
-    doc.objects = [o for o in doc.objects if o.uid not in gone]
-    for uid, world in orphans.items():
-        if uid in gone:
-            continue
-        child = doc.by_uid(uid)
+    by_uid = {o.uid: o for o in doc.objects}
+    worlds: dict[int, np.ndarray] = {}
+
+    def world(uid: int) -> np.ndarray:
+        chain: list[int] = []
+        seen: set[int] = set()
+        cur: int | None = uid
+        while cur is not None and cur not in worlds and cur in by_uid and cur not in seen:
+            chain.append(cur)
+            seen.add(cur)
+            cur = by_uid[cur].parent
+        matrix = worlds[cur] if cur is not None and cur in worlds else m3.identity()
+        for link in reversed(chain):
+            o = by_uid[link]
+            matrix = matrix @ m3.compose(o.translation, o.rotation, o.scale)
+            worlds[link] = matrix
+        return worlds[uid]
+
+    lifted: dict[int, int | None] = {}
+
+    def surviving(uid: int) -> int | None:
+        """The nearest ancestor of removed *uid*, itself included, that stays."""
+        path: list[int] = []
+        cur: int | None = uid
+        while cur in gone and cur not in lifted and cur not in path:
+            path.append(cur)
+            cur = by_uid[cur].parent
+        found = lifted.get(cur, None if cur in path else cur)
+        for link in path:
+            lifted[link] = found
+        return found
+
+    survivors = [o for o in doc.objects if o.uid not in gone]
+    orphans = {o.uid: world(o.uid) for o in survivors if o.parent in gone}
+    for obj in survivors:
+        if obj.parent in gone:
+            obj.parent = surviving(obj.parent)
+    doc.objects = survivors
+    for uid, world_matrix in orphans.items():
+        child = by_uid[uid]
         # ``_kept_place``, not ``_local_relative``: the 2026-10-07 audit's
         # clay-26 found a surviving ancestor of denormal scale (finite, so past
         # the singular test) inverted to ``inf`` here and wrote NaN onto the
         # child, a migrated document that could never be saved or journalled.
         with contextlib.suppress(el.OpError):
             child.translation, child.rotation, child.scale = doc._kept_place(
-                child.name, world, child.parent
+                child.name, world_matrix, child.parent
             )

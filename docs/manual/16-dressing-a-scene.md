@@ -118,7 +118,7 @@ crate later.
 Select something you expect to place repeatedly — a crate, a lamp post, the wall group you just made
 — and right-click it. Choose **Make prefab** and give it a name.
 
-A **Prefabs** panel appears in the left column. Click your new row and place it three times, the same
+A **Prefabs** panel appears in the right column. Click your new row and place it three times, the same
 way you placed an asset.
 
 Those three are **instances**, not copies. Select any one of them and look at its **Properties**
@@ -153,7 +153,8 @@ which is the point — an engine opening this scene knows where you meant it to 
 
 `Ctrl+S`. Then look at the **Scene file** panel on the right, under **Take it somewhere**.
 
-**Export GLB** is the one to use. It writes `scene.glb` and a `scene.json` beside it. The GLB is
+**Export GLB** is the one to use. It writes the GLB you name and a manifest named to match it beside it (`Barrel.glb`
+and `Barrel.json`). The GLB is
 ordinary glTF — the hierarchy, the instances as real nodes, the lights as `KHR_lights_punctual`, the
 cameras as cameras — and any engine that reads glTF reads it. The JSON is ours, and it carries what
 the scene *meant*: the node list, the counts, the prefab names, your user properties, and anything

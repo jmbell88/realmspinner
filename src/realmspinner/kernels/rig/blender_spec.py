@@ -10,18 +10,13 @@ what keeps this whole package importable with no ``bpy`` anywhere.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from . import store
 from .store import pose_dir, pose_glb_path
 from .templates import get_template
-
-#: Where a rig's joints come from when the user has not moved them by hand.
-#: ``template`` is the bbox-proportional fit every rig used before this existed
-#: and is still the default; ``measured`` reads them off the mesh.
-JOINT_SOURCES = ("template", "measured")
 
 
 def rig_spec(
@@ -31,7 +26,6 @@ def rig_spec(
     *,
     template_bones: list[dict[str, Any]] | None = None,
     fit: dict[str, Any] | None = None,
-    joints: str | None = None,
     skeleton: str | None = None,
     root: str | None = None,
     mirror_pairs: list[Sequence[str]] | None = None,
@@ -54,24 +48,16 @@ def rig_spec(
     * nothing -- the shipped template, scaled bbox-proportionally, which is
       what every rig did before landmarks existed and is right only for a
       reference standing in the template's own A-pose; a T-posed mesh is
-      the case it fits worst (manual chapter 08, "The A-pose trap").
+      the case it fits worst (manual chapter 23, "The A-pose trap").
 
     ``fit`` is what the host knows about how the second of those was found and
     the worker cannot: which model, how confident. It is recorded in rig.json
     and read by nothing that has to work, which is why it is a free-form dict.
 
-    ``joints="measured"`` asks the worker to take ``pipelines.jointfit`` to the
-    mesh's own vertices and use the result as if the user had corrected the
-    joints by hand. It sits *below* ``bones`` in the same order of preference --
-    a real correction is still the last word -- and above the template, because
-    a measurement of the mesh in front of you beats a template scaled to its
-    bounding box whenever the two disagree. The two supplied base meshes are
-    exactly where they disagree: the shipped humanoid template is an A-pose and
-    a T-pose mesh fits it badly.
-
     ``skeleton``/``root``/``mirror_pairs`` carry a *custom* skeleton's own
-    structure across the pipe -- ``service.rig.edit_skeleton``'s
-    ``skeleton.validate_skeleton`` output -- so the worker can build the
+    structure across the pipe -- ``service.rig.rig_with_skeleton``'s
+    ``skeleton.validate_skeleton`` output (the 2026-10-14 audit, finding C1: the
+    skeleton editor's ``edit_skeleton`` door is gone) -- so the worker can build the
     armature from the caller's own parents instead of the template's. All
     three are written only when given, which is what keeps a spec built for
     an ordinary template rig, or for an old ``adjust_joints`` joint move,
@@ -93,10 +79,6 @@ def rig_spec(
         spec["template_bones"] = template_bones
     if fit is not None:
         spec["fit"] = fit
-    if joints is not None:
-        if joints not in JOINT_SOURCES:
-            raise ValueError(f"joints must be one of {list(JOINT_SOURCES)}")
-        spec["joints"] = joints
     if skeleton is not None:
         spec["skeleton"] = skeleton
     if root is not None:
@@ -114,8 +96,6 @@ def sheet_spec(
     frame_size: int,
     elevation: float,
     lighting: str,
-    margin: float | None = None,
-    sockets: Sequence[Mapping[str, Any]] | None = None,
     deform_metrics: bool = False,
 ) -> dict[str, Any]:
     """The worker spec for rendering one frame per sheet cell.
@@ -124,22 +104,9 @@ def sheet_spec(
     worker has no access to the job directory's pose files, and shipping the
     rotations with the cell keeps it a pure renderer.
 
-    ``margin`` widens the ortho window past ``sheet.FRAME_MARGIN``. Its one
-    writer was the character sheet's reframe retry, and it is written **only when
-    given** -- a spec without it is byte-identical to the one this function
-    produced before the key existed, which is what keeps every sheet that does
-    not clip rendering exactly as it did.
-
-    ``sockets`` is ``[{"name", "bone", "offset": [along, lateral, up],
-    "reach"}]``: attachment points to project per cell, offset **and reach both
-    in bone-length units** -- ``characters.family.Socket``'s own definition, and
-    what the worker converts them by -- so a socket list survives a re-fit onto
-    a character of another size. This sentence used to say reach was in
-    character heights, which is the wrong unit and the one ``_pose_union``
-    implemented: the 2026-09-20 P28 sitting found every generated character
-    framed about ten times too wide as a result. Written only when given, for
-    the same reason as ``margin``, and its presence is what makes the worker
-    emit a ``sockets`` block at all.
+    The ortho window is always ``sheet.FRAME_MARGIN`` wide, and no socket
+    points are projected: the ``margin`` and ``sockets`` keys belonged to the
+    character sheet, which left (the 2026-10-14 audit, finding poser-rig-04).
 
     ``deform_metrics`` asks the worker to also score each distinct pose against
     the rest shape (``kernels.rig.deform_metrics``) and return the numbers under
@@ -155,10 +122,6 @@ def sheet_spec(
         "lighting": lighting,
         "cells": cells,
     }
-    if margin is not None:
-        spec["margin"] = float(margin)
-    if sockets is not None:
-        spec["sockets"] = [dict(s) for s in sockets]
     if deform_metrics:
         # Only the deformation QA sets this, and only when set: a sprite sheet's
         # spec stays byte-identical to what it was before the key existed.
@@ -285,29 +248,6 @@ def pose_spec(
     return spec
 
 
-def armature_spec(template_key: str, out_glb: Path, result_dir: Path) -> dict[str, Any]:
-    """The worker spec for exporting one template's armature with no mesh.
-
-    What the Poser preview stands on: the skeleton is built and exported by the
-    *same* Blender code path a real rig uses (``_build_armature`` + ``_export``),
-    fitted over the canonical unit box, so the bone frames the editor rotates
-    are the frames every bake will see. ``out_glb`` must end in ``.glb`` -- the
-    exporter appends one to any path that does not (the RIG_GLB_TMP rule).
-    """
-    get_template(template_key)  # fail here, not three seconds into a subprocess
-    return {
-        "op": "armature",
-        "template": template_key,
-        "out_glb": str(out_glb),
-        # Named per template: two previews building concurrently share the
-        # previews directory, and ``run_worker`` unlinks and then watches the
-        # result path -- one shared name would let each build eat the other's
-        # answer. The per-template lock in ``template_preview`` serializes one
-        # template's builds; this is what keeps two *different* ones apart.
-        "result_path": str(result_dir / f".{template_key}.armature_result.json"),
-    }
-
-
 def clip_sample_spec(
     source: Path,
     template: str,
@@ -331,9 +271,9 @@ def clip_sample_spec(
     calls.
 
     ``result_path`` is the caller's to make unique (``store.new_id()``, the
-    same rule a pose or sheet cell follows) -- unlike ``armature_spec``'s
-    per-template name, two "Import clip" runs against the same template have
-    no lock serialising them and must never share a result file.
+    same rule a pose or sheet cell follows): two "Import clip" runs against the
+    same template have no lock serialising them and must never share a result
+    file.
     """
     get_template(template)  # fail here, not three seconds into a subprocess
     # Function-level: ``clipmaps`` imports this package's ``templates`` module
@@ -366,7 +306,7 @@ def clip_sample_spec(
 def root_offset_world(root_translation: Sequence[float], bounds: dict[str, Any]) -> list[float]:
     """A library pose's root offset, scaled from character heights to world units.
 
-    ``root_translation`` is stored in character-height units because the Poser
+    ``root_translation`` is stored in character-height units because the template
     armature is exactly one character tall (``poselib.UNIT_LO``/``UNIT_HI``);
     the target rig's height comes from rig.json's ``bounds``, which are Blender
     world coordinates, Z up. A degenerate height falls back to the largest

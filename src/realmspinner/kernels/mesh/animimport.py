@@ -36,12 +36,16 @@ from ..geom3d import gltf
 from ..geom3d import math3d as m3
 from . import anim
 from .elements import OpError
-from .rigimport import _fresh_name, _guess_fps, _linear_keys
+from .rigimport import _channel, _fresh_name, _guess_fps, _linear_keys
 
 __all__ = ["Imported", "canonical", "import_by_name", "match_bones"]
 
 _PREFIX = re.compile(r"^(mixamorig\d*[:_.\-]?|armature[:_.\-]|bip\d*[:_.\-]?)", re.IGNORECASE)
-_WORDS = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
+# The 2026-10-14 audit, finding clay-rig-02: the words were ASCII-only, so a non-ASCII name
+# (``左腕`` and ``右腕``) canonicalised to "" and matched every other such name, and ``Hüfte``
+# lost its ``ü``. A letter outside ASCII is a word of its own here, so two names differing only
+# there keep different keys.
+_WORDS = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+|(?![A-Za-z])[^\W\d_]+")
 _SIDES = {"left": "l", "right": "r", "l": "l", "r": "r"}
 
 
@@ -49,7 +53,9 @@ def canonical(name: str) -> str:
     """*name* as a comparison key: lower-case words, the side last, separators gone.
 
     ``mixamorig:LeftUpLeg`` -> ``uplegl``; ``upleg.L`` -> ``uplegl``; ``Spine_01`` -> ``spine01``.
-    A side is a word that is exactly ``left``, ``right``, ``l`` or ``r`` at either end.
+    A side is a word that is exactly ``left``, ``right``, ``l`` or ``r`` at either end. A name
+    with no letter or digit at all (``__``) has the empty key, which :func:`match_bones` never
+    pairs.
     """
     words = [w.lower() for w in _WORDS.findall(_PREFIX.sub("", name.strip()))]
     if len(words) > 1:
@@ -66,16 +72,21 @@ def match_bones(bones: dict[int, str], names: dict[int, str]) -> tuple[dict[int,
 
     A source name matching two bones, or two source names matching one, is not matched: a guess
     between two is how the left arm gets the right arm's wave. Their names come back in the second
-    result.
+    result. A name whose key is empty is not a key (the 2026-10-14 audit, finding clay-rig-02: every
+    name made only of separators or symbols would otherwise match every other): it matches nothing
+    and is not called ambiguous either, so it lands in the importer's unmatched list.
     """
     by_canon: dict[str, list[int]] = {}
     for uid, name in bones.items():
-        by_canon.setdefault(canonical(name), []).append(uid)
+        key = canonical(name)
+        if key:
+            by_canon.setdefault(key, []).append(uid)
     claimed: dict[int, list[Any]] = {}
     pairs: dict[Any, int] = {}
     ambiguous: list[str] = []
     for key, name in names.items():
-        found = by_canon.get(canonical(name), [])
+        canon = canonical(name)
+        found = by_canon.get(canon, []) if canon else []
         if len(found) == 1:
             pairs[key] = found[0]
             claimed.setdefault(found[0], []).append(key)
@@ -186,7 +197,11 @@ def _retarget(
     out: dict[str, anim.Channel] = {}
     resampled = 0
     for path, channel in props.items():
-        times, values, was_cubic = _linear_keys(channel, fps)
+        # The 2026-10-14 audit, finding clay-rig-08 (the animimport half): both
+        # refusals below name the animation, the bone and the property, the way
+        # ``rigimport``'s own door does, instead of a bare subject.
+        where = f"{label} ({bone.name!r}, {path})"
+        times, values, was_cubic = _linear_keys(channel, fps, where)
         resampled += int(was_cubic)
         if len(times) > anim.MAX_KEYS_PER_CHANNEL:
             raise OpError(
@@ -218,5 +233,5 @@ def _retarget(
             if not np.all(np.abs(rest_src) > 1e-9):
                 raise OpError(f"{label}'s rest size for {bone.name!r} has a zero axis.")
             rows = np.asarray(values, dtype="f8") / rest_src * np.asarray(bone.scale, dtype="f8")
-        out[path] = anim.Channel(times, rows)
+        out[path] = _channel(times, rows, where)
     return out, resampled

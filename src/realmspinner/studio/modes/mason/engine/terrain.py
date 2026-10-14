@@ -247,6 +247,11 @@ def _box_blur(heights: np.ndarray, rect: Rect) -> np.ndarray:
 # is a tool one dimension over.
 
 
+#: The largest value a height can hold: the field is float32, and a scalar past
+#: it overflows to inf on the cast every brush below makes.
+_F32_MAX = float(np.finfo(np.float32).max)
+
+
 def _unusable(cx: float, cz: float, radius: float, *scalars: float) -> bool:
     """True when this call would plant a NaN or an inf into the ground, or
     raise trying.
@@ -282,7 +287,13 @@ def _unusable(cx: float, cz: float, radius: float, *scalars: float) -> bool:
         return True
     if not np.isfinite(radius) or radius <= 0:
         return True
-    return not all(np.isfinite(s) for s in scalars)
+    # The 2026-10-14 audit's mason-engine-03: finite as a Python float is not
+    # finite as float32. An amount or level of 1e39 passed this check, was cast
+    # to float32 as inf (with a RuntimeWarning), and planted inf/NaN in the
+    # height field -- the scene then saved clean and ``read_rscn`` refused it
+    # ("a terrain's heights must all be finite"). Clay got the same refusal in
+    # 78c8161c; the cast bound is the one the writes below actually use.
+    return not all(np.isfinite(s) and abs(s) <= _F32_MAX for s in scalars)
 
 
 def raise_lower(
@@ -304,6 +315,9 @@ def raise_lower(
     weight = _falloff_weight(rect, cx, cz, radius, falloff)
     before = heights[y0:y1, x0:x1]
     after = (before + weight * np.float32(amount)).astype(np.float32)
+    if not np.isfinite(after).all():
+        # Several dabs of a large but in-range amount can add up past float32.
+        return None
     if np.array_equal(before, after):
         # amount == 0 is the common case (a click that never dragged), but a
         # weight that is exactly zero everywhere the rect clips to would land
@@ -331,6 +345,8 @@ def smooth(
     before = heights[y0:y1, x0:x1]
     blurred = _box_blur(heights, rect)
     after = (before + (blurred - before) * weight).astype(np.float32)
+    if not np.isfinite(after).all():
+        return None
     if np.array_equal(before, after):
         return None
     return rect, np.ascontiguousarray(after)
@@ -349,6 +365,8 @@ def flatten(
     weight = _falloff_weight(rect, cx, cz, radius, "smooth") * np.float32(strength)
     before = heights[y0:y1, x0:x1]
     after = (before + (np.float32(level) - before) * weight).astype(np.float32)
+    if not np.isfinite(after).all():
+        return None
     if np.array_equal(before, after):
         # The ground already at ``level`` under the whole brush is the case
         # that matters: a user flattening a plateau that is already flat must
@@ -378,6 +396,8 @@ def noise(
     field_noise = rng.uniform(-1.0, 1.0, size=(y1 - y0, x1 - x0)).astype(np.float32)
     before = heights[y0:y1, x0:x1]
     after = (before + field_noise * weight * np.float32(amplitude)).astype(np.float32)
+    if not np.isfinite(after).all():
+        return None
     if np.array_equal(before, after):
         return None
     return rect, np.ascontiguousarray(after)
@@ -386,7 +406,7 @@ def noise(
 def set_height(heights: np.ndarray, rect: Rect, level: float) -> tuple[Rect, np.ndarray] | None:
     """Set every cell in ``rect`` to exactly ``level`` -- a hard edit, no falloff."""
     x0, y0, x1, y1 = rect
-    if not all(np.isfinite(v) for v in (x0, y0, x1, y1, level)):
+    if not all(np.isfinite(v) for v in (x0, y0, x1, y1, level)) or abs(level) > _F32_MAX:
         # No division here to produce a NaN on its own, but ``rect`` reaches
         # this the same way a brush centre reaches ``_clip_circle``: a rect
         # built from a ray pick that came back non-finite would hit

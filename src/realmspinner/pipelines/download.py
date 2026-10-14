@@ -27,6 +27,7 @@ logs would want to see.
 from __future__ import annotations
 
 import errno
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -177,6 +178,15 @@ def describe_failure(exc: BaseException, *, resume_note: str = RESUME_NOTE) -> s
         return str(exc)
     win, num = _socket_code(exc)
     remedy = _WINSOCK_REMEDIES.get(win or -1) or _ERRNO_REMEDIES.get(num or -1)
+    if remedy is None:
+        status = http_status(exc)
+        if status is not None:
+            # The server answered, so this is not a transport failure and the
+            # class-name heuristic below must never see it: ``HTTPError``
+            # matches that heuristic, which told a user whose update check hit
+            # GitHub's 60-requests-an-hour rate limit to look at their firewall
+            # (the 2026-10-14 audit, finding pipelines-children-07).
+            return f"{_describe_http_status(status, exc)} {resume_note}".strip()
     if remedy is None and _looks_like_a_network_error(exc):
         remedy = (
             "The transfer could not be completed. Check that this machine is "
@@ -189,6 +199,47 @@ def describe_failure(exc: BaseException, *, resume_note: str = RESUME_NOTE) -> s
         return f"{type(exc).__name__}: {exc} See realmspinner.log for the details."
     code = f" (WinError {win})" if win else ""
     return f"{remedy}{code} {resume_note}".strip()
+
+
+def http_status(exc: BaseException) -> int | None:
+    """The HTTP status an exception carries anywhere in its chain, or ``None``.
+
+    Read off the exception rather than matched by name, for the transports this
+    project meets: ``urllib.error.HTTPError`` (the update worker) has ``.code``;
+    ``httpx`` and ``huggingface_hub`` errors carry a ``.response`` with a
+    ``.status_code``. Neither ``httpx`` nor ``huggingface_hub`` is imported, for
+    the reason :func:`_looks_like_a_network_error` gives.
+    """
+    for link in _chain(exc):
+        if isinstance(link, urllib.error.HTTPError):
+            return int(link.code)
+        code = getattr(getattr(link, "response", None), "status_code", None)
+        if isinstance(code, int) and 100 <= code < 600:
+            return code
+    return None
+
+
+def _describe_http_status(status: int, exc: BaseException) -> str:
+    if status in (403, 429):
+        return (
+            f"The server is limiting requests from this machine (HTTP {status}). "
+            "That is usually a rate limit rather than a problem with your "
+            "connection: wait a few minutes and try again."
+        )
+    if status >= 500:
+        return (
+            f"The server had a problem answering (HTTP {status}). It is usually "
+            "temporary: try again in a few minutes."
+        )
+    # What the server or the hub client said, first line only: a gated or
+    # misspelt repo's own sentence ("Cannot access gated repo ...") is the
+    # actionable part, and the rest of a hub error is a request id.
+    said = (str(exc).strip().splitlines() or [""])[0][:200]
+    return (
+        f"The server refused the request (HTTP {status}"
+        + (f": {said}" if said else "")
+        + "). See realmspinner.log for the details."
+    )
 
 
 def _looks_like_a_network_error(exc: BaseException) -> bool:

@@ -35,7 +35,6 @@ from .animation import (
     Frame,
     Tag,
     Track,
-    clamp_duration,
 )
 from .layers import Layer, LayerStack
 
@@ -44,7 +43,6 @@ __all__ = [
     "MAX_SHEET_PIXELS",
     "document_from_atlas",
     "document_from_grid",
-    "document_from_sheet",
     "grid_rects",
     "span_tags",
     "walk_tags",
@@ -65,7 +63,7 @@ __all__ = [
 MAX_SHEET_FRAMES = 4096
 
 # The 2026-09-20 audit (inker-01): MAX_SHEET_FRAMES bounds the *count* of
-# cells document_from_sheet reads from a rendered sheet's on-disk sidecar,
+# cells a sheet import reads from an on-disk sidecar,
 # but nothing bounded count times cell area -- 800 identical 512x512 cells,
 # well under that ceiling, allocated 800 MiB with no refusal, and the real
 # ceilings reach terabytes. The figure is 8192 squared, the same one
@@ -220,7 +218,8 @@ def _document_from_rects(
         raise ValueError("a sprite sheet needs at least one cell")
     # MAX_SHEET_FRAMES exists so a cell count read from a file cannot decide
     # an allocation before it is checked -- grid_rects() enforces it for
-    # document_from_grid's typed-grid door, but document_from_sheet() takes
+    # document_from_grid's typed-grid door, but a sidecar-driven import (the
+    # retired ``document_from_sheet``) took
     # `cells` verbatim from a rendered sheet's on-disk sidecar JSON with
     # nothing of its own between that count and "one Frame plus one Layer per
     # entry", and the sidecar's generic 1MB size cap does not substitute -- a
@@ -375,51 +374,3 @@ def document_from_grid(
         (int(width), int(height)), cell, offset, padding, count
     )
     return _document_from_rects(atlas_rgba, rects, track_name=track_name)
-
-
-def document_from_sheet(
-    atlas_rgba: np.ndarray,
-    cells: Sequence[Mapping[str, Any]],
-    animation: Mapping[str, Any] | None = None,
-    *,
-    track_name: str = "Sprite",
-) -> Any:
-    """A rendered sheet plus its sidecar's ``animation`` block, as a document.
-
-    ``document_from_atlas``'s sibling for a sheet whose sidecar knows what its
-    own frames mean. That one takes a *kind* and derives the grid and the tags
-    from a table this package holds; this one is handed the table, because a
-    Troupe character sheet is five animations across eight directions and there
-    is no reason for the editor to carry a second copy of that.
-
-    ``layout`` is deliberately **None**, for ``document_from_grid``'s reason: a
-    ``DirectionalLayout`` is the claim that these cells are the four named
-    directions of a fixed grid, and this sheet is not that. The tags carry the
-    directions instead, which is what playback actually reads.
-
-    Durations come from the block's ``frames`` where it has them -- a
-    twelve-frame-per-second run and a six-per-second idle in the same document
-    is the whole point of writing them into the sidecar.
-    """
-    doc = _document_from_rects(
-        atlas_rgba,
-        [_cell_rect(cell) for cell in cells],
-        tags=span_tags((animation or {}).get("tags") or []),
-        track_name=track_name,
-    )
-    for entry in (animation or {}).get("frames") or []:
-        # A hand-edited or foreign sidecar can say anything here. ``int()`` of
-        # ``"fast"`` raised out of the whole import (the 2026-10-10 audit's
-        # F18-1), where ``clamp_duration`` has always treated a value it cannot
-        # read as "no opinion" -- which, for a duration, is the default the
-        # frame already carries. ``OverflowError`` for a bare ``Infinity``.
-        if not isinstance(entry, Mapping):
-            continue
-        try:
-            index = int(entry.get("cell_index", -1))
-            duration = int(entry.get("duration_ms") or 0)
-        except (TypeError, ValueError, OverflowError):
-            continue
-        if 0 <= index < len(doc.anim.frames) and duration > 0:
-            doc.anim.frames[index].duration_ms = clamp_duration(duration)
-    return doc

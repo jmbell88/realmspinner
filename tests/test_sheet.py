@@ -106,6 +106,16 @@ def test_slerp_takes_the_short_way_round():
     assert abs(mid[3]) == pytest.approx(1.0, abs=1e-6)
 
 
+def _between(a, b, frames):
+    """``frames`` records stepping from A toward B and stopping short of it.
+
+    The two-pose door ``sheet.interpolate`` was (deleted: the 2026-10-14 audit,
+    finding inker-80, no production caller), spelled through the multi-key one
+    that is live.
+    """
+    return sheetlib.interpolate_clip([a, b], [frames, frames], closed=True)[:frames]
+
+
 def test_interpolate_produces_numbered_frames_between_two_poses():
     a = {"id": "a" * 12, "name": "contact A", "bones": {"thigh.L": [0.0, 0.0, 0.0, 1.0]}}
     half = math.radians(60) / 2
@@ -115,7 +125,7 @@ def test_interpolate_produces_numbered_frames_between_two_poses():
         "bones": {"thigh.L": [math.sin(half), 0.0, 0.0, math.cos(half)]},
     }
 
-    frames = sheetlib.interpolate(a, b, 4)
+    frames = _between(a, b, 4)
 
     assert len(frames) == 4
     assert [f["frame"] for f in frames] == [0, 1, 2, 3]
@@ -145,7 +155,7 @@ def test_a_bone_posed_in_only_one_end_is_held_rather_than_swung():
     turned = [0.0, 0.0, 0.7071, 0.7071]
     b = {"id": "b" * 12, "name": "B", "bones": {"head": turned}}
 
-    frames = sheetlib.interpolate(a, b, 2)
+    frames = _between(a, b, 2)
 
     # ``slerp`` normalises, so the held value comes back as the unit
     # quaternion the input rounds to rather than bit-for-bit.
@@ -164,12 +174,12 @@ def test_delta_space_still_blends_an_omitted_bone_from_rest():
     assert frames[0]["bones"]["head"] == pytest.approx([0.0, 0.0, 0.0, 1.0])
 
 
-def test_interpolate_rejects_a_clip_length_it_cannot_render():
+def test_interpolate_clip_rejects_a_clip_length_it_cannot_render():
     a = {"id": "a" * 12, "name": "A", "bones": {}}
     with pytest.raises(ValueError):
-        sheetlib.interpolate(a, a, 0)
+        sheetlib.interpolate_clip([a, a], [0, 0], closed=True)
     with pytest.raises(ValueError):
-        sheetlib.interpolate(a, a, sheetlib.MAX_CLIP_FRAMES + 1)
+        sheetlib.interpolate_clip([a, a], [sheetlib.MAX_CLIP_FRAMES + 1] * 2, closed=True)
 
 
 def test_plan_honours_the_yaw_count():
@@ -182,7 +192,7 @@ def test_plan_carries_each_records_own_frame_index():
     """A clip's rows differ only by frame; dropping it renders row 0 six times."""
     a = {"id": "a" * 12, "name": "A", "bones": {}}
     b = {"id": "b" * 12, "name": "B", "bones": {}}
-    layout = sheetlib.plan(sheetlib.interpolate(a, b, 3), yaws=2)
+    layout = sheetlib.plan(_between(a, b, 3), yaws=2)
     assert [c.frame for c in layout.cells] == [0, 0, 1, 1, 2, 2]
 
 
@@ -422,7 +432,7 @@ def test_extrude_edges_zero_margin_is_a_no_op():
 #
 # op_sheet decides the ortho window before it renders anything, and that
 # decision is the whole of this section: which corners it unions, where the
-# orbit axis sits, and where a socket lands in the frame. None of it needs
+# orbit axis sits. None of it needs
 # pixels, and putting it behind the gpu marker would mean the framing rules
 # were only ever checked on a machine with a card in it.
 #
@@ -473,20 +483,13 @@ class _FakeMesh:
         return _FakeEvaluated(self._posed.get(self._rig.pose_key, self._rest))
 
 
-class _FakePoseBone:
-    def __init__(self, matrix, length):
-        self.matrix = matrix
-        self.bone = type("B", (), {"length": length})()
-
-
 class _FakeArmature:
     type = "ARMATURE"
     hide_render = True
 
-    def __init__(self, bones=None):
+    def __init__(self):
         self.pose_key = None
         self.matrix_world = _IDENTITY4
-        self.pose = type("P", (), {"bones": dict(bones or {})})()
 
 
 class _FakeCamera:
@@ -589,12 +592,12 @@ def _fake_sheet_render(monkeypatch, objects):
     return bpy, cameras
 
 
-def _sheet_spec_for(tmp_path, cells, **kwargs):
+def _sheet_spec_for(tmp_path, cells):
     glb = tmp_path / "model.glb"
     glb.write_bytes(b"fake-glb")
     frames = tmp_path / "frames"
     return blender_spec.sheet_spec(
-        glb, frames, cells, frame_size=64, elevation=0.0, lighting="flat", **kwargs
+        glb, frames, cells, frame_size=64, elevation=0.0, lighting="flat"
     )
 
 
@@ -667,133 +670,6 @@ def test_a_rest_only_sheet_frames_exactly_as_before(tmp_path, monkeypatch):
     assert cameras[0].extent == old
     assert cameras[0].aims[0][0] == [0.0, 0.0, 1.0]
     assert result["bounds"] == {"min": [-0.3, -0.2, 0.0], "max": [0.3, 0.2, 2.0]}
-    assert "sockets" not in result
-
-
-def test_the_margin_key_is_read_only_when_written(tmp_path, monkeypatch):
-    """``margin`` has one writer -- the reframe retry -- so a spec without it
-    must take ``sheet.FRAME_MARGIN`` and nothing else."""
-    from realmspinner.pipelines import blender_worker
-
-    cells = [{"index": 0, "yaw": 0.0, "pose": None, "frame": 0, "bones": {}}]
-    extents = []
-    for kwargs in ({}, {"margin": sheetlib.FRAME_MARGIN * 1.25}):
-        rig = _FakeArmature()
-        bpy, cameras = _fake_sheet_render(monkeypatch, [_FakeMesh(rig, REST_BOX), rig])
-        blender_worker.op_sheet(bpy, _sheet_spec_for(tmp_path, cells, **kwargs))
-        extents.append(cameras[0].extent)
-    assert extents[1] == pytest.approx(extents[0] * 1.25)
-
-
-def test_sockets_are_projected_per_cell_with_a_depth_order(tmp_path, monkeypatch):
-    """A socket is where an effect gets composited, so it needs a pixel *and*
-    whether it is in front of or behind the body -- a flame at the far hand is
-    drawn under the character and one at the near hand over it. Projected per
-    cell because both the pose and the yaw move it."""
-    from realmspinner.pipelines import blender_worker
-
-    hand = _FakePoseBone(
-        ((1.0, 0.0, 0.0, 0.4), (0.0, 1.0, 0.0, -0.5), (0.0, 0.0, 1.0, 1.2), (0.0, 0.0, 0.0, 1.0)),
-        0.25,
-    )
-    rig = _FakeArmature({"hand_r": hand})
-    cells = [
-        {"index": 0, "yaw": 0.0, "pose": None, "frame": 0, "bones": {}},
-        {"index": 1, "yaw": 180.0, "pose": None, "frame": 0, "bones": {}},
-    ]
-    # ``reach`` is the shipped humanoid's own weapon figure, in bone-length
-    # units (``characters.family.Socket``). It used to be 0.2 here, which is
-    # too small to widen the window once it is scaled by the 0.25 bone rather
-    # than by the character's height -- so the last assertion below would have
-    # passed on arithmetic nothing ships. See
-    # ``test_a_socket_reach_is_scaled_by_its_bone_not_the_character_height``.
-    sockets = [{"name": "hand_r", "bone": "hand_r", "offset": [1.0, 0.0, 0.0], "reach": 3.0}]
-    bpy, cameras = _fake_sheet_render(monkeypatch, [_FakeMesh(rig, REST_BOX), rig])
-    result = blender_worker.op_sheet(bpy, _sheet_spec_for(tmp_path, cells, sockets=sockets))
-
-    assert sorted(result["sockets"]) == [0, 1]
-    front, back = result["sockets"][0]["hand_r"], result["sockets"][1]["hand_r"]
-    # Yaw 0 looks along +Y, so a socket at -Y is the near one.
-    assert front["behind"] is False
-    assert back["behind"] is True
-    assert back["depth"] > front["depth"]
-    for entry in (front, back):
-        assert 0.0 <= entry["x"] <= 64.0 and 0.0 <= entry["y"] <= 64.0
-    # The socket's own reach is part of the window: framing to the body alone
-    # would clip an effect drawn at the hand.
-    assert cameras[0].extent > _rest_extent()
-
-
-def test_a_socket_reach_is_scaled_by_its_bone_not_the_character_height(tmp_path, monkeypatch):
-    """The defect, found 2026-09-20 by the P28 sitting: ``_pose_union`` scaled a
-    socket's ``reach`` by the character's *height* while every shipped value is
-    in *bone-length* units, so the ortho window was framed for spheres about ten
-    times too big and the character rendered into a corner of its own cell. A
-    2.6 m ogre came back 6 px tall in a 64 px cell, on every direction of every
-    animation, with ``validation.ok`` true throughout -- the structural check
-    looks for clipped and blank cells, and a subject that small is neither.
-
-    One hand socket at the shipped humanoid's own ``reach`` of 3.0, on a 0.25
-    bone, inside a 2.0-tall rest box:
-
-    * correct: radius ``3.0 * 0.25 = 0.75`` about the socket at
-      ``(0.4, -0.25, 1.2)``, so the furthest corner from the orbit axis is
-      ``hypot(1.15, 1.0) = 1.5240``, the window is ``2 * 1.5240`` against a
-      2.0 height, and the extent is ``3.0480 * 1.12 = 3.4138``.
-    * the bug: radius ``3.0 * 2.0 = 6.0``, corner ``hypot(6.4, 6.25) = 8.9455``,
-      extent ``17.8910 * 1.12 = 20.0379`` -- a window 5.9x too wide.
-
-    Asserted as the exact extent rather than a bound: "not absurd" is what
-    shipped for three weeks, and the number is the claim.
-    """
-    from realmspinner.pipelines import blender_worker
-
-    hand = _FakePoseBone(
-        ((1.0, 0.0, 0.0, 0.4), (0.0, 1.0, 0.0, -0.5), (0.0, 0.0, 1.0, 1.2), (0.0, 0.0, 0.0, 1.0)),
-        0.25,
-    )
-    rig = _FakeArmature({"hand_r": hand})
-    cells = [{"index": 0, "yaw": 0.0, "pose": None, "frame": 0, "bones": {}}]
-    sockets = [{"name": "hand_r", "bone": "hand_r", "offset": [1.0, 0.0, 0.0], "reach": 3.0}]
-    bpy, cameras = _fake_sheet_render(monkeypatch, [_FakeMesh(rig, REST_BOX), rig])
-    blender_worker.op_sheet(bpy, _sheet_spec_for(tmp_path, cells, sockets=sockets))
-
-    assert cameras[0].extent == pytest.approx(3.4138, abs=1e-4)
-    # And the subject still occupies most of its cell, which is the thing a
-    # human is asked to judge and the thing the defect took away.
-    rest_height = REST_BOX[1][2] - REST_BOX[0][2]
-    assert 64.0 * rest_height / cameras[0].extent > 32.0
-
-
-def _rest_extent():
-    span = [hi - lo for lo, hi in zip(*REST_BOX, strict=True)]
-    return max(math.hypot(span[0], span[1]), span[2], 1e-6) * sheetlib.FRAME_MARGIN
-
-
-def test_sheet_spec_emits_margin_and_sockets_only_when_given(tmp_path):
-    """Additive keys, the rule every optional worker-spec field follows: an
-    omitted one leaves the spec byte-identical to the one this function has
-    always produced, so a render that asks for neither cannot change."""
-    plain = blender_spec.sheet_spec(
-        tmp_path / "m.glb", tmp_path / "f", [], frame_size=64, elevation=0.0, lighting="flat"
-    )
-    assert "margin" not in plain and "sockets" not in plain
-
-    both = blender_spec.sheet_spec(
-        tmp_path / "m.glb",
-        tmp_path / "f",
-        [],
-        frame_size=64,
-        elevation=0.0,
-        lighting="flat",
-        margin=1.4,
-        sockets=[{"name": "hand_r", "bone": "hand_r", "offset": [1, 0, 0], "reach": 0.2}],
-    )
-    assert both["margin"] == 1.4
-    assert both["sockets"] == [
-        {"name": "hand_r", "bone": "hand_r", "offset": [1, 0, 0], "reach": 0.2}
-    ]
-    assert {k: v for k, v in both.items() if k not in ("margin", "sockets")} == plain
 
 
 # --- the real renderer ------------------------------------------------------

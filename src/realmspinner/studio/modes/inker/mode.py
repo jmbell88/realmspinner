@@ -13,6 +13,7 @@ state (``InkerDoc.saving``) rather than a function call that returns.
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import logging
 import math
@@ -756,15 +757,20 @@ def _write(doc: Any, path: Path, file_format: str) -> None:
     strip pixel an indexed palette has no slot for -- and a bare ``ValueError``
     from a task lands in ``tasks.py``'s generic branch, whose sentence points
     at the log rather than at what was actually wrong (the log still gets the
-    traceback either way). ``write_ora`` never refuses by name this way, so it
-    is left alone -- wrapping it would only ever catch a bug, not a named
-    refusal, and ``invalid_from`` exists for the latter. Same idiom as
-    ``import_tileset``'s own wrap, just on the write side of the same format.
+    traceback either way). ``import_tileset``'s own wrap is the same idiom, just
+    on the write side of the same format.
+
+    **The ``.ora`` branch is wrapped too** (the 2026-10-14 audit, finding
+    inker-mode-06). This docstring used to say ``write_ora`` "never refuses by
+    name this way", and that stopped being true with the 2026-09-26 and
+    2026-10-03 codecs findings: it now raises ``ValueError`` for the layer and
+    the cel budget a reopen would refuse. Unwrapped, saving an over-budget
+    drawing said only "Something went wrong; see the log for details".
     """
     from ....kernels import pixel as inker
 
     if file_format == "ora":
-        inker.write_ora(doc, path)
+        _ora_refusal_wrapped(inker.write_ora, doc, path)
     elif file_format == "aseprite":
         from ....service.errors import invalid_from
 
@@ -774,6 +780,23 @@ def _write(doc: Any, path: Path, file_format: str) -> None:
             raise invalid_from(exc, "This drawing could not be saved as .aseprite") from exc
     else:
         atomic.write_bytes(path, doc.png_bytes())
+
+
+def _ora_refusal_wrapped(call: Any, *args: Any) -> Any:
+    """Run an ORA encoder, turning its named refusal into a sentence.
+
+    The 2026-10-14 audit, finding inker-mode-06: ``write_ora`` and ``ora_bytes``
+    refuse an over-budget drawing with a bare ``ValueError`` that says which
+    budget it broke, and a ``ValueError`` from a task lands in ``tasks.py``'s
+    generic branch. ``invalid_from`` keeps the detail and frames it, as the
+    ``.aseprite`` branch of :func:`_write` does.
+    """
+    from ....service.errors import invalid_from
+
+    try:
+        return call(*args)
+    except ValueError as exc:
+        raise invalid_from(exc, "This drawing could not be saved as .ora") from exc
 
 
 # One rule for all four document modes: see :func:`docmodes.start_save` for why
@@ -812,7 +835,9 @@ def _save_linked(ctx: Any, tab: InkerDoc) -> None:
         from ....kernels import pixel as inker
 
         svc_files.save_edited_image(ctx.svc, job_id, doc.png_bytes())
-        svc_files.save_inker_working(ctx.svc, job_id, inker.ora_bytes(doc))
+        svc_files.save_inker_working(
+            ctx.svc, job_id, _ora_refusal_wrapped(inker.ora_bytes, doc)
+        )
         return {"rev": rev, "job_id": job_id, "linked": True}
 
     _start(ctx, tab, f"inker-save:{tab.uid}", run)
@@ -840,7 +865,7 @@ def save_as_reference(ctx: Any, tab: InkerDoc | None = None) -> None:
 
         # Linked immediately, so the next Ctrl+S saves in place rather than
         # minting a second job from the same pixels.
-        svc_files_save(ctx, job_id, inker.ora_bytes(doc))
+        svc_files_save(ctx, job_id, _ora_refusal_wrapped(inker.ora_bytes, doc))
         return {"rev": rev, "job_id": job_id, "link": True}
 
     _start(ctx, tab, f"inker-save:{tab.uid}", run)
@@ -1031,6 +1056,12 @@ def _done_inpaint_land(ctx: Any, state: Any, done: Any) -> None:
 
 
 
+def _done_inpaint_polled(ctx: Any, state: Any, done: Any) -> None:
+    from .ui.panes import bridge as inker_bridge
+
+    inker_bridge.on_inpaint_polled(ctx, done)
+
+
 def _done_flourish_render(ctx: Any, state: Any, done: Any) -> None:
     from . import flourish as inker_flourish
 
@@ -1042,6 +1073,20 @@ def _done_flourish_texture_queued(ctx: Any, state: Any, done: Any) -> None:
     from . import flourish as inker_flourish
 
     inker_flourish.on_texture_queued(ctx, state, done)
+
+
+
+def _done_flourish_texture_polled(ctx: Any, state: Any, done: Any) -> None:
+    from . import flourish as inker_flourish
+
+    inker_flourish.on_texture_polled(ctx, state, done)
+
+
+
+def _done_flourish_restyle_polled(ctx: Any, state: Any, done: Any) -> None:
+    from . import flourish as inker_flourish
+
+    inker_flourish.on_restyle_polled(ctx, state, done)
 
 
 
@@ -1384,13 +1429,22 @@ def _done_send(ctx: Any, state: Any, done: Any) -> None:
 
 def _done_walk_bake(ctx: Any, state: Any, done: Any) -> None:
     """The walk bake's document was built off-thread; open it, provided the
-    session it came from is still open on that tab (cancelling is an answer)."""
+    session it came from is still open on that tab (cancelling is an answer).
+
+    *That* session, by identity, and not merely a session: leaving Walk and
+    entering it again while the bake ran opens a new one with a new rig, and the
+    old rig's document must not close it (the 2026-10-14 audit, finding
+    inker-72).
+    """
     from . import walk as inker_walk
 
     tab = state.get(done.key.split(":", 1)[1]) if ":" in done.key else None
-    if tab is None or done.result is None or not inker_walk.is_open(state, tab):
+    result = done.result
+    if tab is None or not isinstance(result, dict):
         return
-    inker_walk.land_bake(ctx, tab, done.result)
+    if inker_walk.session(state, tab) is not result.get("session"):
+        return
+    inker_walk.land_bake(ctx, tab, result["doc"])
 
 
 def _done_walk_view(ctx: Any, state: Any, done: Any) -> None:
@@ -1431,10 +1485,13 @@ def _TASK_HANDLERS() -> dict[str, Any]:
 
     return {
         "inker-inpaint-land": _done_inpaint_land,
+        "inker-inpaint-poll": _done_inpaint_polled,
         inker_flourish.RENDER_KEY: _done_flourish_render,
         inker_flourish.INSERT_KEY: _done_flourish_render,
         inker_flourish.TEXTURE_KEY: _done_flourish_texture_queued,
         inker_flourish.TEXTURE_LAND_KEY: _done_flourish_texture,
+        inker_flourish.TEXTURE_POLL_KEY: _done_flourish_texture_polled,
+        inker_flourish.RESTYLE_POLL_KEY: _done_flourish_restyle_polled,
         inker_flourish.PROMPT_KEY: _done_flourish_prompt,
         inker_flourish.RESTYLE_KEY: _done_flourish_restyle_queued,
         inker_flourish.RESTYLE_LAND_KEY: _done_flourish_restyle,
@@ -1684,10 +1741,30 @@ def step_history(ctx: Any, tab: InkerDoc, index: int) -> bool:
     # ``doc.stack`` under the ORA encoder thread.
     state = ensure(ctx)
     if tab.busy or state.transforming:
-        ctx.toast(inker_ops.BUSY)
+        ctx.toast(inker_ops.busy_why(state, tab))
         return False
-    moved = tab.doc.history.step_to(tab.doc, index)
-    tab.doc.invalidate_all()
+    doc = tab.doc
+    # The 2026-10-14 audit, finding inker-mode-01: ``Document.undo`` and
+    # ``redo`` cancel a floating buffer first; ``step_to`` calls the stack's
+    # own undo and did not, so a jump to an earlier step left ``doc.floating``
+    # alive for a layer or lift that had just been undone, and the next
+    # ``commit_floating`` (every save, export and painting door calls it) raised
+    # KeyError. Cancelling a lift revokes the lift's own step, which shifts the
+    # popover's done-count by one when that step sits at or below the target.
+    floating = doc.floating
+    if floating is not None:
+        lift_pos = None
+        if floating.lift_edit is not None:
+            lift_pos = doc.history.position_of(floating.lift_edit.serial)
+        doc.cancel_floating()
+        if (
+            lift_pos is not None
+            and lift_pos <= index
+            and doc.history.position_of(floating.lift_edit.serial) is None
+        ):
+            index -= 1
+    moved = doc.history.step_to(doc, index)
+    doc.invalidate_all()
     return moved
 
 
@@ -1804,8 +1881,19 @@ def end_transform(ctx: Any, *, commit: bool) -> None:
 # --- the OS clipboard -------------------------------------------------------
 
 
-def paste_from_os(ctx: Any, tab: InkerDoc | None = None) -> bool:
+def paste_from_os(ctx: Any, tab: InkerDoc | None = None) -> bool | None:
     """Try the system clipboard, then fall back to our own.
+
+    **Three answers**, the 2026-10-14 audit's finding inker-mode-11: ``True``
+    -- the OS clipboard held an image and the app clipboard now carries it (or
+    already did); ``None`` -- there was no image on the OS clipboard, so the
+    caller carries on with the in-app one; ``False`` -- there was an image and
+    it was *refused* (over the decode ceiling), the refusal already toasted.
+    This returned ``False`` for both of the last two, so ``ops._paste`` read a
+    refusal as "nothing there", went on to ``doc.paste()`` and floated a stale
+    in-app selection straight after a toast saying the paste had been refused.
+    ``False`` is what an existing caller already read as a refusal, and it stays
+    the refusal.
 
     Ours carries a mask and the OS's cannot, which is why the two are separate
     and why this only *seeds* ours: everything downstream of a paste expects to
@@ -1817,7 +1905,7 @@ def paste_from_os(ctx: Any, tab: InkerDoc | None = None) -> bool:
     """
     tab = tab or active(ctx)
     if tab is None:
-        return False
+        return None
     try:
         import numpy as np
         from PIL import ImageGrab
@@ -1827,12 +1915,12 @@ def paste_from_os(ctx: Any, tab: InkerDoc | None = None) -> bool:
         # Unsupported platform, no display, or a clipboard holding something
         # that is not an image. None of those is an error worth a toast.
         log.debug("no image on the system clipboard", exc_info=True)
-        return False
+        return None
     if grabbed is None or isinstance(grabbed, list):
         # A list is a *file* copy rather than an image; opening one would be a
         # silent second way to open files, with none of the checks open_path
         # does.
-        return False
+        return None
     from ....core.safeio import pixelguard
 
     try:
@@ -2406,10 +2494,75 @@ def import_tileset(ctx: Any, tab: InkerDoc | None = None) -> None:
 # and does not touch the linked job.
 
 
-def _journal_encode(tab: InkerDoc) -> bytes:
+def _journal_snapshot(doc: Any) -> Any:
+    """A private copy of what ``write_ora`` reads, taken on the frame thread.
+
+    A deep copy minus the things an archive never holds -- the undo stack, the
+    in-app clipboard and the flatten caches -- which are the large part of a
+    working document and the part a copy has no use for. Measured at 23 ms for
+    six 2048-square layers (the pixel memcpy is all of it), against 5.5 s for
+    the encode that now runs on the task.
+    """
+    import copy
+
+    history, clipboard = doc.history, doc.clipboard
+    memo: dict[int, Any] = {
+        id(history): type(history)(),
+        id(clipboard): type(clipboard)(),
+        id(doc._frame_cache): {},
+        id(doc._frame_order): [],
+    }
+    return copy.deepcopy(doc, memo)
+
+
+def _journal_encode(tab: InkerDoc) -> Any:
+    """The frame thread's half only: a snapshot, the zlib work deferred.
+
+    The 2026-10-14 audit, finding inker-mode-04: this returned finished ORA
+    bytes, and ``journal.write`` calls the encoder on the frame thread -- so
+    the window froze for 0.96 s (256x256 x 24 frames), 1.36 s (1024x1024 x 6
+    layers) or 5.5 s (2048x2048 x 6 layers) every two minutes while any
+    ordinary animated or large document was dirty, against this mode's own
+    header ("no encode ever runs on the frame thread"). ``Provider.encode`` may
+    return a callable for exactly this (Packwright's 2026-10-03 fix); the
+    callable closes over the snapshot and never the live document.
+
+    A refusal by name (``ora`` rejects a drawing over its layer or cel budget)
+    is wrapped for the task that raises it, so the failure toast says which
+    budget instead of "Something went wrong" (finding inker-mode-06). Raised
+    from here, on the frame thread, it was only ever logged and the crash copy
+    silently never existed.
+    """
     from ....kernels.pixel import ora
 
-    return ora.ora_bytes(tab.doc)
+    snapshot = _journal_snapshot(tab.doc)
+    return lambda: _ora_refusal_wrapped(ora.ora_bytes, snapshot)
+
+
+def _journal_in_flux(ctx: Any, tab: InkerDoc) -> bool:
+    """Whether the live document holds something a copy would get wrong.
+
+    The 2026-10-14 audit, finding inker-mode-03: save and export run
+    :func:`_settle` for two transient states, and the journal -- a bare encode
+    of the live document -- did not. A **floating buffer or free-transform
+    lift** lives in no layer, so a copy taken then lacks those pixels (a lifted
+    8x8 layer produced a copy with 0 opaque pixels of 64); an open **filter or
+    conversion preview** has already written into the layer, so the copy holds
+    pixels the user never approved. The slot is left out instead of settled --
+    settling would commit or cancel what the user is in the middle of -- so the
+    previous good copy stands and the next pump after the gesture ends takes
+    the new one.
+    """
+    state = getattr(ctx.state, "inker", None)
+    if tab.doc.floating is not None:
+        return True
+    if state is not None and tab.uid in (state.filter_uid, state.convert_uid):
+        return True
+    return tab.doc._filter is not None or tab.doc._convert is not None
+
+
+def _journal_slots(ctx: Any) -> list[Any]:
+    return [tab for tab in _TAB_JOURNAL.slots(ctx) if not _journal_in_flux(ctx, tab)]
 
 
 def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
@@ -2425,9 +2578,12 @@ def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
     return True
 
 
-JOURNAL = journal.tab_provider(
+_TAB_JOURNAL = journal.tab_provider(
     "inker", ".ora", "drawing", encode=_journal_encode, adopt=_journal_adopt
 )
+#: ``tab_provider``'s answers with one changed: ``slots`` also leaves out a tab
+#: whose canvas is mid-gesture, :func:`_journal_in_flux`.
+JOURNAL = journal.register(dataclasses.replace(_TAB_JOURNAL, slots=_journal_slots))
 
 
 def drop_autosave(ctx: Any, tab: InkerDoc) -> None:
@@ -2522,13 +2678,22 @@ def _scaled(recipe: Any, scale: float) -> Any:
     from ....kernels.pixel.flourish import prims
     from ....kernels.pixel.flourish import recipe as flourish_recipe
 
-    spatial = {"x", "y", "radius", "width", "height", "size", "spawn_radius", "speed",
-               "gravity", "thickness", "scale", "noise_scale", "strength", "rise", "drift"}
+    # The 2026-10-14 audit, finding inker-flourish-09: this used to scale a
+    # hard-coded set of NAMES, so a flame's ``rise`` (degrees), a glow's
+    # ``strength`` (a brightness multiplier) and the flame and distortion
+    # ``speed`` (unitless scrolls) were shrunk like pixel lengths -- a fireball
+    # on a 64 px sheet lost half its rise angle and every glow half its light.
+    # What a parameter MEANS is its ``Param.label``: scale the ones that say
+    # px. Flash's and Ring's ``radius`` and Ring's ``thickness`` are pixel
+    # lengths with no label, so those two names are scaled when unlabelled.
+    unlabelled_px = {"radius", "thickness"}
     layers = []
     for layer in recipe.layers:
         params = dict(layer.params)
         for name, spec in prims.params_of(layer.kind).items():
-            if name not in spatial or name not in params:
+            if name not in params:
+                continue
+            if not (spec.label.startswith("px") or (not spec.label and name in unlabelled_px)):
                 continue
             value = params[name]
             if spec.kind == "float":
@@ -2589,6 +2754,12 @@ def flourish_keep_edits(ctx: Any, tab: Any, **_: Any) -> bool:
     state = ensure(ctx)
     tab = tab or active(ctx)
     if tab is None:
+        return False
+    # ``flourish_detach``'s guard below, and its reason: the 2026-10-14 audit
+    # (finding inker-flourish-20) found this handler, like its op's predicate,
+    # without the busy check, so a click during a save or an export pushed a
+    # history step onto a document something else was still writing.
+    if tab.busy:
         return False
     group = inker_flourish.active_group(state, tab)
     if group is None:

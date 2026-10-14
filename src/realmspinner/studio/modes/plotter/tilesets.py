@@ -417,12 +417,20 @@ def land_tileset(ctx: Any, state: Any, tab: Any, result: dict[str, Any]) -> None
         refit = True
     else:
         tab.doc.add_tileset(tileset, source=result.get("source", ""))
-    state.tileset_index = len(tab.doc.tilesets) - 1
-    state.brush = None
-    if tileset.terrains:
-        # The thing that just arrived is the thing in your hand, which
-        # is exactly what setting ``tileset_index`` says for a palette.
-        state.terrain = (state.tileset_index, 0)
+    # The hand-off belongs to the tab in front. A tileset can land on a tab the
+    # user has since switched away from (the picker is modal on a task thread),
+    # and ``tileset_index``/``brush``/``terrain`` describe the *foreground*
+    # map: writing them for a background one wiped its brush and moved its
+    # palette for something done to another map (the 2026-10-14 audit, finding
+    # plotter-mode-10). The tileset itself still lands where it was asked for.
+    foreground = state.active_uid == tab.uid
+    if foreground:
+        state.tileset_index = len(tab.doc.tilesets) - 1
+        state.brush = None
+        if tileset.terrains:
+            # The thing that just arrived is the thing in your hand, which
+            # is exactly what setting ``tileset_index`` says for a palette.
+            state.terrain = (state.tileset_index, 0)
     # An isometric map's pixel extent is not width times tile width, so
     # a fit computed against the old projection is the wrong frame. Only then,
     # or for a map's first tileset: unconditionally, importing a fifth tileset
@@ -430,7 +438,7 @@ def land_tileset(ctx: Any, state: Any, tab: Any, result: dict[str, Any]) -> None
     # 2026-10-03 audit, finding plotter-37).
     if refit:
         tab.view.fitted = False
-    ctx.toast("Tileset added.")
+    ctx.toast("Tileset added." if foreground else f"Tileset added to {tab.title}.")
 
 
 def _parked(ctx: Any) -> tuple[Any, Any, tuple[Any, ...]] | None:

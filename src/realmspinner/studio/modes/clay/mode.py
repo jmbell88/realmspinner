@@ -56,6 +56,7 @@ import hashlib
 import logging
 import math
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -68,9 +69,10 @@ from ... import dialogs, docmodes, journal
 # binding is checked above the workspace modes and takes its key from them
 # permanently, which is the whole reason the mode switch moved to Alt. The
 # *binding* belongs to Clay; the table and the function do not, and live in
-# ``_view_frame`` -- Poser already called this one function rather than
+# ``_view_frame`` -- the other viewports call this one function rather than
 # restating it, so they are imported under the name both call sites already use.
 from ..._view_frame import AXIS_VIEW_KEYS, axis_view_key
+from . import doc_io
 from . import state as clay_state
 from .state import ClayState, ClayTab
 
@@ -145,6 +147,11 @@ def _settle_drag_on_tab_switch(ctx: Any, state: ClayState, old_uid: str) -> None
     uv_view = getattr(tab, "uv_view", None)
     if uv_view is not None and uv_view.drag_mode in ("rotate", "scale"):
         _settle_uv_gesture(tab.doc, uv_view, commit=True)
+    elif uv_view is not None and uv_view.drag_mode == "move":
+        # A held island drag has no mark to settle (every frame is its own step), and the
+        # pane that would see the release draws only the active tab: forget it, or the tab
+        # reads as mid-gesture for as long as it stays in the background (clay-46).
+        uv_view.drag_mode = ""
     view = getattr(ctx, "clay_view", None)
     if view is None:
         return
@@ -278,7 +285,9 @@ def announce_migration(ctx: Any, doc: Any) -> None:
 #: The most conversion sentences the open toast spells out.
 MAX_MIGRATION_NOTICES = 3
 #: What ``kernels/mesh/legacy.py``'s notices say when they report something lost.
-_LOSS_WORDS = ("dropped", "removed", " gone")
+#: ``rigimport``'s "were left out" is one: the 2026-10-14 audit, finding clay-73, found a GLB
+#: that lost animation channels announcing it as a four-second info toast.
+_LOSS_WORDS = ("dropped", "removed", " gone", "left out")
 
 
 def adopt(
@@ -646,6 +655,10 @@ def rig_blocked_why(ctx: Any, tab: Any) -> str:
         return "Saving..."
     if tab.pending_rig is not None:
         return "Blender is already weighting this document."
+    if _gesture_live(ctx, tab):
+        # The 2026-10-14 audit, finding clay-74: the button was enabled under a live drag and
+        # the press returned without a word; the reason is the one save and export give.
+        return doc_io.GESTURE_WHY
     if not any(obj.bone for obj in tab.doc.objects):
         return "Mark the joints as bones first."
     if not clayrig.weight_sources(tab.doc):
@@ -665,9 +678,8 @@ def rig_with_blender(ctx: Any, tab: ClayTab | None = None) -> None:
     """
     tab = tab or active(ctx)
     why = rig_blocked_why(ctx, tab)
-    if why or _gesture_live(ctx, tab):
-        if why:
-            ctx.toast(why, "error")
+    if why:
+        ctx.toast(why, "error")
         return
     doc = tab.doc
     title = tab.title
@@ -689,6 +701,19 @@ def rig_with_blender(ctx: Any, tab: ClayTab | None = None) -> None:
             o.uid: (o.mesh, doc._world_in(o.uid, by_uid).copy()) for o in sources
         }
         names = dict(rig.export_names(doc.objects))
+        # The bones too (the 2026-10-14 audit, finding clay-08): the landing re-rests every bone
+        # it matches at Blender's frame and names the skin's joints, so a bone the person moved,
+        # unmarked or deleted meanwhile would be put back, left as a non-bone joint or re-made.
+        # ``(name, flag, parent, world)`` is what the landing compares.
+        bones = {
+            uid: (
+                by_uid[uid].name,
+                bool(by_uid[uid].bone),
+                by_uid[uid].parent,
+                doc._world_in(uid, by_uid).copy(),
+            )
+            for uid in names
+        }
         glb = glbwrite.write_glb(bd.to_model(clayrig.weight_source_doc(doc), skinned=False))
         row = svc_jobs.import_mesh(ctx.svc, glb, name=f"{title} (weights)", prompt=title)
         source_job = row["id"]
@@ -719,31 +744,98 @@ def rig_with_blender(ctx: Any, tab: ClayTab | None = None) -> None:
                 "place": place,
                 "names": names,
                 "sources": snapshot,
+                "bones": bones,
             }
         }
 
     _start(ctx, tab, f"clay-rigweights:{tab.uid}", run)
 
 
+#: How long a rig job may be in neither the job cache nor the store before the run is dropped.
+#: A job the store has never heard of is, a moment after it was queued, only a cache that has
+#: not reloaded; the grace keeps that moment from being read as a deletion.
+GONE_GRACE_S = 5.0
+#: How often :func:`pump_rig` asks the store about a job the cache window does not hold.
+_STORE_POLL_S = 1.0
+
+
+def _rig_job_row(ctx: Any, pending: dict[str, Any]) -> dict[str, Any] | None:
+    """The rig job's row when the job cache's window does not hold it: asked of the store, at
+    most once a second. ``None`` means "nothing to act on yet" -- including a row that is
+    gone, which :func:`pump_rig` reads off ``pending["missing_since"]``.
+
+    The 2026-10-14 audit, finding clay-31: an absent job was treated as a running one forever,
+    so deleting the queued row (or its "(weights)" source row) left the tab refusing Weight
+    with Blender for the rest of the session. The cache window shows only the newest page of
+    the workshop, so absence there proves nothing; the store does.
+    """
+    svc = getattr(ctx, "svc", None)
+    store = getattr(svc, "store", None)
+    if store is None:
+        return None
+    now = time.monotonic()
+    if now - pending.get("polled", -_STORE_POLL_S) < _STORE_POLL_S:
+        return None
+    pending["polled"] = now
+    try:
+        row = store.get(pending["rig_job"])
+    except Exception:  # noqa: BLE001 - a store that cannot answer is not a deletion
+        log.exception("could not look up the rig job %s", pending.get("rig_job"))
+        return None
+    if row is None:
+        pending.setdefault("missing_since", now)
+        return None
+    pending.pop("missing_since", None)
+    return row
+
+
 def pump_rig(ctx: Any) -> None:
     """Notice a weighting run finishing, every frame: a couple of dict lookups against the
-    live job cache for each tab that has one, as Poser's ``pump_rerig`` did.
+    live job cache for each tab that has one.
 
     A finished run reads ``rig.glb`` back on a task thread (:func:`_read_rig`); an errored or
-    cancelled one just stops being tracked, the generic job toast having said why.
+    cancelled one just stops being tracked, the generic job toast having said why. A run whose
+    job is in neither the cache nor the store (deleted) stops being tracked too, with a toast
+    (:func:`_rig_job_row`). A read that arrived while a drag or a save held the document waits
+    here and lands on the first frame neither does (the 2026-10-14 audit, finding clay-29).
     """
     state = getattr(ctx.state, "clay", None)
     if state is None:
         return
     for tab in list(state.docs):
         pending = tab.pending_rig
-        if pending is None or pending.get("reading"):
+        if pending is None:
+            continue
+        landed = pending.get("landed")
+        if landed is not None:
+            if not tab.saving and not _gesture_live(ctx, tab):
+                del pending["landed"]
+                _adopt_rig(ctx, tab, landed)
+            continue
+        if pending.get("reading"):
             continue
         job = ctx.job(pending["rig_job"])
+        if job is not None:
+            pending.pop("missing_since", None)
+        else:
+            job = _rig_job_row(ctx, pending)
         if job is None:
+            since = pending.get("missing_since")
+            if since is not None and time.monotonic() - since >= GONE_GRACE_S:
+                tab.pending_rig = None
+                ctx.toast(
+                    "Blender's weighting run is gone from the Library, so its weights will "
+                    "not land. Weight with Blender again to start another.",
+                    "error",
+                )
             continue
         status = job.get("status")
         if status == "done":
+            params = job.get("params") or {}
+            # What Blender recorded about how it weighted (the 2026-10-14 audit, finding
+            # pipelines-children-03): an envelope fallback is degraded, and the person is told.
+            pending["weighting"] = params.get("weighting")
+            pending["weighting_reason"] = params.get("weighting_reason")
             pending["reading"] = True
             _read_rig(ctx, tab, pending)
         elif status in ("error", "cancelled"):
@@ -769,6 +861,18 @@ def _read_rig(ctx: Any, tab: ClayTab, pending: dict[str, Any]) -> None:
         pending["reading"] = False
 
 
+def _envelope_note(pending: dict[str, Any]) -> str:
+    """What to add to a landing when Blender fell back from heat to envelope weights, or ``""``."""
+    if pending.get("weighting") != "envelope":
+        return ""
+    reason = str(pending.get("weighting_reason") or "").strip()
+    return (
+        "Blender's heat weights failed, so these are envelope weights, a rough capsule falloff"
+        + (f" ({reason.rstrip('.')})" if reason else "")
+        + ". Check the bends."
+    )
+
+
 def _adopt_rig(ctx: Any, tab: ClayTab, imported: Any) -> None:
     """The weights landed: put them in the document as one undo step, unless it moved on."""
     import numpy as np
@@ -787,11 +891,26 @@ def _adopt_rig(ctx: Any, tab: ClayTab, imported: Any) -> None:
         or by_uid[uid].mesh is not mesh
         or not np.allclose(doc._world_in(uid, by_uid), world)
     ]
-    if stale:
+    # The bones, by the same rule (the 2026-10-14 audit, finding clay-08): one moved while Blender
+    # worked would be put back at Blender's rest, one unmarked would be named by a skin as a
+    # joint that is no longer a bone (Export then refuses the whole document), one deleted would
+    # be re-made as "new". ``.get`` for a hand-built record that pinned no bones.
+    stale_bones = [
+        name
+        for uid, (name, flag, parent, world) in (pending.get("bones") or {}).items()
+        if uid not in by_uid
+        or not by_uid[uid].bone
+        or bool(by_uid[uid].bone) != flag
+        or by_uid[uid].parent != parent
+        or not np.allclose(doc._world_in(uid, by_uid), world)
+    ]
+    if stale or stale_bones:
+        kind = "shapes" if not stale_bones else "bones" if not stale else "shapes and bones"
         ctx.toast(
-            "These shapes changed while Blender was working, so its weights were not applied: "
-            + ", ".join(sorted(set(stale))[:5])
-            + ". The weighted mesh is in the Library; weight again to use the new shapes.",
+            f"These {kind} changed while Blender was working, so its weights were not applied: "
+            + ", ".join(sorted(set(stale + stale_bones))[:5])
+            + ". The weighted mesh is in the Library; weight again to use the document as it "
+            "is now.",
             "error",
         )
         return
@@ -804,7 +923,8 @@ def _adopt_rig(ctx: Any, tab: ClayTab, imported: Any) -> None:
             remove=list(pending["sources"]),
         )
     except OpError as error:
-        ctx.toast(f"Weight with Blender: {error}", "error")
+        note = _envelope_note(pending)
+        ctx.toast(f"Weight with Blender: {error}" + (f" {note}" if note else ""), "error")
         return
     ctx.toast(
         f"Weighted {counts['removed']} shape{'s' if counts['removed'] != 1 else ''} to "
@@ -812,20 +932,31 @@ def _adopt_rig(ctx: Any, tab: ClayTab, imported: Any) -> None:
         + (f" ({counts['added']} new)" if counts["added"] else "")
         + ". Undo puts the shapes back."
     )
+    note = _envelope_note(pending)
+    if note:
+        ctx.toast(note, "warn")
 
 
 def import_animation(ctx: Any, tab: ClayTab | None = None, path: Path | None = None) -> None:
     """Import the animations of a ``.glb`` onto this document's bones, matched by name.
 
     The picker and the parse run on one task thread (``path`` given skips the picker, for the
-    drop handler and the tests), with the tab ``saving`` for the length of it so nothing edits
+    tests; a dropped ``.glb`` is a mesh import, ``shell/events.py`` sends it to
+    :func:`import_mesh_path`), with the tab ``saving`` for the length of it so nothing edits
     the bones' rest transforms the retarget reads. The animations are *added* on the frame
     thread when the task lands (:func:`on_task_done`), as one undo step, and what matched and
     what did not is a toast: a name that matched nothing is the one thing the person has to
     know to fix the file.
     """
+    from ....kernels.mesh.elements import OpError
+
     tab = tab or active(ctx)
-    if tab is None or tab.saving or _gesture_live(ctx, tab):
+    if tab is None or tab.saving:
+        return
+    if _gesture_live(ctx, tab):
+        # The 2026-10-14 audit, finding clay-74: the File row was enabled under a live drag and
+        # the press returned without a word.
+        ctx.toast(doc_io.GESTURE_WHY, "error")
         return
     if not any(obj.bone for obj in tab.doc.objects):
         ctx.toast("This document has no bones to animate. Mark the joints as bones first.", "error")
@@ -841,7 +972,14 @@ def import_animation(ctx: Any, tab: ClayTab | None = None, path: Path | None = N
             source = dialogs.open_file("Import animation", dialogs.GLB_FILTER)
             if source is None:
                 return None
-        model = gltf.load(_within_mesh_ceiling(Path(source)), texture_slots=())
+        data = _within_mesh_ceiling(Path(source))
+        try:
+            model = gltf.load(data, texture_slots=())
+        except Exception as exc:  # noqa: BLE001 - the loader raises several types
+            # The 2026-10-14 audit, finding clay-72: mesh import wraps the loader this way and
+            # this door did not, so a truncated file reached the person as "Something went
+            # wrong; see the log" instead of a sentence naming the file.
+            raise OpError(f"This file could not be read as a GLB. {exc}") from exc
         return {"imported": animimport.import_by_name(doc, model), "path": str(source)}
 
     _start(ctx, tab, f"clay-animport:{tab.uid}", run)
@@ -1271,6 +1409,7 @@ def build_asset(
     prompt: str | None = None,
     view: Any = None,
     encode: Any = None,
+    warnings: list[str] | None = None,
 ) -> str:
     """The one document -> finished ``model`` row chain.
 
@@ -1289,7 +1428,7 @@ def build_asset(
     to keep. The mesh (``import_mesh``) is written before the ``.rblk``
     source sidecar (``save_clay_source``) for the reason ``export_asset``
     always kept: a crash between them leaves the sidecar absent rather than
-    lying about a mesh it did not produce.
+    lying about a mesh it did not produce. The rig comes last of the three.
 
     Takes a ``RealmspinnerService`` rather than a ``ctx`` -- the house convention
     (see ``src/realmspinner/service/``) -- so this is callable from anywhere a
@@ -1300,6 +1439,15 @@ def build_asset(
     default (the agent's door, which reads the kernel's ``ValueError``), and
     :func:`_encode_or_refuse` from ``export_asset`` so an oversized document
     reaches the person as ``TooLarge(field="save")`` the way a save does.
+
+    **The sidecar is written before the rig** (the 2026-10-14 audit, findings clay-75 and
+    service-assets-04): ``save_clay_rig`` refuses a rig on its size, its GLB or its bones, and
+    with the rig first that refusal skipped the sidecar, leaving a finished row with a mesh and
+    no ``build.rblk`` -- it reopened as a frozen unskinned mesh, and the retry minted a second
+    near-duplicate row. A rig that cannot be published is now what the row lacks, nothing else.
+    A caller that passes *warnings* gets the refusal appended there and the row id back (the
+    interactive export, which says so in a toast); one that does not (the agent's door) hears
+    the exception, after the sidecar is on disk.
     """
     from ....kernels.geom3d import glbwrite
     from ....kernels.mesh import document as bd
@@ -1320,9 +1468,15 @@ def build_asset(
     source = (encode or serialize.snapshot_bytes)(snap)
     result = svc_jobs.import_mesh(svc, glb, name=title, prompt=prompt or title)
     job_id = result["id"]
-    if any(obj.bone for obj in doc.objects):
-        _publish_rig(svc, doc, job_id)
     svc_files.save_clay_source(svc, job_id, source)
+    if any(obj.bone for obj in doc.objects):
+        try:
+            _publish_rig(svc, doc, job_id)
+        except Exception as exc:  # noqa: BLE001 - a refusal, a disk error, a ValueError from to_model
+            if warnings is None:
+                raise
+            log.exception("could not publish the rig of job %s", job_id)
+            warnings.append(f"The row has no rig, because {str(exc).rstrip('.')}.")
     return job_id
 
 
@@ -1396,8 +1550,11 @@ def export_asset(ctx: Any, tab: ClayTab | None = None) -> None:
         # The 2026-10-12 leftover to F17-1: the kernel's ``ValueError`` for a
         # document past the object or triangle ceilings is a bug to the task
         # runner; ``save_to`` already made it a ``TooLarge``, and so does this.
-        job_id = build_asset(ctx.svc, doc, title=title, view=view, encode=_encode_or_refuse)
-        return {"job_id": job_id, "exported": True}
+        warnings: list[str] = []
+        job_id = build_asset(
+            ctx.svc, doc, title=title, view=view, encode=_encode_or_refuse, warnings=warnings
+        )
+        return {"job_id": job_id, "exported": True, "warnings": warnings}
 
     _start(ctx, tab, f"clay-export:{tab.uid}", run)
 
@@ -1568,14 +1725,17 @@ def export_mesh_file(ctx: Any, tab: ClayTab | None, kind: str) -> None:
 
     elif kind == "posed":
         # The pose of the selected animation at the playhead, read now: the task runs later
-        # and the playhead is session state a frame can move.
+        # and the playhead is session state a frame can move. A pose held without a key
+        # (auto-key off, ``ClayDoc.live_pose``) is what the viewport draws over it, so it goes
+        # in too (the 2026-10-14 audit, finding clay-28), copied for the same reason.
         at = float(doc.rig_time)
+        held = {uid: dict(props) for uid, props in doc.live_pose.items()}
 
         def run() -> dict[str, Any] | None:
             from ....kernels.geom3d import glbwrite
             from ....kernels.mesh import document as bd
 
-            data = glbwrite.write_glb(bd.to_model(doc, at_time=at))
+            data = glbwrite.write_glb(bd.to_model(doc, at_time=at, held=held))
             path = dialogs.save_file("Export posed mesh", f"{title}-posed.glb", dialogs.GLB_FILTER)
             if path is None:
                 return None
@@ -1794,7 +1954,11 @@ def on_task_done(ctx: Any, done: Any) -> None:
     if tab is None:
         ctx.cache.invalidate()
         return
-    tab.saving = False
+    # Not for the rig read-back: ``_read_rig`` submits it without ``_start``, so it never set
+    # the lock, and a Save or Export writing the document meanwhile owns it (the 2026-10-14
+    # audit, finding clay-27: this line unlocked the document the task thread was reading).
+    if name != "clay-rigimport":
+        tab.saving = False
     if not isinstance(result, dict):
         return  # a cancelled dialog
 
@@ -1802,6 +1966,8 @@ def on_task_done(ctx: Any, done: Any) -> None:
         tab.job_id = result["job_id"]
         ctx.cache.invalidate()
         ctx.toast("Exported as an asset.")
+        for warning in result.get("warnings") or ():
+            ctx.toast(warning, "warn")
         return
 
     if result.get("imported") is not None:
@@ -1817,6 +1983,15 @@ def on_task_done(ctx: Any, done: Any) -> None:
         return
 
     if result.get("rig_read") is not None:
+        pending = tab.pending_rig
+        if pending is not None and (tab.saving or _gesture_live(ctx, tab)):
+            # The tab is deliberately unlocked for the minutes Blender works, so the weights
+            # can arrive under a G/R/S drag (which would re-rest the bones it is still writing
+            # from its press baseline) or an export that is reading the document: hold them,
+            # and :func:`pump_rig` lands them on the first frame neither is live (the
+            # 2026-10-14 audit, finding clay-29).
+            pending["landed"] = result["rig_read"]
+            return
         _adopt_rig(ctx, tab, result["rig_read"])
         return
 
@@ -1907,10 +2082,13 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     tab = state.get(done.key.split(":", 1)[1])
     if tab is None:
         return
-    if name in ("clay-rigimport", "clay-rigweights"):
+    if name == "clay-rigimport":
+        # No ``saving = False`` here: the read-back never set it (the 2026-10-14 audit, finding
+        # clay-27), and a Save or Export that did is still reading the document.
+        tab.pending_rig = None
+        return
+    if name == "clay-rigweights":
         tab.saving = False
-        if name == "clay-rigimport":
-            tab.pending_rig = None
         return
     if name in ("clay-save", "clay-saveas", "clay-export", "clay-exportfile", "clay-animport"):
         tab.saving = False
@@ -2053,17 +2231,45 @@ _DRAG_BLOCKED_CTRL = frozenset({"z", "y", "n", "o", "tab", "w", "s", "e"})
 
 def _gesture_live(ctx: Any, tab: Any) -> bool:
     """Whether a live gesture is writing into the document right now: a 3-D
-    G/R/S or gizmo drag, or the UV pane's armed live rotate/scale.
+    G/R/S or gizmo drag, the UV pane's armed live rotate/scale, or a UV island
+    held under the mouse.
 
     Both mutate the geometry in place and commit (or cancel) against the history
     head they started from, so anything that moves that head underneath them
     loses a step. Duck-typed on ``ctx.clay_view`` and ``tab.uv_view`` (the mode
     root may not import ``ui/``); ``None`` for either reads as "no gesture".
+
+    **"move" counts** (the 2026-10-14 audit, finding clay-46): the UV canvas arms it on the
+    press over a selected island and every drag frame pushes a step, but this answered "no" for
+    it, so Ctrl+Z, Ctrl+Y and the tab chords went through while the button was held -- Ctrl+Z
+    stepped back past the drag's own steps and the next frame's translate raised a bare
+    ``KeyError`` for an object the undo had removed. The pane clears the field on release
+    and on any frame the press is no longer held, and a tab switch clears it
+    (:func:`_settle_drag_on_tab_switch`), so a stale "move" cannot lock the tab.
     """
     if getattr(getattr(ctx, "clay_view", None), "dragging", False):
         return True
     uv_view = getattr(tab, "uv_view", None)
-    return uv_view is not None and uv_view.drag_mode in ("rotate", "scale")
+    return uv_view is not None and uv_view.drag_mode in ("rotate", "scale", "move")
+
+
+def history_blocked_why(ctx: Any, tab: Any) -> str:
+    """Why Undo and Redo would do nothing right now, or ``""``. One sentence for
+    every surface that offers them.
+
+    The 2026-10-14 audit, finding shell-chrome-07: :func:`undo` and :func:`redo`
+    refuse under a save or a live gesture, but the menu and palette rows asked only
+    whether the history had a step, so they stayed lit and the press returned
+    silently. The words are the ones the header's buttons and the export doors
+    already give (``doc_io.outputs_why``).
+    """
+    if tab is None:
+        return ""
+    if tab.saving:
+        return "Saving..."
+    if _gesture_live(ctx, tab):
+        return doc_io.GESTURE_WHY
+    return ""
 
 
 def undo(ctx: Any, tab: Any) -> None:
@@ -2082,14 +2288,14 @@ def undo(ctx: Any, tab: Any) -> None:
     ``claydoc_to_obj``. The gate lives in the mode function so every surface
     shares the one.
     """
-    if tab.saving or _gesture_live(ctx, tab):
+    if history_blocked_why(ctx, tab):
         return
     tab.doc.undo()
 
 
 def redo(ctx: Any, tab: Any) -> None:
     """One step forward. :func:`undo`'s twin, and its reasoning."""
-    if tab.saving or _gesture_live(ctx, tab):
+    if history_blocked_why(ctx, tab):
         return
     tab.doc.redo()
 
@@ -2450,7 +2656,11 @@ def _registry_key(
     """
     from . import ops as clay_ops
 
-    if tab.saving or doc.element_mode == "object":
+    # Pose mode is object mode with the pose shown, and its ops (Insert Key, ``I``) are
+    # ``modes=("object",)``: the 2026-10-14 audit, findings clay-09 and clay-ops-tail-01, found
+    # the key dead there because every object-mode press was refused. Outside Pose mode no
+    # object-mode op owns a bare letter, so nothing else changes.
+    if tab.saving or (doc.element_mode == "object" and not doc.pose_mode):
         return False
     op = clay_ops.by_key(doc.element_mode, ("Shift+" if shift else "") + name.upper())
     if op is None or not op.enabled(doc):

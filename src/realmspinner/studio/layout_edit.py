@@ -113,6 +113,60 @@ def toggle(state: Any, ctx: Any = None) -> None:
     edit.target = None
 
 
+#: What the banner says in a workspace with no skeleton.
+NO_SKELETON = "This workspace cannot be rearranged yet."
+#: And for a saved layout a newer build wrote, which this one keeps verbatim and
+#: will not write to (``layouts.Library.record`` and ``set_share`` return early).
+NEWER_LAYOUT = (
+    "This layout is from a newer version of Realmspinner, so it cannot be changed "
+    "here. Pick another in Settings."
+)
+
+
+def settle(ctx: Any) -> None:
+    """Close the editor when the mode just switched to has no skeleton.
+
+    The 2026-10-14 audit, finding shell-documents-04: ``open`` outlived a mode
+    switch. Opened in Inker and left for Create, Packwright or Review, it stayed
+    True -- every splitter there is dead while it is (``layout._EDITING``) and a
+    banner said "cannot be rearranged yet" until the user found Shift+W again.
+    :func:`toggle` already refuses to *enter* such a mode; this is the other half,
+    run once a frame before the splitters read the flag.
+    """
+
+    edit = getattr(ctx.state, "layout_edit", None)
+    if edit is None or not edit.open:
+        return
+    from . import skeletons
+
+    if not skeletons.for_mode(ctx, ctx.state.mode):
+        edit.open = False
+        edit.dragging = ""
+        edit.dragging_column = ""
+        edit.target = None
+
+
+def refusal(app: Any, ctx: Any) -> str:
+    """Why the editor cannot change anything here, or ``""`` when it can.
+
+    The 2026-10-14 audit, finding shell-documents-12: with a newer build's
+    layout active (``active_layout`` can name one after a downgrade) the editor,
+    the hide eye and the splitters all looked live while ``Library.record`` and
+    ``set_share`` discarded every write, so each drag reverted with no reason
+    given. Settings greys such a layout as "(a newer version)"; the editor now
+    says the same.
+    """
+
+    from . import skeletons
+
+    if not skeletons.for_mode(ctx, ctx.state.mode):
+        return NO_SKELETON
+    library = getattr(app, "layouts", None)
+    if library is not None and not library.current().readable:
+        return NEWER_LAYOUT
+    return ""
+
+
 def ensure(state: Any) -> EditState:
     """The editor's state, made on first use."""
 
@@ -138,12 +192,15 @@ def draw(app: Any, ctx: Any, viewport: Any) -> None:
     edit = ensure(ctx.state)
     if not edit.open:
         return
-    columns = skeletons.for_mode(ctx, ctx.state.mode)
-    if not columns:
+    why = refusal(app, ctx)
+    if why:
         # A workspace whose columns are not data yet cannot be rearranged, and
-        # saying so is better than an editor that appears and does nothing.
-        _banner(ctx, "This workspace cannot be rearranged yet.")
+        # saying so is better than an editor that appears and does nothing --
+        # and the same for a layout this build may not write to (shell-
+        # documents-12, the 2026-10-14 audit).
+        _banner(ctx, why)
         return
+    columns = skeletons.for_mode(ctx, ctx.state.mode)
     library = getattr(app, "layouts", None)
     if library is not None:
         # Read fresh every frame rather than seeded once: a toggle below

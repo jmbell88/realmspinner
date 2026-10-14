@@ -1,4 +1,4 @@
-"""Chapter 30's Texturing section, held against the code it describes.
+"""Chapter 27's Texturing section, held against the code it describes.
 
 Phase 3 of Clay (paint faces, textures, the Inker round trip, crisp GLB and OBJ
 textures) changed what four existing sentences of the chapter said, and nothing
@@ -33,7 +33,7 @@ def _section(heading: str) -> str:
     return _flat(text[start : end if end != -1 else len(text)])
 
 
-def test_chapter_30_has_a_texturing_section_naming_pico8_and_map_kd() -> None:
+def test_chapter_27_has_a_texturing_section_naming_pico8_and_map_kd() -> None:
     section = _section("\n## Texturing\n")
     assert "PICO-8" in section, "the Texturing section does not name the PICO-8 palette"
     assert "map_Kd" in section, "the Texturing section does not name the OBJ texture line"
@@ -59,7 +59,7 @@ def test_the_manual_names_a_texture_png_the_way_the_obj_exporter_does() -> None:
     example = objexport.texture_name("barrel", 2)
     assert example == "barrel_2.png"
     assert f"`{example}`" in _flat(loader.load("27-clay")), (
-        "chapter 30 shows an example texture file name that objexport.texture_name no "
+        "chapter 27 shows an example texture file name that objexport.texture_name no "
         "longer produces"
     )
 

@@ -130,7 +130,11 @@ _SCALE_WORDS: dict[str, tuple[str, float]] = {
     "calmer": ("turbulence", 0.7),
 }
 
-_MORE = ("more", "extra", "lots of", "many")
+# The 2026-10-14 audit, finding inker-flourish-13: this held the two-word phrase
+# "lots of", which the one-word tokenizer in ``apply`` can never yield, so
+# "lots of sparks" answered "No words I know". "lots" alone matches, and the
+# "of" after it is stepped over by ``_kind_after``'s two-word window.
+_MORE = ("more", "extra", "lots", "many")
 _FEWER = ("fewer", "less", "no", "without")
 
 #: Layer-kind words: "sparks" names particles layers, "smoke" smoke layers...
@@ -245,7 +249,7 @@ def apply(recipe: Recipe, text: str) -> tuple[Recipe, list[str]]:
                 notes.append(f"{'more' if more else 'fewer'} {target}")
 
     # Scale words: "bigger", "faster", "brighter", "longer", "wilder".
-    for word in words:
+    for i, word in enumerate(words):
         if word not in _SCALE_WORDS:
             continue
         what, factor = _SCALE_WORDS[word]
@@ -262,7 +266,16 @@ def apply(recipe: Recipe, text: str) -> tuple[Recipe, list[str]]:
             "bright": _BRIGHT_PARAMS,
             "turbulence": {"turbulence", "noise", "raggedness", "unevenness"},
         }[what]
+        # The 2026-10-14 audit, finding inker-flourish-14: a kind word right
+        # after the scale word binds it the way it binds a colour or a
+        # quantifier -- "bigger sparks" scaled all twelve layers of ``fireball``
+        # while the toast named none of them. No kind word means every layer,
+        # as before.
+        target = _kind_after(words, i)
+        scaled: list[Layer] = []
         for j, layer in enumerate(layers):
+            if target is not None and layer.kind != target:
+                continue
             if what == "bright" and layer.kind in _NO_BRIGHTNESS:
                 # The 2026-09-23 audit, finding inker-03: "brighter"/"stronger"
                 # scale every parameter literally named ``strength`` because
@@ -274,6 +287,7 @@ def apply(recipe: Recipe, text: str) -> tuple[Recipe, list[str]]:
                 # nothing else had moved.
                 continue
             specs = prims.params_of(layer.kind)
+            hit = False
             for name in names & set(specs):
                 # The 2026-10-03 audit, finding inker-17: flame's "rise" is a
                 # direction in degrees, so "faster" turned the flame instead
@@ -281,7 +295,17 @@ def apply(recipe: Recipe, text: str) -> tuple[Recipe, list[str]]:
                 if what == "speed" and specs[name].label == "degrees":
                     continue
                 layers[j] = _scaled(layers[j], name, factor)
-        notes.append(f"{word}: x{factor}")
+                hit = True
+            if hit:
+                scaled.append(layers[j])
+        # Only what was scaled is named: "wilder" on a recipe with no
+        # turbulence-like parameter used to toast "wilder: x1.4" for a change
+        # that did not happen (the 2026-10-14 audit, finding inker-flourish-14).
+        if scaled:
+            where = f" {target}" if target is not None else ""
+            notes.append(f"{word}{where}: x{factor}")
+        else:
+            notes.append(f"{word}: no layer has anything to scale that way")
 
     # Temperature: "hotter" / "colder" nudge every colour toward fire or ice.
     for word in words:
@@ -364,7 +388,30 @@ def apply_diff(recipe: Recipe, diff: Any) -> tuple[Recipe, list[str]]:
             return None
         return matches[0]
 
-    for key, params in (diff.get("layers") or {}).items():
+    # The 2026-10-14 audit, finding inker-flourish-08: each value was validated
+    # but not the container holding it, so ``"layers": ["Core"]`` raised
+    # AttributeError, ``"hide": 3`` raised TypeError and a string ``hide``
+    # became one "no layer called" note per character -- the exception took
+    # the whole prompt down instead of letting the keyword mapper have it.
+    def mapping(field: str) -> dict[Any, Any]:
+        value = diff.get(field)
+        if not value:
+            return {}
+        if not isinstance(value, dict):
+            notes.append(f"{field} was not a mapping; ignored")
+            return {}
+        return value
+
+    def names_list(field: str) -> list[Any]:
+        value = diff.get(field)
+        if not value:
+            return []
+        if not isinstance(value, (list, tuple)):
+            notes.append(f"{field} was not a list; ignored")
+            return []
+        return list(value)
+
+    for key, params in mapping("layers").items():
         i = index_of(key)
         if i is None:
             notes.append(f"no layer called {key!r}")
@@ -401,20 +448,20 @@ def apply_diff(recipe: Recipe, diff: Any) -> tuple[Recipe, list[str]]:
                 continue
             layers[i] = layers[i].with_param(name, value)
             notes.append(f"{layers[i].name}: {name}")
-    for key in diff.get("hide") or []:
+    for key in names_list("hide"):
         i = index_of(key)
         if i is None:
             notes.append(f"no layer called {key!r}")
         else:
             layers[i] = replace(layers[i], visible=False)
             notes.append(f"hid {layers[i].name}")
-    for key in diff.get("show") or []:
+    for key in names_list("show"):
         i = index_of(key)
         if i is not None:
             layers[i] = replace(layers[i], visible=True)
             notes.append(f"showed {layers[i].name}")
     phases = list(recipe.phases)
-    for key, change in (diff.get("phases") or {}).items():
+    for key, change in mapping("phases").items():
         j = next((k for k, p in enumerate(phases) if p.name.lower() == str(key).lower()), None)
         if j is None or not isinstance(change, dict):
             notes.append(f"no phase called {key!r}")

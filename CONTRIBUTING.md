@@ -53,13 +53,15 @@ The ones that most often surprise people:
 - **`service/` is the only business-logic layer.** Panes and tests both call it.
   Refusals raise `service.errors` exceptions carrying a `field`.
 - **`bpy` never runs in the app process**, and every subprocess goes in the
-  `winjob` kill-on-close job. A scan test enforces each: `tests/modes/poser/test_poser_imports.py`
-  for the import, `tests/test_vram.py` for the job.
+  `winjob` kill-on-close job. A scan test enforces each:
+  `tests/test_audit_2026_10_14_d6.py::test_no_module_but_blender_worker_imports_bpy`
+  for the import (it walks every module under `src/realmspinner` and exempts
+  only `pipelines/blender_worker.py`), `tests/test_vram.py` for the job.
 - **The headless engine packages** (`kernels/mesh/`, the `clay` engine;
   `kernels/pixel/`, the `inker` engine, incl. `flourish/` and `walk/`;
   `kernels/grid2d/`, `kernels/geom3d/`, `kernels/manual/`, `kernels/audio/`;
   plus each mode's own `studio/modes/<name>/engine/` for
-  `mason`, `plotter`, `packwright`, `sirens`, `poser` and `muse`) import no
+  `mason`, `plotter`, `packwright`, `sirens` and `muse`) import no
   imgui, moderngl, pygame or `service`. Import-pinning tests enforce the exact
   outward set, so adding an import means updating the pin -- deliberately.
   The list is `tests/_pure_packages.py`'s `pure_packages()`, worked out from

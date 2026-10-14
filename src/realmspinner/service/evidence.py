@@ -1,6 +1,7 @@
 """What a bulk delete keeps, because finishing a grading pass was destroying it.
 
-**The incident, and it is measured.** ``dev/measurements/2026-09-07-mesh-probe-
+**The incident, and it is measured.** ``dev/measurements/2026-09-07-mesh-probe- [lost; re-measure to
+change]
 preregistration.md`` opened by counting what it had to fit against: nine
 model-stage human verdicts on the machine, and **zero** of them still carrying a
 ``source.glb``. Every one had been graded to completion inside a sweep, and

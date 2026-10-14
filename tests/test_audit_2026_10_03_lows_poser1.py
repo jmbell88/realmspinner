@@ -79,10 +79,10 @@ def test_a_quadruped_saddle_socket_is_above_the_spine_it_hangs_off(
         # The reproduced case: 0.742 (below) before the fix, 1.675 after.
         assert position[2] > joint["head"][2], (species, socket, position, joint)
 
-    # And it is the point the worker computes. ``blender_worker.
-    # _socket_world_point`` reads the bone's own matrix; this reference is
-    # Blender's roll-0 ``vec_roll_to_mat3``, checked against a real ``bpy``
-    # armature for all three rows when this was written (horse saddle
+    # And it is the point the worker computed (the worker's own socket
+    # projection read the bone's own matrix and has since been deleted); this
+    # reference is Blender's roll-0 ``vec_roll_to_mat3``, checked against a real
+    # ``bpy`` armature for all three rows when this was written (horse saddle
     # 1.675, wolf pack 0.354, dragon saddle 2.367 -- sidecar and worker equal).
     # A bone tilted a few degrees off -Y is the one place Blender's own frame
     # flips "up" to point down, so wolf and dragon sit *below* their bone in the

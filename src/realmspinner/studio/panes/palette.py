@@ -198,25 +198,29 @@ def _row(ctx: Any, kind: str, item: Any, current: bool) -> bool:
         row_id = f"cmd/{item.key}"
     if current:
         imgui.set_scroll_here_y(0.5)
-    imgui.begin_disabled(not enabled)
-    clicked = controls.selectable(f"{label}##{row_id}", current)[0]
-    imgui.end_disabled()
-    # The row's own rectangle, read while ``LastItemData`` still describes the
-    # row. It has to be taken before the tooltip below: SetTooltip renders its
-    # text as an item of its own, so after that call these two getters answer
-    # about the *tooltip* and the hint would be painted into it -- which is
-    # every disabled row that carries a shortcut, at the moment it is hovered
-    # and explaining itself.
-    low = imgui.get_item_rect_min()
-    high = imgui.get_item_rect_max()
-    # ``allow_when_disabled`` for ``widgets.disabled_button``'s reason: imgui
-    # swallows hover on a disabled item, which is the one state whose
-    # explanation is worth having. This is the module docstring's promise --
-    # a greyed row that says where to go -- finally drawn.
-    if why and not enabled and imgui.is_item_hovered(
-        imgui.HoveredFlags_.allow_when_disabled.value
-    ):
-        imgui.set_tooltip(why)
+    # The row's own rectangle, taken from the cursor *before* the selectable.
+    # It used to be read from the item afterwards, but ``controls.selectable``
+    # now draws the reason tooltip itself (see below), and SetTooltip renders its
+    # text as an item of its own: after that, ``get_item_rect_*`` answers about
+    # the *tooltip* and the hint would be painted into it, on every disabled row
+    # that carries a shortcut at the moment it is hovered and explaining itself.
+    # A full-width selectable is the content width by one text line tall.
+    origin = imgui.get_cursor_screen_pos()
+    low = imgui.ImVec2(origin.x, origin.y)
+    high = imgui.ImVec2(
+        origin.x + imgui.get_content_region_avail().x,
+        origin.y + imgui.get_text_line_height(),
+    )
+    # ``enabled=`` and ``reason=`` go to the control rather than being hand-rolled
+    # around it with ``begin_disabled`` and a tooltip of this module's own: the
+    # 2026-10-14 audit, finding shell-chrome-12, found the probe census recording
+    # every greyed palette row as enabled and reason-less, so the
+    # disabled-no-reason detector and the exercise driver were blind to the
+    # palette and could "press" rows that are shut. The control's own tooltip
+    # already carries the reason on a hovered, disabled row.
+    clicked = controls.selectable(
+        f"{label}##{row_id}", current, enabled=enabled, reason=why if not enabled else ""
+    )[0]
     if hint:
         # Painted into the row rather than laid out beside it: a selectable is
         # full-width, so ``same_line`` after one leaves no room to right-align

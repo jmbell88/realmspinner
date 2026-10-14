@@ -10,20 +10,19 @@ the same rule the other ``kernels/`` packages already follow -- gathering
 120 names back onto this file would just be the god file wearing a directory.
 
 * :mod:`.templates` -- the skeleton template registry (``Template``,
-  ``TEMPLATE_DIR``, ``get_template``, ``catalog``) and the limb presets
-  grafted onto one (``get_limb_preset``); the shared capped-JSON reader and
-  the shared acyclic-parent-graph check both live here too, since this
-  module's own parsers are what need them first.
+  ``TEMPLATE_DIR``, ``get_template``, ``catalog``); the shared capped-JSON
+  reader and the shared acyclic-parent-graph check both live here too, since
+  this module's own parsers are what need them first.
 * :mod:`.cliplib` -- the shipped/user *clip library* (an ordered list of key
   poses that plays back as a walk cycle). Named ``cliplib``, not ``clips``:
   ``realmspinner/clips.py`` is a different module already, and this name is the
   one that will not collide with it once a later restructure wave folds
   ``clips.py`` into this package too.
-* :mod:`.skeleton` -- fitting a template onto a mesh's bounding box, and
-  Poser's skeleton editor (add/split/remove a bone, graft a limb, mirror
-  pairs, the whole-skeleton validator queued as a re-rig).
+* :mod:`.skeleton` -- fitting a template onto a mesh's bounding box, and the
+  validators for a joint correction and for a whole caller-built skeleton
+  (the one Clay's "Rig with Blender weights" queues).
 * :mod:`.poses` -- a pose payload (a bone -> local quaternion map), the two
-  rotation frames Poser and a clip library each speak, and the shipped pose
+  rotation frames the viewer's pose editor and a clip library each speak, and the shipped pose
   libraries (the picker's presets, the deformation-QA battery).
 * :mod:`.store` -- everything about a rig/pose/sheet/sprite-draft that is a
   path or a record on disk: resource ids, the rig's temp/served-name

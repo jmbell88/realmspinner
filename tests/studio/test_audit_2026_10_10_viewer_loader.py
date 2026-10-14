@@ -170,7 +170,7 @@ def _prim(z: float, mat: gltf.Material, half: float = 5.0) -> gltf.Primitive:
     )
 
 
-def _centre(gl, renderer, prims, *, flat=False, keep_alpha=False, background=(0.0, 0.0, 0.0, 1.0)):
+def _centre(gl, renderer, prims, *, flat=False, background=(0.0, 0.0, 0.0, 1.0)):
     nodes = [gltf.Node(mesh=i) for i in range(len(prims))]
     model = gltf.Model(nodes, list(range(len(prims))), [[p] for p in prims], [])
     gpu = scenelib.GpuModel(gl, model)
@@ -180,10 +180,7 @@ def _centre(gl, renderer, prims, *, flat=False, keep_alpha=False, background=(0.
         cam.set_target(np.zeros(3))
         cam.set_position(np.array([0.0, 0.0, 6.0]))
         cam.far = 50.0
-        renderer.draw(
-            vp, cam, gpu, flat=flat, show_grid=False, background=background,
-            keep_alpha=keep_alpha,
-        )
+        renderer.draw(vp, cam, gpu, flat=flat, show_grid=False, background=background)
         depth_mask = vp.draw_target.depth_mask
         return tuple(int(v) for v in vp.read_rgba()[32, 32]), depth_mask
     finally:
@@ -195,12 +192,15 @@ def _centre(gl, renderer, prims, *, flat=False, keep_alpha=False, background=(0.
 def test_a_masked_material_that_passes_its_cutoff_renders_fully_opaque(gl, _renderer, flat):
     # The 2026-10-10 audit: only OPAQUE forced alpha to 1, so a MASK material
     # that passed its cutoff kept its sampled alpha (a=0.6 -> 153) and was
-    # blended; three draws it opaque.
+    # blended; three draws it opaque. (The test used to pass ``keep_alpha`` too:
+    # that blend mode served only the direction strip, deleted on 2026-10-14 --
+    # the 2026-10-14 audit, finding create-viewer-03 -- and a blended 0.6 still
+    # reads 0.36 -> 92 on the plain blend, so the claim is still observable.)
     mat = dataclasses.replace(
         gltf.Material(), alpha_mode="MASK", alpha_cutoff=0.5,
         base_color_factor=(1.0, 1.0, 1.0, 0.6), double_sided=True,
     )
-    px, _ = _centre(gl, _renderer, [_prim(0.0, mat)], flat=flat, keep_alpha=True,
+    px, _ = _centre(gl, _renderer, [_prim(0.0, mat)], flat=flat,
                     background=(0.0, 0.0, 0.0, 0.0))
     assert px[3] == 255
 

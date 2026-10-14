@@ -65,12 +65,6 @@ class RigOps:
             # detector to produce a second one they would also overrule is pure
             # cost.
             and not params.get("bones")
-            # The 2026-09-08 audit's poser-03: joints="measured" (the T-pose
-            # route) resolves off the mesh's own vertices in op_rig
-            # *before* _rig_bones ever looks at template_bones, so a landmark
-            # set computed here is always thrown away on that path -- a model
-            # load and a CPU forward pass paid for an answer nothing reads.
-            and params.get("joints") != "measured"
             # An imported or hand-modelled mesh has no reference to read.
             and (source_dir / "input.png").exists()
             and pose2d.available(self.config)
@@ -135,13 +129,7 @@ class RigOps:
             params.get("bones"),
             template_bones=landmarks,
             fit=fit,
-            # Where the job asked for it -- a reference drawn as a constrained
-            # T-pose does, because the shipped humanoid template is an
-            # A-pose, which fits a T-pose mesh badly enough to skin the arms to
-            # the chest. ``rig_spec`` documents where this sits in the order of
-            # preference: below a user correction, above the template.
-            joints=params.get("joints") or None,
-            # A custom skeleton (service.rig.edit_skeleton) carries its own
+            # A custom skeleton (service.rig.rig_with_skeleton) carries its own
             # structure across the pipe -- see rig_spec's own docstring. Absent
             # for every other rig job (an ordinary rig, or adjust_joints's
             # template-shaped correction), which keeps their specs exactly

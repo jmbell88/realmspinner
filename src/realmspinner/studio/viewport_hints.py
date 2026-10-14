@@ -593,12 +593,22 @@ def _compute_measure_line(doc: Any) -> str:
         world_of = getattr(doc, "world_matrix", None)
         total = 0.0
         any_open = False
+        measured = False
         for uid in selection:
             try:
                 obj = doc.by_uid(uid)
             except (KeyError, AttributeError):
                 continue
             mesh = obj.mesh
+            # A bone is a joint, not a solid: its empty mesh is not closed, so one in the
+            # selection printed "volume -- (open mesh)" and, in Pose mode with a bone
+            # selected -- the only useful state -- took the line over from the pose
+            # legend (the 2026-10-14 audit, finding clay-view-03). Nothing measurable
+            # left means no line, so the legend shows.
+            starts = getattr(mesh, "starts", None)
+            if getattr(obj, "bone", False) or (starts is not None and len(starts) <= 1):
+                continue
+            measured = True
             world = None if world_of is None else world_of(uid)
             # The 2026-10-03 audit's clay-25 follow-up: ``clay_measure volume``
             # answers ``null, closed: false`` for an open mesh because the
@@ -611,6 +621,8 @@ def _compute_measure_line(doc: Any) -> str:
                 any_open = True
             else:
                 total += volume
+        if not measured:
+            return ""
         if any_open:
             return "volume  -- (open mesh)"
         return f"volume  {total:.4f} m³"

@@ -1,16 +1,18 @@
 """What Muse remembers between frames.
 
-Much smaller than ``sirens_state`` / ``inker_state`` / ``plotter_state``,
-because **Muse holds no document.** The other document workspaces each own a file
-format, a tab list, a dirty flag and an undo stack; a take is a job row that a
-worker wrote, so the store owns it and there is nothing here to lose. What is
-left is a form and a pointer at whatever is currently making a noise -- Poser's
-character-sheet section's own shape (Troupe's, before P9 2026-09-18 folded
-that mode in): the other surface whose subject is rows a worker published.
+Much smaller than the state of Sirens, Inker or Plotter (their ``state.py``
+files), because **Muse holds no document.** The other document workspaces each own
+a file format, a tab list, a dirty flag and an undo stack; a take is a job row that
+a worker wrote, so the store owns it and there is nothing here to lose. What is
+left is a form and a pointer at whatever is currently making a noise.
 
-``ensure`` and ``active`` live here rather than in ``muse_mode`` for the reason
-they live in ``sirens_state``: they touch exactly one thing, ``ctx.state.muse``,
+``ensure`` and ``active`` live here rather than in ``mode.py`` for the reason
+they live in Sirens' ``state.py``: they touch exactly one thing, ``ctx.state.muse``,
 and neither knows that a task thread or a mixer exists.
+
+The 2026-10-14 audit, finding muse-engine-01: this docstring used to define the
+module by another mode's section that has since been removed, and to name modules
+under their pre-relocation names, so a reader following it found nothing.
 """
 
 from __future__ import annotations
@@ -97,7 +99,7 @@ class Player:
     """One decoded take, and where the player is in it.
 
     Held rather than re-read because the read is ~40 MB off disk -- which is
-    why :func:`muse_mode.play` submits it to a task in the first place. **One
+    why :func:`mode.play` submits it to a task in the first place. **One
     take at a time**: four minutes of 44.1 kHz stereo int16 is ~42 MB, and a
     cache of every take the tray has ever shown would be a mode that grows
     without bound while the user auditions candidates. It is dropped in
@@ -148,14 +150,24 @@ class Player:
     #: buffer, not in the take.
     loop_anchor: float | None = None
 
+    #: The ``(loop_start, loop_end)`` the buffer on the channel was *built from*,
+    #: set with :attr:`loop_anchor` and cleared with it. ``position()`` unwinds
+    #: the rotation against this, not against the live markers: Clear, a marker
+    #: drag, ``[``/``]`` and a chosen candidate all change ``loop_start``/
+    #: ``loop_end`` while the old rotated buffer goes on sounding, so unwinding
+    #: against the new region put the playhead at a time nothing was playing
+    #: (the 2026-10-14 audit, finding muse-05: a loop truly at 3.0 s read 9.0 s
+    #: after Clear, and Stop stored it).
+    loop_sounding: tuple[float, float] | None = None
+
     #: The crossfaded loop body -- ``muse.loops.crossfade`` over
     #: ``(loop_start, loop_end, xfade_ms)`` -- cached here so pressing Play the
     #: loop twice does not redo an O(n) blend, and so the audition and
-    #: ``muse_io.export_loop`` build from the exact same call rather than two
+    #: ``fileio.export_loop`` build from the exact same call rather than two
     #: that merely agree by construction (M09: before this, the strip
     #: auditioned a raw slice of ``pcm`` while the export crossfaded on write,
     #: so the crossfade control could not be judged through the button
-    #: advertised for judging it). ``muse_io.loop_body`` owns the cache
+    #: advertised for judging it). ``fileio.loop_body`` owns the cache
     #: invalidation; see its docstring for the key.
     loop_cache: Any = None
     loop_cache_key: tuple[int, int, int] | None = None
@@ -225,6 +237,13 @@ class MuseState:
     #: The take the tray has selected, or "". Space auditions this one, which
     #: is why it is state rather than a hover.
     selected_job: str = ""
+
+    #: Set when a *key* moves ``selected_job`` and cleared by the tray once it has
+    #: scrolled that card into view (``imgui.set_scroll_here_y``). A click needs
+    #: none -- the card is under the pointer -- but Up/Down in a tray longer than
+    #: its pane selected a card nobody could see, and Space then played it (the
+    #: 2026-10-14 audit, finding muse-25).
+    scroll_to_selected: bool = False
 
     #: The job id of the most recent audition *request* -- set by ``play()``,
     #: cleared by ``stop()``. M11: a take's decode is a task, several can be in

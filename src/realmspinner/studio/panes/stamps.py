@@ -12,15 +12,14 @@ missing was missing for the same reason: it looks unnecessary.
 A file's (or a directory's) mtime on Windows is written from the system clock,
 whose tick is 15.6 ms unless something has asked for better -- adding a file
 left a directory's mtime unchanged 155 times in 200 on this machine (see
-``dev/measurements/2026-08-07-directory-mtime-granularity.md``). So a write
-landing *after* a read but still inside the stamped mtime's own tick is
-invisible to that stamp, and invisible **forever**, because every later
-comparison keeps matching the stale answer -- which is exactly the case these
-caches exist for: a re-rig, a re-derived pixel draft, a palette dropped into
-the directory while the app is running. Git calls this racily-clean and answers
-it the same way: a stamp is remembered only once its mtime is comfortably in
-the past, so a thing touched moments ago is answered correctly and simply not
-remembered, at the cost of re-reading it for another 50 ms.
+``dev/measurements/2026-08-07-directory-mtime-granularity.md`` [lost; re-measure to change]). So a
+write landing *after* a read but still inside the stamped mtime's own tick is invisible to that
+stamp, and invisible **forever**, because every later comparison keeps matching the stale answer --
+which is exactly the case these caches exist for: a re-rig, a re-derived pixel draft, a palette
+dropped into the directory while the app is running. Git calls this racily-clean and answers it the
+same way: a stamp is remembered only once its mtime is comfortably in the past, so a thing touched
+moments ago is answered correctly and simply not remembered, at the cost of re-reading it for
+another 50 ms.
 
 The clock is read *after* whatever was read, and that ordering is the proof
 rather than a detail: the hazard needs a write later than the read yet still

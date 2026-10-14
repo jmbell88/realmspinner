@@ -86,6 +86,13 @@ as JSON text) and this module never touches its contents.
   now (usually still `working`) -- the same "acknowledge the intent, do not
   promise it happened" contract the MCP Tasks extension's own `tasks/cancel`
   describes. No body, either way.
+* `call` with `wait: false` can also be refused up front with `{"error":
+  {"code": "saturated", "message": ...}}`: the connection's operation store
+  is full and every remembered operation is still working or unfetched, so
+  nothing could be evicted to make room. Nothing was minted or queued; a
+  peer may retry once an operation finishes and is read. (A blocking `call`
+  never gets this header -- it reports the same refusal as an `isError` tool
+  result.)
 * Anything else -- `{"error": {"code": "unknown_op"}}`.
 * A request this module cannot decode at all (oversize, not JSON, not an
   object) -- `{"error": {"code": "bad_request"}}`.
@@ -147,13 +154,20 @@ def encode_request(op: str, **fields: Any) -> bytes:
 
 def decode_request(frame: bytes) -> dict[str, Any]:
     """The inverse of `encode_request`. Raises `ValueError` on anything
-    unusable -- oversize, undecodable, or not a JSON object -- mirroring
-    `protocol.decode`'s own refusals for the same reasons."""
+    unusable -- oversize, undecodable, or not a JSON object.
+
+    `RecursionError` is a malformed frame too. The 2026-10-14 audit (finding
+    agents-host-03) found a deeply nested frame, well under `MAX_FRAME`,
+    raising it out of `json.loads` here and ending the host's whole session
+    thread, though the caller's contract is a `bad_request` reply; the MCP
+    side was hardened the same way on 2026-09-14 and this side was not."""
     if len(frame) > MAX_FRAME:
         raise ValueError(f"frame of {len(frame)} bytes exceeds MAX_FRAME ({MAX_FRAME})")
     try:
         message = json.loads(frame.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (ValueError, RecursionError) as exc:
+        # ValueError covers UnicodeDecodeError, JSONDecodeError and the
+        # integer-literal-over-4300-digits refusal json.loads raises bare.
         raise ValueError(f"malformed JSON: {exc}") from exc
     if not isinstance(message, dict):
         raise ValueError(f"expected a JSON object, got {type(message).__name__}")
@@ -167,7 +181,7 @@ def looks_like_rpc(frame: bytes) -> bool:
     Never raises: an undecodable frame is declined, not diagnosed."""
     try:
         message = json.loads(frame.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (ValueError, RecursionError):
         return False
     return isinstance(message, dict) and "rpc" in message
 

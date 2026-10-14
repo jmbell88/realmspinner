@@ -181,6 +181,20 @@ MAX_ORA_FRAMES = 4096
 #: the same amplification ``MAX_ORA_FRAMES`` was added for on 2026-09-11.
 MAX_ORA_METADATA_ENTRIES = MAX_ORA_FRAMES
 
+#: The most one JSON member (``animation.json``, ``realmspinner.json``,
+#: ``tiles.json``) may unpack to. The 2026-10-14 audit, finding inker-07:
+#: every count ceiling above acts on a list ``json.loads`` has *already*
+#: built, and the only bound on the member itself was the archive-wide 1 GiB
+#: -- a 24 KB archive declaring 8 million empty frame objects peaked at
+#: 601 MiB and 4.9 s before the 4,096-frame check refused it (about 26 GiB
+#: scaled to a 1 GiB member). Sixteen mebibytes is orders of magnitude past
+#: what the ceilings above let an honest document write (4,096 cel entries
+#: and 4,096 frames each carrying a 256-colour table is the corner of the
+#: corner, and fits), and ``write_ora`` checks the same number so a document
+#: that saves is a document that reopens. Read from module globals at call
+#: time for ``MAX_DECOMPRESSED_BYTES``' reason.
+MAX_ORA_JSON_BYTES = 16 << 20
+
 
 def _layer_budget(width: int, height: int) -> int:
     """How many layers a ``width`` x ``height`` drawing may hold.
@@ -202,7 +216,41 @@ def _layer_budget(width: int, height: int) -> int:
     per_layer = max(1, int(width) * int(height))
     return max(1, min(MAX_ORA_LAYERS, pixelguard.MAX_DECODE_PIXELS // per_layer))
 
+
+#: The public spelling, for a caller that must refuse before building a document
+#: this build could not reopen (a walk bake; the 2026-10-14 audit, finding
+#: inker-mode-05) rather than at the save that would fail.
+layer_budget = _layer_budget
+
 log = logging.getLogger(__name__)
+
+
+def _json_member(zf: zipfile.ZipFile, name: str) -> bytes:
+    """One JSON member's bytes, refused by its *declared* size before any is read.
+
+    ``KeyError`` when the member is absent, exactly as ``zf.read`` says, so the
+    callers' "no such member is the common case" branch is unchanged; a member
+    past :data:`MAX_ORA_JSON_BYTES` raises ``ValueError``, which each caller
+    already treats as "this member is wrong" and degrades on (the 2026-10-14
+    audit, finding inker-07).
+    """
+    declared = int(zf.getinfo(name).file_size)
+    if declared > MAX_ORA_JSON_BYTES:
+        raise ValueError(
+            f"{name} declares {declared} bytes unpacked, past the"
+            f" {MAX_ORA_JSON_BYTES} this build will parse"
+        )
+    return zf.read(name)
+
+
+def _check_json_size(name: str, data: bytes) -> None:
+    """The writer's half of :func:`_json_member`: a member this build would
+    refuse to parse is refused at save, by name, rather than written."""
+    if len(data) > MAX_ORA_JSON_BYTES:
+        raise ValueError(
+            f"this drawing's {name} would be {len(data)} bytes, past the"
+            f" {MAX_ORA_JSON_BYTES} this build can reopen"
+        )
 
 
 def _member(name: str) -> zipfile.ZipInfo:
@@ -872,6 +920,11 @@ def _flourish_payload(doc, tracks: dict[int, int], frames: dict[int, int]) -> li
                     if t in tracks and f in frames
                 ],
                 "offset": list(state.offset),
+                # The 2026-10-14 audit, finding inker-flourish-04: a second
+                # effect with the same phase names carries ``_2`` on its tags,
+                # and a reload that forgot it would regenerate by plain name
+                # and rewrite the first effect's spans.
+                "tag_suffix": state.tag_suffix,
                 # Member names are a function of the group's number and the
                 # asset id, so the writer and the reader agree with no table.
                 "assets": {
@@ -1037,7 +1090,9 @@ def _write_tiles(zf: zipfile.ZipFile, doc, anim, names: dict[int, str]) -> None:
             # deterministic, so a member of its own buys nothing a JSON string
             # would not, except that JSON cannot hold binary at all.
             zf.writestr(_member(refs_names[id(layer)]), layer.refs.astype("<u4").tobytes())
-    zf.writestr(_member(TILES_MEMBER), _tiles_json(doc, anim, names, refs_names))
+    tiles_json = _tiles_json(doc, anim, names, refs_names)
+    _check_json_size(TILES_MEMBER, tiles_json)
+    zf.writestr(_member(TILES_MEMBER), tiles_json)
 
 
 def _rect_json(rect) -> dict[str, int]:
@@ -1214,6 +1269,67 @@ def _frame_flatten(doc, frame) -> np.ndarray:
     return cp.flatten_onto(doc.frame_stack(frame).flatten(), doc.matte)
 
 
+def _check_counts_reopen(doc, anim) -> None:
+    """Refuse, by name, every list the reader would refuse to reopen.
+
+    The 2026-10-14 audit, finding inker-codecs-04: ``write_ora`` checked layers
+    and distinct cels and nothing else, but ``_read_animation`` also refuses
+    more than :data:`MAX_ORA_FRAMES` frames and more than
+    :data:`MAX_ORA_METADATA_ENTRIES` cel entries (and tags, groups, slices and a
+    slice's keys). Five tracks held over 1,000 frames is 5,000 cel slots over
+    five distinct cels: it saved cleanly, the reader refused the cel list, the
+    flat fallback refused a frame-group file, and the document -- Save As
+    ``.ora`` is the default and journal recovery uses ``ora_bytes`` -- was lost
+    to its owner. The reader's own constants, so save and open cannot disagree.
+    """
+    limit = MAX_ORA_METADATA_ENTRIES
+    slices = list(getattr(doc, "slices", None) or ())
+    if len(slices) > limit:
+        raise ValueError(
+            f"this drawing holds more than the {limit} slices this build can reopen"
+        )
+    if anim is None:
+        return
+    if len(anim.frames) > MAX_ORA_FRAMES:
+        raise ValueError(
+            f"this animation holds more than the {MAX_ORA_FRAMES} frames this build"
+            " can reopen"
+        )
+    tracks = {track.uid for track in anim.tracks}
+    frames = {frame.uid for frame in anim.frames}
+    slots = sum(
+        1 for track_uid, frame_uid in anim.cels if track_uid in tracks and frame_uid in frames
+    )
+    if slots > limit:
+        raise ValueError(
+            f"this animation holds {slots} cel slots, more than the {limit} cels this"
+            " build can reopen"
+        )
+    if len(anim.tags) > limit:
+        raise ValueError(
+            f"this animation holds more than the {limit} tags this build can reopen"
+        )
+    for entry in slices:
+        keyed = sum(1 for frame_uid in entry.keys if frame_uid in frames)
+        if keyed > limit:
+            raise ValueError(
+                f"slice {entry.name!r} holds more than the {limit} keys this build"
+                " can reopen"
+            )
+    grouping = _groups_payload(doc, {track.uid: i for i, track in enumerate(anim.tracks)})
+    if grouping is not None:
+        for label, held in (
+            ("group nodes", grouping["nodes"]),
+            ("group track bindings", grouping["tracks"]),
+            ("group nesting entries", grouping["nesting"]),
+        ):
+            if len(held) > limit:
+                raise ValueError(
+                    f"this animation holds more than the {limit} {label} this build"
+                    " can reopen"
+                )
+
+
 def write_ora(doc, path: Path) -> None:
     """Blocking; callers encode on a task thread."""
     from PIL import Image
@@ -1250,6 +1366,7 @@ def write_ora(doc, path: Path) -> None:
                 f"this animation holds more than the {allowed} distinct cels of "
                 f"{doc.size[0]}x{doc.size[1]} this build can reopen"
             )
+    _check_counts_reopen(doc, anim)
     merged = doc.flatten() if anim is None else _frame_flatten(doc, anim.frames[0])
     thumb = Image.fromarray(merged, "RGBA")
     thumb.thumbnail((THUMBNAIL_MAX, THUMBNAIL_MAX))
@@ -1288,7 +1405,9 @@ def write_ora(doc, path: Path) -> None:
             # distinct cel its own name, so the two can only ever agree.
             for layer in anim.unique_cel_layers():
                 zf.writestr(_member(names[id(layer)]), encode(layer))
-            zf.writestr(_member(ANIMATION_MEMBER), _animation_json(doc, names))
+            animation_json = _animation_json(doc, names)
+            _check_json_size(ANIMATION_MEMBER, animation_json)
+            zf.writestr(_member(ANIMATION_MEMBER), animation_json)
         # Only when there is a tileset to record -- a document that has never
         # touched one produces the exact archive this writer wrote before
         # tilesets existed, which is what the determinism suite pins.
@@ -1307,7 +1426,9 @@ def write_ora(doc, path: Path) -> None:
         # suite pins and what makes both additions invisible to every reader
         # that has never heard of them.
         if getattr(doc, "slices", None) or _colour_block(doc) is not None:
-            zf.writestr(_member(REALMSPINNER_MEMBER), _realmspinner_json(doc))
+            realmspinner_json = _realmspinner_json(doc)
+            _check_json_size(REALMSPINNER_MEMBER, realmspinner_json)
+            zf.writestr(_member(REALMSPINNER_MEMBER), realmspinner_json)
         zf.writestr(_member("mergedimage.png"), _png(merged))
         zf.writestr(_member("Thumbnails/thumbnail.png"), thumb_buf.getvalue())
 
@@ -1496,8 +1617,12 @@ def _read_animation(zf: zipfile.ZipFile, size: tuple[int, int], reader=None):
     than none of one, and the flat fallback at least looks like what it is.
     """
     try:
-        raw = zf.read(ANIMATION_MEMBER)
+        raw = _json_member(zf, ANIMATION_MEMBER)
     except KeyError:
+        return None
+    except ValueError as exc:
+        # Degrades like every other way this member can be wrong: the flat read.
+        log.warning("ignoring animation.json in %s: %s", getattr(zf, "filename", "?"), exc)
         return None
     try:
         payload = json.loads(raw)
@@ -1894,6 +2019,7 @@ def _read_flourish(doc, payload: dict, nodes: list) -> None:
                 state.conflicts.add((tracks[int(ti)].uid, frames[int(fi)].uid))
             offset = entry.get("offset") or [0, 0]
             state.offset = (int(offset[0]), int(offset[1]))
+            state.tag_suffix = str(entry.get("tag_suffix") or "")[:16]
             members = entry.get("assets") or {}
             # The 2026-09-23 audit, finding inker-01: "assets" had no ceiling,
             # unlike the "tracks"/"digests"/"conflicts" siblings capped just
@@ -1924,6 +2050,25 @@ def _read_palette(zf) -> list | None:
     without its table is the same picture with the constraint lifted, which is
     a far better outcome than refusing to open it.
     """
+    try:
+        declared = zf.getinfo(PALETTE_MEMBER).file_size
+    except KeyError:
+        return None
+    if declared > gpl.MAX_PALETTE_CHARS:
+        # The 2026-10-14 audit, finding inker-codecs-05: the member was read
+        # and decoded whole and only the *rows* it held were ever bounded, so a
+        # 40 KB archive could unpack 40 MB of newlines (about 10 GiB scaled to
+        # the archive-wide 1 GiB ceiling) before a single check ran. Judged by
+        # the size the archive declares, before a byte is inflated; the
+        # constraint is lost and the file opens, as with every bad palette.
+        log.warning(
+            "ignoring %s in %s: %s bytes is past the %s this build will read",
+            PALETTE_MEMBER,
+            getattr(zf, "filename", "?"),
+            declared,
+            gpl.MAX_PALETTE_CHARS,
+        )
+        return None
     try:
         raw = zf.read(PALETTE_MEMBER)
     except KeyError:
@@ -1959,8 +2104,11 @@ def _read_colour(zf) -> tuple[str, int]:
     mode label and the transparent index, not a pixel.
     """
     try:
-        raw = zf.read(REALMSPINNER_MEMBER)
+        raw = _json_member(zf, REALMSPINNER_MEMBER)
     except KeyError:
+        return ("rgb", 0)
+    except ValueError as exc:
+        log.warning("ignoring %s in %s: %s", REALMSPINNER_MEMBER, getattr(zf, "filename", "?"), exc)
         return ("rgb", 0)
     try:
         payload = json.loads(raw)
@@ -2077,8 +2225,11 @@ def _read_slices(zf: zipfile.ZipFile, anim: Animation | None) -> list:
     from .slices import Slice, SliceKey
 
     try:
-        raw = zf.read(REALMSPINNER_MEMBER)
+        raw = _json_member(zf, REALMSPINNER_MEMBER)
     except KeyError:
+        return []
+    except ValueError as exc:
+        log.warning("ignoring %s in %s: %s", REALMSPINNER_MEMBER, getattr(zf, "filename", "?"), exc)
         return []
     frames = [] if anim is None else anim.frames
     dropped = 0
@@ -2155,6 +2306,37 @@ def _read_slices(zf: zipfile.ZipFile, anim: Animation | None) -> list:
     return out
 
 
+def fit_slices(slices: list, size: tuple[int, int]) -> list:
+    """Every slice (and every key on it) fitted to a ``size`` canvas, in place.
+
+    The 2026-10-14 audit, finding inker-sheets-02: slices read from a foreign or
+    hand-edited ``.ora`` (and an ``.aseprite`` slice that legitimately hangs off
+    the canvas) were installed with their raw rectangles, though ``add_slice``
+    and ``set_slice`` clamp the bounds into the canvas and the centre into its
+    own bounds. A 16x12 canvas with a ``(-4, -4, 36, 36)`` slice then exported a
+    crop numpy wrapped into the wrong pixels, and ``nineslice.stretch`` raised an
+    ``IndexError`` the export runner does not catch. The same two functions the
+    editing doors use, so an imported slice and a drawn one cannot differ.
+    """
+    from . import transform as tf
+    from ._doc_slices import fit_center
+    from .slices import SliceKey
+
+    def fitted(bounds, pivot, center):
+        box = tf.clamp_rect(bounds, size)
+        return box, pivot, fit_center(center, box)
+
+    for entry in slices:
+        entry.bounds, entry.pivot, entry.center = fitted(
+            entry.bounds, entry.pivot, entry.center
+        )
+        entry.keys = {
+            frame_uid: SliceKey(*fitted(key.bounds, key.pivot, key.center))
+            for frame_uid, key in entry.keys.items()
+        }
+    return slices
+
+
 def _install_groups(doc, tree: tuple[dict, dict], parents: dict[int, int]) -> None:
     """Put a read tree onto the document, dropping whatever is now empty.
 
@@ -2209,8 +2391,11 @@ def _read_tiles(zf: zipfile.ZipFile, doc, anim: Animation | None) -> None:
     it.
     """
     try:
-        raw = zf.read(TILES_MEMBER)
+        raw = _json_member(zf, TILES_MEMBER)
     except KeyError:
+        return
+    except ValueError as exc:
+        log.warning("ignoring %s in %s: %s", TILES_MEMBER, getattr(zf, "filename", "?"), exc)
         return
     try:
         payload = json.loads(raw)
@@ -2499,6 +2684,7 @@ def read_ora(path: Path, *, budget: int | None = None):
         # timeline to resolve them against.
         found_slices = _read_slices(zf, anim)
         if anim is not None:
+            fit_slices(found_slices, (width, height))
             stack = LayerStack(
                 anim.layers_for(anim.frames[0], (width, height)),
                 len(anim.tracks) - 1,
@@ -2530,6 +2716,17 @@ def read_ora(path: Path, *, budget: int | None = None):
         layers: list[Layer] = []
         planes_data: list[bytes] = []
         decoded_members: dict[str, tuple[bytes, np.ndarray]] = {}
+        # The 2026-10-14 audit, finding inker-codecs-03: this memo kept the whole
+        # decoded plane of every *distinct* member for the loop's duration though
+        # each layer is cropped to the canvas, and ``_layer_budget`` counts
+        # canvas-sized layers while ``pixelguard`` bounds each PNG alone, so
+        # nothing summed the decodes -- a 5 KB archive (1x1 canvas, six distinct
+        # 4096x4096 PNGs) peaked at 448 MiB, and twenty 8192-square members would
+        # be about 5 GiB. Charged by pixels against the one decode ceiling, the
+        # oldest entry evicted to make room: a member named by many layers (the
+        # case the memo exists for) still decodes once, and one that does not
+        # fit is simply not remembered.
+        memo_pixels = 0
         tree: tuple[dict, dict] = ({}, {})
         parents: dict[int, int] = {}
         # From the document's own root ``<stack>``, not from ``<image>``: the
@@ -2563,7 +2760,13 @@ def read_ora(path: Path, *, budget: int | None = None):
                         decoded = np.asarray(im.convert("RGBA"), dtype=np.uint8).copy()
                     # Raw bytes are kept in the memo only when an indexed
                     # reader will want them.
-                    decoded_members[src] = (data if reader is not None else b"", decoded)
+                    cost = int(decoded.shape[0]) * int(decoded.shape[1])
+                    while decoded_members and memo_pixels + cost > pixelguard.MAX_DECODE_PIXELS:
+                        _, evicted = decoded_members.pop(next(iter(decoded_members)))
+                        memo_pixels -= int(evicted.shape[0]) * int(evicted.shape[1])
+                    if memo_pixels + cost <= pixelguard.MAX_DECODE_PIXELS:
+                        decoded_members[src] = (data if reader is not None else b"", decoded)
+                        memo_pixels += cost
                 pixels = decoded.copy()
             except OSError as exc:
                 # A member that is not an image (Pillow's
@@ -2621,6 +2824,9 @@ def read_ora(path: Path, *, budget: int | None = None):
         if not layers:
             layers = [Layer.empty(max(1, width), max(1, height), "Background")]
         layers.reverse()  # file order is top-first; ours is bottom-first
+        # After the layers, because a headerless ``stack.xml`` only learns its
+        # canvas from the first PNG.
+        fit_slices(found_slices, (max(1, width), max(1, height)))
         doc = Document(
             stack=LayerStack(layers, len(layers) - 1),
             history=UndoStack(UNDO_BYTES if budget is None else budget),

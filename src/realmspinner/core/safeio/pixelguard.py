@@ -60,6 +60,13 @@ def _arm() -> None:
 
     Raised limits are left alone: a caller that deliberately set a *lower* one
     keeps it, and this never argues a ceiling upwards.
+
+    Pillow still emits its ``DecompressionBombWarning`` to stderr for a file
+    between one and two times the limit, before :func:`check` refuses it by
+    name; that line is noise, not a decode, and silencing it would take a
+    ``warnings`` filter -- process-global state this leaf deliberately avoids
+    (the 2026-10-14 audit, finding inker-mode-12, noted it and the refusal, not
+    the stderr line, is what a caller sees).
     """
     global _armed
     if _armed:
@@ -90,9 +97,33 @@ def check(width: Any, height: Any, what: str = "an image") -> tuple[int, int]:
     return w, h
 
 
+def _default_formats() -> list[str]:
+    """Every format Pillow can identify **except EPS**.
+
+    The 2026-10-14 audit, finding packwright-15: ``Image.open`` identifies a
+    file by its bytes, whatever its name says, and an EPS image's ``load()``
+    runs Ghostscript when it is installed -- a child process started from inside
+    Pillow, outside the ``winjob`` kill-on-close job, which the AST scan in
+    ``tests/test_vram.py`` cannot see. Nothing here reads PostScript, so it is
+    never offered. A door that knows it expects one container format (a ``.rpack``
+    member is a PNG, an ``.ora`` layer is a PNG) says so with ``formats``.
+    """
+    from PIL import Image
+
+    Image.init()
+    return [name for name in Image.OPEN if name != "EPS"]
+
+
 @contextlib.contextmanager
-def opened(source: Any, what: str = "an image") -> Iterator[Any]:
+def opened(
+    source: Any, what: str = "an image", formats: list[str] | None = None
+) -> Iterator[Any]:
     """``Image.open`` with its size asked before anything allocates.
+
+    ``formats`` is Pillow's own argument: the identifiers the file may be, or
+    every format but EPS when ``None`` (see :func:`_default_formats`). An
+    unidentifiable file raises ``UnidentifiedImageError`` (an ``OSError``) as it
+    always has.
 
     A context manager rather than a function returning an image, because
     ``Image.open`` is lazy and holds its file object until it is closed -- the
@@ -102,17 +133,32 @@ def opened(source: Any, what: str = "an image") -> Iterator[Any]:
     from PIL import Image
 
     _arm()
-    with Image.open(source) as image:
+    try:
+        image_cm = Image.open(source, formats=formats or _default_formats())
+    except Image.DecompressionBombError as exc:
+        # The 2026-10-14 audit, finding inker-mode-12: ``_arm`` lowers Pillow's
+        # limit to this ceiling, and Pillow *raises* past twice its limit --
+        # ``DecompressionBombError``, an ``Exception`` and not a
+        # ``ValueError`` -- so a file past 2x the ceiling reached every caller
+        # (each catches ``ValueError`` for the named refusal) as "Something went
+        # wrong; see the log", while a file between 1x and 2x got the named
+        # refusal below. One refusal for both bands.
+        raise ValueError(
+            f"{what} is past the {MAX_DECODE_PIXELS} pixels this build will hold"
+        ) from exc
+    with image_cm as image:
         check(image.width, image.height, what)
         yield image
 
 
-def decode_rgba(source: Any, what: str = "an image") -> np.ndarray:
+def decode_rgba(
+    source: Any, what: str = "an image", formats: list[str] | None = None
+) -> np.ndarray:
     """One image as a ``(h, w, 4)`` uint8 array. Task thread only.
 
     ``.copy()`` deliberately: ``np.asarray`` over a PIL image can hand back a
     view onto buffers the image owns, and the image is closed on the way out of
     the ``with``.
     """
-    with opened(source, what) as image:
+    with opened(source, what, formats) as image:
         return np.asarray(image.convert("RGBA"), dtype=np.uint8).copy()

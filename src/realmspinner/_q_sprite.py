@@ -216,8 +216,7 @@ class SpriteOps:
             # The 2026-09-26 audit (service-kinds-08): the ``try`` used to
             # start below the three ``float()`` conversions, each of which is
             # fallible against a stored ``params`` blob -- a raise there left
-            # the pipe (and the VRAM handoff) unreleased, same as the
-            # pixel-sheet restyle above.
+            # the pipe (and the VRAM handoff) unreleased.
             try:
                 ip_scale = float(params.get("ip_scale", models.DEFAULT_IP_SCALE))
                 control_scale = float(
@@ -427,15 +426,16 @@ class SpriteOps:
             await asyncio.to_thread(
                 functools.partial(sprite_dir.mkdir, parents=True, exist_ok=True)
             )
-            # Staged and renamed, never saved in place -- the rule stated a few
-            # hundred lines up over ``sheet_pixel_png_path``, which this was the
-            # one served writer in the file not following. Nothing normally
-            # holds these names (the draft id is minted at the door), and that
-            # is exactly the argument the pixel-sheet writer rejected: "a bare
-            # save tears a file that is already being served" does not stop
-            # being true because today's callers happen never to reuse an id,
-            # and ``_discard_artifacts``'s sprite branch deletes by that same
-            # id on the assumption that they do not.
+            # Staged and renamed, never saved in place -- the codebase-wide
+            # rule for a served name, which this was the one writer in the
+            # file not following. Nothing normally holds these names (the draft
+            # id is minted at the door), but "a bare save tears a file that is
+            # already being served" does not stop being true because today's
+            # callers happen never to reuse an id, and
+            # ``_discard_artifacts``'s sprite branch deletes by that same id on
+            # the assumption that they do not. (This comment used to point at
+            # a character-sheet writer that is gone; the 2026-10-14 audit,
+            # finding poser-jobs-04.)
             for letter, reduced, _ in assembled:
                 out = store.sprite_draft_png_path(source_dir, draft_id, letter)
                 out_tmp = out.with_name(f".{out.name}.tmp")
@@ -579,6 +579,25 @@ class SpriteOps:
         views_dir = job_dir / "views"
         views_dir.mkdir(parents=True, exist_ok=True)
 
+        base_png = views_dir / "base.png"
+        # The mesh's existing albedo, at the bake's resolution: a texel no view
+        # could see keeps its old colour, and that is only expressible if the
+        # old colours are addressable at the size the projections were baked at.
+        #
+        # Read first, before ten Blender renders and ten restyle passes, and with
+        # ``require_base_colour`` rather than ``extract_base_colour``: a base that
+        # exists and cannot be read (WebP-only, a URI image, over the
+        # decompression-bomb limit) used to look the same as no base and greyed
+        # every unseen texel under a job that ended ``done`` (the 2026-10-14 audit,
+        # finding pipelines-mesh-02). It raises ``BaseColourUnreadable`` and the job
+        # fails with that sentence, at the door of the work it would have wasted;
+        # only a mesh with no albedo slot reaches ``assemble`` without a base.
+        has_base = await asyncio.to_thread(
+            functools.partial(
+                retexture.require_base_colour, model_glb, base_png, size=texture_size
+            )
+        )
+
         self.progress.update(
             job_id, phase="views", label="Rendering views", inner=0.0,
             inner_next=0.2, nominal=20.0, detail=f"{len(views)} directions",
@@ -599,15 +618,17 @@ class SpriteOps:
                     inner_next=min(f + 0.15, 1.0), nominal=20.0, detail="",
                 ),
                 on_start=self._note_blender,
-                # A render of six frames, which is the sentence sheet_timeout
-                # already describes -- a second knob would be two ceilings on
-                # one kind of Blender run.
+                # The ten view renders (``retexture.VIEWS``), which is one of the
+                # two kinds of Blender run ``sheet_timeout`` bounds now -- a
+                # second knob would be two ceilings on one kind of Blender run.
+                # The comment said "six frames" until the 2026-10-14 audit
+                # (finding poser-jobs-06) counted ten.
                 timeout=self.config.sheet_timeout,
             )
         )
 
         prompt = guidance.compose_prompt(job["prompt"] or "", params)
-        # Same preamble as the text branch and the pixel-sheet restyle.
+        # Same preamble as the sprite draft stage above.
         t2i, _handoff = await self._acquire_t2i(spec, base_key)
         assert self._cancel is not None
         try:
@@ -666,7 +687,7 @@ class SpriteOps:
                         conditioning=conditioning,
                         on_state=lambda s: self._t2i_state(job_id, s),
                         # View k's steps inside the one t2i_sample window --
-                        # the same CON-02 arithmetic as the pixel-sheet bands:
+                        # the same CON-02 arithmetic as the sprite draft's bands:
                         # raw (i, n) per view pinned the bar at the window top
                         # after the first view.
                         on_step=lambda i, n, k=index: self._t2i_step(
@@ -712,15 +733,6 @@ class SpriteOps:
         self.progress.update(
             job_id, phase="assemble", label="Combining projections", inner=0.0,
             inner_next=1.0, nominal=5.0, detail="",
-        )
-        base_png = views_dir / "base.png"
-        # The mesh's existing albedo, at the bake's resolution: a texel no view
-        # could see keeps its old colour, and that is only expressible if the
-        # old colours are addressable at the size the projections were baked at.
-        has_base = await asyncio.to_thread(
-            functools.partial(
-                retexture.extract_base_colour, model_glb, base_png, size=texture_size
-            )
         )
         atlas = views_dir / "atlas.png"
         report = await asyncio.to_thread(

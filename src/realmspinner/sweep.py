@@ -102,6 +102,50 @@ def parse_bands(raw: str) -> list[int | None]:
     return bands
 
 
+#: ``--audit-resolution``'s range. The silhouette is a square raster the hole
+#: measurement rasterises every triangle into: 64 is the smallest on which a
+#: sliver of a hole is still a pixel, and 8192 squared (64 Mi cells per view) is
+#: well past anything the default 1024 needs while still fitting in memory.
+AUDIT_RESOLUTION_MIN, AUDIT_RESOLUTION_MAX = 64, 8192
+
+
+def parse_resolution(value: int) -> int:
+    """``--resolution``, held to the sizes the service door allows.
+
+    The 2026-10-14 audit, finding create-workspace-05: ``parse_bands`` already
+    refuses a band the door refuses (create-19), but ``--resolution`` was any
+    int, so a bad one was only refused by the exe -- one server launch per band,
+    minutes into the run. The set is the door's own
+    (``service.validation.ALLOWED_RESOLUTIONS``), imported at function scope for
+    ``_max_band``'s reason.
+    """
+    from .service.validation import ALLOWED_RESOLUTIONS
+
+    if value not in ALLOWED_RESOLUTIONS:
+        raise ValueError(
+            f"resolution must be one of {', '.join(map(str, sorted(ALLOWED_RESOLUTIONS)))} "
+            f"(the same choices a job's resolution has), got {value!r}"
+        )
+    return value
+
+
+def parse_audit_resolution(value: int) -> int:
+    """``--audit-resolution``, held to a positive bounded range.
+
+    A non-positive value failed with "negative dimensions are not allowed" only
+    after the generate had run (losing that band's GPU minutes to an error row),
+    and 0 gave a ``(0, 0)`` raster on which every band measured worst 0.0 and
+    the table recommended nothing (the 2026-10-14 audit, finding
+    create-workspace-05).
+    """
+    if not AUDIT_RESOLUTION_MIN <= value <= AUDIT_RESOLUTION_MAX:
+        raise ValueError(
+            f"audit resolution must be between {AUDIT_RESOLUTION_MIN} and "
+            f"{AUDIT_RESOLUTION_MAX}, got {value!r}"
+        )
+    return value
+
+
 async def run_band(
     config: Config,
     band: int | None,
@@ -212,6 +256,10 @@ async def sweep(
     # got around to failing on a path that was never an image.
     if not image.is_file():
         raise SystemExit(f"reference image not found: {image}")
+    # Again here for a caller that is not ``realmspinner sweep``: the numbers
+    # are only worth refusing before the first band's server starts.
+    parse_resolution(resolution)
+    parse_audit_resolution(audit_resolution)
     require_free_port(config)
     out_dir.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, Any]] = []

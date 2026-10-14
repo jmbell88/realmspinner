@@ -145,15 +145,17 @@ blend mode, the opacity and the locks.
 ## Timing
 
 **Durations are per frame**, in milliseconds, in the box on the transport row — so a held pose and
-a fast blink live in the same clip without anything having to be a frame rate.
+a fast blink live in the same clip. **FPS**, on the onion-skin row (it shows while **Onion** is on),
+plays every frame at one constant rate instead of its own duration, from 1 to 120; **0** uses the
+durations the document stores. It changes no frame.
 
 ## Onion skin
 
 **Onion skin** shows the neighbouring frames beneath the one you are drawing, the previous tinted
 red and the next tinted green. Toggle it on the strip's second row or with `F3`; while it is on, **back**,
 **ahead** and **fade** appear on a row of their own and set how many frames either side are drawn
-and how strongly. Both counts may be zero, which is how you see only what is behind or only what is
-ahead.
+and how strongly. Each count takes 0 to 5 frames, and both may be zero, which is how you see only
+what is behind or only what is ahead.
 
 **Current layer only**, on the row beneath them, ghosts just the layer you have selected on those
 neighbouring frames rather than the whole frame. That is what you want when the drawing sits over a
@@ -367,7 +369,10 @@ An imported sheet is an ordinary animation with no directions and no tags: a *la
 the generator knows about its own output, not something a cell size can imply.
 
 **Opening a GIF** needs no cell size at all: `Ctrl+O` an animated GIF and it arrives as one frame
-per frame, on one layer, carrying each frame's own duration. GIF stores time in hundredths of a
+per frame, on one layer, carrying each frame's own duration. A GIF stores a run of identical
+consecutive frames as one frame with their durations added, so a held pose exported to GIF comes
+back as one longer frame rather than several; the sheet and the `.ora` keep every frame. GIF stores
+time in hundredths of a
 second, so the durations you get back are the rounded ones — a clip exported at 33 ms comes back at
 30. A GIF with a single frame opens as an ordinary still drawing. Inker cannot save a GIF in place,
 so `Ctrl+S` on one offers an `.ora` beside it; **Export GIF** is the way back out.

@@ -15,7 +15,6 @@ from concurrent.futures import Future
 from pathlib import Path
 from typing import Any
 
-from .. import poselib
 from ..config import Config
 from ..db import JobStore
 from ..kernels.rig import cliplib
@@ -43,15 +42,20 @@ class RealmspinnerService:
         self.store = store
         self.worker = worker
         self.loop = loop
-        # Tell the shared host/worker module where this process's editable clip
-        # libraries live. ``kernels.rig`` is deliberately configuration-free
-        # (Layer 1, per the 2026-09 restructure -- it may not reach for
-        # ``config``) -- so it is *told* rather than allowed to discover, and
-        # this is the one object every app process builds before anything
-        # asks for a clip. Idempotent and cheap; it only drops the clip
-        # caches when the directory actually moves, which in a test suite is
-        # once per service.
-        cliplib.set_user_clip_dir(poselib.clip_dir(config))
+        # The user clip directory is deliberately *not* armed here any more (the
+        # 2026-10-14 audit, finding poser-poses-02). It used to be, so a clip
+        # edit saved under the old Poser beat the shipped library in every
+        # animated bake, ``clip_timing`` and the Godot export -- and the only
+        # doors that show, replace or delete that file (``service.clips``) have
+        # no caller since Poser went, so nothing could reveal or reset it and
+        # later improvements to the shipped clips never reached that user. Each
+        # ``service.clips`` door arms it itself (``clips._arm``), so the first
+        # surface that can also *revert* an edit is the first thing to make one
+        # count. ``kernels.rig`` stays configuration-free: it is told, never
+        # allowed to discover. A new service also *disarms* what an earlier one
+        # (a previous test's data dir) left set, so "no door has asked yet"
+        # always means the shipped library and nothing else.
+        cliplib.set_user_clip_dir(None)
         # Imported style LoRAs join ``models.STYLE_LORAS`` here, once, so the
         # picker offers them from the first frame. ``lora_catalog`` used to be
         # the only caller and it ran on *submit* -- an adapter added in Settings

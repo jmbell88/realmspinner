@@ -43,6 +43,15 @@ _EXPORT_OR_SAVE_KEY = re.compile(r"-(?:export|save)\w*(?::|$)")
 #: the window's X can recognise the question already waiting.
 QUIT_CONFIRM_TITLE = "Quit Realmspinner?"
 
+#: The titles of the questions ``_request_quit``'s guard chain asks
+#: (``docmodes.guard`` and ``docmodes.viewer_guard``, which own the words; a
+#: test pins that these are still the ones they use). The 2026-10-14 audit,
+#: finding shell-shell-pkg-05: shell-46's no-stacking rule covered only
+#: ``QUIT_CONFIRM_TITLE``, so each press of the X with unsaved documents and
+#: nothing running walked the chain again and queued another "Discard unsaved
+#: work?".
+QUIT_CHAIN_TITLES = ("Discard unsaved work?", "Discard unsaved changes?")
+
 
 class QuitMixin:
     """The quit chain and teardown, mixed into :class:`~.app.App`.
@@ -204,14 +213,28 @@ class QuitMixin:
         # which is what clicking "Quit" said would happen. So the ask itself
         # is withheld, not answered, until the commit phase clears.
         if self.app_ctx.tasks.commit_busy("pack:"):
+            # The 2026-10-14 audit, finding shell-shell-pkg-06: this used to
+            # overwrite the stored continuation on every deferred ask, so
+            # "Update and quit" (``then`` = launch the installer) followed by a
+            # press of the window's X (``then`` = None) lost the install -- the
+            # app quit plainly when the pack finished, after a toast that
+            # promised the update. The first continuation is kept unless the
+            # new one has something to say; a plain quit adds nothing to it.
+            if then is not None or not getattr(self, "_quit_deferred", False):
+                self._quit_deferred_then = then
             self._quit_deferred = True
-            self._quit_deferred_then = then
             self.app_ctx.toast(
                 "A dependency pack is being installed and cannot be "
                 "interrupted safely. Quitting once it finishes.",
                 "warn",
             )
             return
+        if getattr(self, "_quit_chain_open", False):
+            if any(self.app_ctx.confirms.holds(title) for title in QUIT_CHAIN_TITLES):
+                # A press of the X (or Alt+F4) while the guard chain's own
+                # question is up: the one already on screen is this quit's.
+                return
+            self._quit_chain_open = False  # answered and walked away from
         summary = self._quit_summary()
         if not summary:
             self._request_quit(then)
@@ -262,6 +285,10 @@ class QuitMixin:
         from ..panes import pose_panel
 
         ctx = self.app_ctx
+        # Read by ``_ask_quit`` to tell a second press from a first (see
+        # ``QUIT_CHAIN_TITLES``); it goes stale harmlessly once the questions
+        # are answered, which ``_ask_quit`` notices.
+        self._quit_chain_open = True
         # **Derived from** ``mode_manifest.DOC_MODES`` (shell-73, the 2026-10-03
         # audit): this was a hand list of eight beside the manifest that says
         # which modes are documents, so a mode added to the manifest was

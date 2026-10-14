@@ -293,6 +293,18 @@ def _maintenance(what: str) -> Any:
 _STAGING_SUFFIXES = (".fetch.part", ".fetch.bak")
 
 
+def _is_litter(name: str) -> bool:
+    """Whether a directory entry is something an interrupted operation stranded.
+
+    The staging suffixes, **and** an uninstall's ``.trash-*`` rename-aside (the
+    2026-10-14 audit, finding service-gates-14): a Remove whose delete failed
+    after the rename -- a locked file, antivirus -- already reads as gone on the
+    row and left its multi-GB bytes in that sibling, which only the *next
+    uninstall* ever looked for, so a later Install needed the space twice.
+    """
+    return name.endswith(_STAGING_SUFFIXES) or name.startswith(TRASH_PREFIX)
+
+
 def _is_resumable(path: Path) -> bool:
     """Whether ``path`` is a staging tree a later fetch could continue into.
 
@@ -348,7 +360,7 @@ def _sweep_staging(jobs: list[fetch_mod.Job], *, spare: set[str] | None = None) 
         except OSError:
             continue
         for path in entries:
-            if not path.name.endswith(_STAGING_SUFFIXES):
+            if not _is_litter(path.name):
                 continue
             if str(path) in spared:
                 log.info("keeping staging an open transaction still needs: %s", path)
@@ -371,7 +383,7 @@ def disk_usage(svc: RealmspinnerService) -> dict[str, Any]:
 
     A walk, so it goes through ``TaskRunner`` like the library's own.
 
-    **Three roots, not two.** The 2026-09-10 commit that split the
+    **Five roots, not two.** The 2026-09-10 commit that split the
     reconstruction engine out of ``trellis_models_dir`` into its own
     ``trellis_runtime_dir`` (838 MB of binaries, not weights) added it as a
     third root everywhere else that reasons about the model store --
@@ -385,11 +397,17 @@ def disk_usage(svc: RealmspinnerService) -> dict[str, Any]:
     root = Path(svc.config.t2i_model_root)
     engine_root = Path(svc.config.trellis_models_dir)
     runtime_root = Path(svc.config.trellis_runtime_dir)
+    # Familiar's two directories, for the reason above: the 2026-10-14 audit
+    # (finding service-gates-06) found this walk still blind to the llama
+    # runtime (about 0.8 GB, never under the model root) and to the weights the
+    # moment ``REALMSPINNER_FAMILIAR_MODELS`` moves them out from beneath it.
+    familiar_runtime = Path(svc.config.familiar_runtime_dir)
+    familiar_models = Path(svc.config.familiar_models_dir)
     # Dedup against roots already walked, matching the pairwise check this
     # replaced: trellis_models_dir nests inside t2i_model_root by default, so
     # counting it again would double the bytes it holds.
     roots: list[Path] = []
-    for candidate in (root, engine_root, runtime_root):
+    for candidate in (root, engine_root, runtime_root, familiar_runtime, familiar_models):
         if not any(candidate == r or candidate.is_relative_to(r) for r in roots):
             roots.append(candidate)
     total = 0
@@ -455,7 +473,7 @@ def sweep_staging(svc: RealmspinnerService) -> list[str]:
                 except OSError:
                     continue
                 for path in entries:
-                    if not path.name.endswith(_STAGING_SUFFIXES) or str(path) in spared:
+                    if not _is_litter(path.name) or str(path) in spared:
                         continue
                     if _is_resumable(path):
                         # Spared here as well as in ``_sweep_staging`` (F1): this
@@ -556,6 +574,21 @@ def _download(
     from .. import publish
 
     root = Path(journal_root)
+    # A journal an earlier, incomplete recovery retained is the only record of
+    # what to put back (the 2026-10-14 audit, finding service-03). ``begin``
+    # overwrites it unconditionally and ``finish`` then deletes it, so pressing
+    # Install again would silently end the retry for a half-published model.
+    # Try the rollback first, and refuse by name if the marker survives it --
+    # before the download, not after eight minutes of it.
+    if publish.recover(root):
+        fetch_mod.bump_store_generation()
+    if publish.journal_path(root).exists():
+        raise Invalid(
+            "An earlier install was interrupted and could not be rolled back "
+            "completely (a file may still be in use), so this one would bury "
+            "what it still has to restore. Close anything that has the model "
+            "files open, restart Realmspinner and try again."
+        )
     _sweep_staging(jobs, spare=publish.staged_dirs(root))
     total = fetch_mod.total_gib(jobs) or float(len(jobs))
     done_gib = 0.0
@@ -703,7 +736,45 @@ def _stage_manifest_for(job: fetch_mod.Job, staging: Path) -> None:
     existing = publish.read_json(job.dest / fetch_mod.MANIFEST_NAME) or {}
     repos = existing.get("repos")
     repos = dict(repos) if isinstance(repos, dict) else {}
-    repos[job.repo_id] = record
+    # Keyed by the archive's name when there is no repository. The 2026-10-14
+    # audit (findings pipelines-install-01 and service-gates-01): Familiar's
+    # runtime is two archives into one directory, both with ``repo_id`` "", so
+    # the second record overwrote the first and the manifest went blind to one
+    # zip's digests -- which ``verify_manifest`` and ``fetch.outdated`` both read.
+    key = job.repo_id or job.filename
+    if not job.repo_id and key:
+        # A record an older build wrote under "" is superseded for the files this
+        # one covers; any it does not cover stay recorded.
+        legacy = repos.get("")
+        if isinstance(legacy, dict):
+            covered = set(record["digests"])
+            old = legacy.get("digests")
+            old = old if isinstance(old, dict) else {}
+            kept = {n: d for n, d in old.items() if n not in covered}
+            if kept:
+                repos[""] = {**legacy, "digests": kept, "files": sorted(kept)}
+            else:
+                del repos[""]
+    prior = repos.get(key)
+    if isinstance(prior, dict):
+        # The same repository twice into one directory is a different row each
+        # time (the 2026-10-14 audit, finding service-gates-02): the optional
+        # ``familiar_mmproj`` shares both repo and directory with
+        # ``familiar_gguf``, and replacing the entry whole left
+        # ``verify_manifest`` blind to the 7 GB Gemma weights once the projector
+        # was installed. Keep what the earlier download recorded for a file that
+        # is still in the destination, with this download's own entries on top.
+        old = prior.get("digests")
+        old = old if isinstance(old, dict) else {}
+        carried = {
+            name: digest
+            for name, digest in old.items()
+            if name not in record["digests"] and (job.dest / name).exists()
+        }
+        if carried:
+            record["digests"] = {**carried, **record["digests"]}
+            record["files"] = sorted({*carried, *record["files"]})
+    repos[key] = record
     publish.write_json(path, {"repos": repos})
     if not path.exists():
         # ``write_json`` is intentionally best effort. Its temp is not an
@@ -893,9 +964,64 @@ def _uninstall(
         _delete_staged(path, trash)
         if on_progress is not None:
             on_progress(100.0 * index / len(removal.paths), path.name)
+    _forget_in_manifests(removal.paths)
     if on_progress is not None:
         on_progress(100.0, "")
     return {"removed": removed, "freed_gib": removal.freed_gib}
+
+
+def _forget_in_manifests(paths: Sequence[Path]) -> None:
+    """Drop each removed *file* from the completion record beside it.
+
+    A row can now be removed on its own from a directory it shares (Familiar's
+    weights, ``loras/``): the record in that directory still named the removed
+    file's digest, so ``verify_manifest`` -- which reads that record and nothing
+    else -- would have reported a file the user deliberately deleted as missing,
+    a corrupt-install verdict on a clean one (the 2026-10-14 audit, findings
+    pipelines-install-02 and service-gates-04). A name that is no digest key (a
+    directory claim) matches nothing, so this only ever edits a record that
+    listed the file. A record left naming nothing is deleted with the file that
+    was its last entry.
+
+    Never raises: the files are already gone, and a stale record costs a
+    verdict, not an install.
+    """
+    from .. import publish
+
+    for path in paths:
+        record_path = path.parent / fetch_mod.MANIFEST_NAME
+        data = publish.read_json(record_path)
+        repos = data.get("repos") if data else None
+        if not isinstance(repos, dict):
+            continue
+        name = path.name
+        changed = False
+        for key, record in list(repos.items()):
+            if not isinstance(record, dict):
+                continue
+            digests = record.get("digests")
+            files = record.get("files")
+            has_digest = isinstance(digests, dict) and name in digests
+            has_file = isinstance(files, list) and name in files
+            if not (has_digest or has_file):
+                continue
+            changed = True
+            record = dict(record)
+            if has_digest:
+                record["digests"] = {n: d for n, d in digests.items() if n != name}
+            if has_file:
+                record["files"] = [n for n in files if n != name]
+            if record.get("digests") or record.get("files"):
+                repos[key] = record
+            else:
+                del repos[key]
+        if not changed:
+            continue
+        if repos:
+            publish.write_json(record_path, {"repos": repos})
+        else:
+            with contextlib.suppress(OSError):
+                record_path.unlink()
 
 
 def _stage_removals(paths: Sequence[Path]) -> list[tuple[Path, Path]]:

@@ -1,4 +1,4 @@
-"""One flat record of everything a character sheet needs, validated at the door.
+"""One flat record of a character request, validated at the door.
 
 Flat on purpose. A recipe is written by a command bar, edited by a settings
 column, stored in a job's ``params``, read back by a rerun and diffed against a
@@ -22,9 +22,9 @@ The vocabulary this module checks against -- the colour ladder, the outline
 mode and the reduce mode -- is **restated here rather than imported**,
 because ``characters`` may not import ``service`` and the pixel ladders live
 behind it. ``tests/characters/test_recipe.py`` owns the agreement between the
-two copies of each of those three, in the ``kernels.charsheet`` /
-``studio.modes.poser.engine.spec`` arrangement: a change to one is a change to
-both plus that test. The size ladder is not a fourth restated copy --
+two copies of each of those three (and the camera keys against
+``kernels.charsheet.CAMERA_PRESETS``): a change to one is a change to both plus
+that test. The size ladder is not a fourth restated copy --
 :data:`LOGICAL_SIZES` is **derived** from ``kernels.charsheet.SIZES`` (see
 that name's own comment below), so it cannot drift the way a hand-typed
 ladder could. The 2026-09-20 audit, finding troupe-06, corrected this
@@ -89,8 +89,9 @@ DIRECTION_CHOICES: tuple[int, ...] = (1, 4, 8, 16)
 #: same alphabet every shipped and authored clip name already uses. Existence
 #: (is this actually a clip the rig's library defines) is not decided here:
 #: this module may not import ``kernels.rig`` or ``clips``, so that question waits
-#: for ``service.characters._plan``, which has the archetype's library in
-#: hand. See ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
+#: for ``service.characters.recipe_from_prompt``, which has the archetype's
+#: library in hand. See ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md``.
+#: (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 _CLIP_NAME_RE = re.compile(r"[a-z0-9_]+")
 
 #: The most a name may be, matching ``poses.validate_pose``'s cap so a
@@ -147,9 +148,10 @@ def _on_ladder_or_in_range(
     what: str,
 ) -> int:
     """Like ``_on_ladder``, but a value inside ``value_range`` also passes even
-    off the ladder -- ``service.pixelopts._on_the_ladder``'s ``value_range``
-    restated here for the one field (``logical_size``) whose renderer accepts
-    more than the ladder (see ``LOGICAL_SIZE_RANGE``)."""
+    off the ladder -- the one field (``logical_size``) whose renderer accepts
+    more than the ladder (see ``LOGICAL_SIZE_RANGE``). The ``service.pixelopts``
+    ``value_range`` this was restated from has no caller and was deleted in the
+    2026-10-14 audit's cleanup round; this copy is the only one left."""
     if value in ladder:
         return value
     lo, hi = value_range
@@ -162,7 +164,13 @@ def _on_ladder_or_in_range(
 
 @dataclass(frozen=True)
 class Recipe:
-    """A request for one character sheet, whole."""
+    """A request for one character, whole.
+
+    The species, ``appearance``, ``theme`` and ``name`` are what the build reads.
+    The rest (camera, frame table, pixel ladders) is the retired sheet's half,
+    carried and validated but read only by the dry-run plan card -- the 2026-10-14
+    audit, finding poser-characters-06, names it as a slimming still to do.
+    """
 
     family: str
     family_version: int
@@ -171,8 +179,8 @@ class Recipe:
     camera: str
     elevation: float
     #: ``movement -> frames``. A ``charsheet`` movement name, so the layout this
-    #: expands into is the one Troupe already renders; a movement this program
-    #: has no clip for is refused here rather than at the renderer.
+    #: expands into is ``charsheet``'s own; a movement this program has no clip
+    #: for is refused by ``service.characters.recipe_from_prompt``.
     animations: Mapping[str, int]
     directions: int
     logical_size: int
@@ -187,8 +195,8 @@ class Recipe:
     #: produced, so this defaults True and ``as_dict`` omits it at that value,
     #: the same "absence is not a claim" rule the retired Troupe door's row carries.
     pixel_art: bool = True
-    #: A layout-wide frame rate, the same :data:`charsheet.FPS_CHOICES` ladder
-    #: Troupe offers. ``None`` means the recipe named none -- every movement
+    #: A layout-wide frame rate, a :data:`charsheet.FPS_CHOICES` rung. ``None``
+    #: means the recipe named none -- every movement
     #: keeps its clip's own timing -- so this is carried into
     #: :meth:`layout_payload` only when set, never as a literal "no opinion".
     fps: int | None = None
@@ -394,7 +402,7 @@ class Recipe:
     # -- what it expands into -----------------------------------------------
 
     def layout_payload(self) -> dict[str, Any]:
-        """The Troupe layout request this recipe means.
+        """The ``charsheet`` layout request this recipe means.
 
         v3 only when ``fps`` is actually set -- a bare v2 request otherwise,
         so a recipe that never touched the rate is byte-identical to one from
@@ -438,21 +446,20 @@ def _check_animations(raw: Any) -> dict[str, int]:
     **Open, not closed.** A recipe may name any clip its archetype's skeleton
     eventually turns out to define -- not just the five legacy
     :data:`charsheet.ANIMATIONS` names -- because
-    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` opens the
-    same vocabulary here that ``resolve_layout``'s ``timing`` argument opens
-    for Troupe. *Existence* is a fact about the rig, not the request: this
-    module may import no more of ``realmspinner`` than ``kernels.charsheet``, so
-    it cannot ask a clip library anything, and ``service.characters._plan``
-    is what actually resolves the name once it has the archetype's library in
-    hand -- a KeyError/ValueError there becomes the existing ``Invalid`` path.
-    What this function still owns is the two syntactic traps a bad name can
-    fall into regardless of which rig ends up asked: not a legal identifier at
-    all, or one that reads as ``<clip>_<direction>`` to Inker's tag parser.
+    ``dev/measurements/2026-09-12-troupe-open-clip-vocabulary.md`` [lost; re-measure to change]
+    opens the same vocabulary here that ``resolve_layout``'s ``timing`` argument opens for Troupe.
+    *Existence* is a fact about the rig, not the request: this module may import no more of
+    ``realmspinner`` than ``kernels.charsheet``, so it cannot ask a clip library anything, and
+    ``service.characters.recipe_from_prompt`` is what actually resolves the name once it has the
+    archetype's library in hand -- a name not in it becomes the existing ``Invalid`` path. What this
+    function still owns is the two syntactic traps a bad name can fall into regardless of which rig
+    ends up asked: not a legal identifier at all, or one that reads as ``<clip>_<direction>`` to
+    Inker's tag parser.
     """
     if raw is None:
         raw = dict(DEFAULT_ANIMATIONS)
     if not isinstance(raw, Mapping) or not raw:
-        raise CharacterError("a character sheet needs at least one animation", field="animations")
+        raise CharacterError("a character needs at least one animation", field="animations")
     out: dict[str, int] = {}
     for name, frames in raw.items():
         key = str(name)
@@ -465,9 +472,8 @@ def _check_animations(raw: Any) -> dict[str, int]:
         for direction in charsheet.COMPASS_16:
             if key.endswith(f"_{direction}"):
                 raise CharacterError(
-                    f'{key!r} ends in "_{direction}"; Troupe reads a name '
-                    f"like that as movement {key[: -len(direction) - 1]!r} "
-                    f"facing {direction!r}",
+                    f'{key!r} ends in "_{direction}"; a sprite sheet reads a name like that as '
+                    f"movement {key[: -len(direction) - 1]!r} facing {direction!r}",
                     field="animations",
                 )
         count = _integer(frames, "animations", f"{key} frames")
@@ -486,14 +492,11 @@ DEFAULT_FAMILY = "ogre"
 def _default_camera() -> tuple[str, float]:
     """The default preset and the angle it means, read from the one table.
 
-    Not two literals here. ``charsheet.CAMERA_PRESETS`` is the table the pane
-    offers from, the door validates against and the Blender worker frames the
-    ortho window with, and
-    ``tests/modes/poser/test_camera_presets.py::test_the_form_and_the_door_read_one_preset_table``
-    scans the whole package for a second module spelling the default key --
-    which is exactly how this file's first draft was caught. A preset whose
-    angle is edited in one place and copied in another is a form offering a
-    framing nothing renders.
+    Not two literals here. ``charsheet.CAMERA_PRESETS`` is the table the door
+    validates against, and
+    ``tests/characters/test_recipe.py::test_every_camera_a_recipe_accepts_is_a_real_preset``
+    pins the keys against it: a preset whose angle is edited in one place and
+    copied in another is a request for a framing nothing renders.
     """
     key = charsheet.DEFAULT_CAMERA_PRESET
     elevation = next(

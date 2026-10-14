@@ -90,7 +90,7 @@ obvious next step is always the button on offer:
 - A failed job offers **Try again**.
 - A finished reference offers **Make 3D**.
 - A finished mesh with no rig offers **Rig** (when Blender is available).
-- A finished follow-up (a rig, a sprite sheet, a character sheet, a retexture, a remesh) or a style
+- A finished follow-up (a rig, a sprite sheet, a retexture, a remesh) or a style
   LoRA run offers **Open**. Any other finished row that the rungs above do not claim has no card
   button, but **Open** is still the first item of its right-click menu.
 
@@ -122,9 +122,14 @@ These values are the rail's controls, plus a select-all above the grid.
   into the query and puts the cursor back in the box, which is the same list the parser itself
   reads, so nothing on that row can offer a prefix the search does not understand.
 - **Status**: any status, done, running, or failed.
-- **Kind**: any kind, references, tiles, meshes, rigs, sheets, sprite sheets, tile sheets, or tracks. Note that
+- **Kind**: any kind, references, tiles, meshes, rigs, sprite sheets, tile sheets, tracks, or retired. Note that
   "reference" and "mesh" are about what the job *produced*, not what was submitted — a text job that stopped at a
   reference and one that went on to a mesh are the same kind of job and two different things to look for.
+  **Retired** is where the rows of the removed character-sheet kinds are found, so you can look at them or
+  trash them yourself; the app never deletes them for you.
+- A **Scoped to N examples from Review** line with a **Show all** button, which appears only after Review's
+  **Show examples** has narrowed the list to the jobs behind one ranked configuration. **Show all** lifts the
+  scope and returns the whole workshop.
 - A star toggle for favourites only.
 - A checkmark toggle for **Usable** only — a mesh you graded +3 or higher in
   [Review](04-judging-what-you-made.md#grading-is-not-accepting-or-rejecting), the same cut Review
@@ -281,8 +286,10 @@ purpose; see [Data locations](41-configuration.md#data-locations). A job directo
 - `model.glb` — the finished mesh, derived from `source.glb`.
 - `rig.glb` and `rig.json` — once the mesh is rigged. The rig lives beside the mesh it was fitted
   to, not in the rig job's own directory.
-- `poses/` — one JSON file per saved pose, plus its baked GLB once you have asked for one.
-- `sheets/` — one PNG plus its JSON sidecar per rendered sprite sheet.
+- `poses/` — one JSON file per saved pose, plus its baked GLB once you have asked for one. Nothing writes
+  new ones since Poser was removed; an older library may still hold some.
+- `sprites/` — the sprite-sheet drafts made from a drawing: one JSON sidecar per draft with its two candidate
+  PNGs beside it.
 - Derived exports (`model.stl`, `model_obj.zip`, `model.fbx`, `collision.glb`, `textures.zip`,
   `model_lods.zip`) once they have been requested.
 - `versions/` — up to four earlier meshes a retarget, a remesh, a re-texture or a resize replaced; see
@@ -317,7 +324,7 @@ that keeps nothing — prune and **Empty trash...** both spare anything you acce
 because those files are what the quality judge and the triangle-tier checks are measured against,
 and this is the button for which that is not true. It writes nothing to the evidence archive either,
 for the same reason: starting a corpus over is not a request that quietly keeps the largest meshes on
-the disk. The verdict rows survive; the pixels behind them do not. Your pose library, Inker
+the disk. The verdict rows survive; the pixels behind them do not. Your Inker
 autosaves and settings are all kept, as is the job
 store itself. It refuses outright while anything is queued or running — "delete everything" that
 quietly left three jobs behind would have failed at the only thing it claims to do — so cancel the

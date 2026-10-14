@@ -195,7 +195,13 @@ def trim(plane: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]:
         return np.zeros((1, 1, 4), dtype=plane.dtype), (0, 0)
     y0, y1 = int(rows[0]), int(rows[-1]) + 1
     x0, x1 = int(cols[0]), int(cols[-1]) + 1
-    return np.ascontiguousarray(plane[y0:y1, x0:x1]), (x0, y0)
+    # Always a copy. The 2026-10-14 audit, finding inker-mode-07:
+    # ``np.ascontiguousarray`` returns a *view* when the crop is already
+    # C-contiguous, which every crop spanning the canvas's full width is, so a
+    # full-width part aliased the layer it was cut from -- a later stroke, filter
+    # or Undo on that layer restyled the part with ``rig.rev`` unmoved, against
+    # the manual's "every part is copied out of it".
+    return plane[y0:y1, x0:x1].copy(), (x0, y0)
 
 
 def part_from_plane(
@@ -376,18 +382,28 @@ def missing_parts(rig: Rig) -> tuple[str, ...]:
     refused only when it is *half* assigned, which is always a mistake rather
     than a choice. A rig with no leg at all is refused, because a walk with
     nothing to stand on is not a walk.
+
+    A part cut from a blank layer counts as unassigned here: :func:`trim` hands
+    back a 1x1 transparent crop for it, and the 2026-10-14 audit (finding
+    inker-mode-13) found that crop passing ``assigned``, so a walk with an
+    invisible torso baked with no warning.
     """
+
+    def drawn(name: str) -> bool:
+        part = rig.parts[name]
+        return part.assigned and bool(part.pixels[:, :, 3].any())
+
     out: list[str] = []
     for name in ("torso", "head"):
-        if not rig.parts[name].assigned:
+        if not drawn(name):
             out.append(name)
     for limb in LIMBS:
         members = [spec.name for spec in PARTS if spec.limb == limb]
-        assigned = [name for name in members if rig.parts[name].assigned]
+        assigned = [name for name in members if drawn(name)]
         if assigned and len(assigned) != len(members):
             out += [name for name in members if name not in assigned]
     legs = [spec.name for spec in PARTS if spec.limb.endswith("leg")]
-    if not any(rig.parts[name].assigned for name in legs):
+    if not any(drawn(name) for name in legs):
         out.append("near_thigh")
     return tuple(dict.fromkeys(out))
 

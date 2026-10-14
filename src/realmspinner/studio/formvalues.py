@@ -11,6 +11,7 @@ identical reason.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 
@@ -38,11 +39,18 @@ def coerce_form_value(default: Any, value: Any) -> Any:
                 return default
             return bool(value)
         if isinstance(default, float):
-            return float(value)
+            number = float(value)
+            # The 2026-10-14 audit (finding shell-widgets-05): ``json.loads``
+            # accepts ``NaN`` and ``Infinity``, so a sweep vector or findings
+            # file can hand one here, and a non-finite number written into a
+            # float field is exactly what ``settings._safe_form_value`` refuses
+            # at the stored-form boundary.
+            return number if math.isfinite(number) else default
         if isinstance(default, int):
             return int(value)
         if isinstance(default, str):
             return str(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # ``int(float("inf"))`` raises OverflowError, not either of the others.
         return default
     return value

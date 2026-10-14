@@ -27,6 +27,7 @@ has.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -135,6 +136,10 @@ class WangColour:
         object.__setattr__(self, "probability", float(self.probability))
         object.__setattr__(self, "tile", int(self.tile))
         object.__setattr__(self, "klass", str(self.klass))
+        # The same hole as ``TileMeta.probability`` (the 2026-10-14 audit,
+        # finding plotter-tiles-03): NaN and infinity both pass a bare ``< 0``.
+        if not math.isfinite(self.probability):
+            raise ValueError("a wang colour probability must be a finite number")
         if self.probability < 0.0:
             raise ValueError("a wang colour probability cannot be negative")
 

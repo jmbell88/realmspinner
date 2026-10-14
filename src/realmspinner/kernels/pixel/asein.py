@@ -222,6 +222,19 @@ _MAX_PALETTE_ENTRIES = 1 << 16
 #: declared-count ceiling in this module.
 _MAX_SLICE_KEYS = 1 << 16
 
+#: The ceiling on the per-frame overrides a document's slices may expand to. A
+#: key holds from its own frame to the next key's, so a slice whose second key
+#: sits at frame 1 covers every later frame and costs one override per frame
+#: (``Slice.keys`` is keyed by frame uid): the cost is slices x frames, and
+#: ``_MAX_SLICE_KEYS`` bounds neither. The 2026-10-14 audit, finding
+#: inker-codecs-02: 200 two-key slices over 3,000 frames (60 KB) opened holding
+#: 599,800 overrides, and at the 65,535-frame ceiling a megabyte of ~74-byte
+#: slices is ~9e8 of them. A frame count, not a byte count, because the
+#: overrides are what is retained; a million is ~50 MiB, well past what a
+#: hand-keyed animation of slices (a hitbox per frame over a few thousand
+#: frames) needs.
+_MAX_SLICE_OVERRIDES = 1_000_000
+
 
 def _inflate(raw: bytes, expected: int, what: str) -> bytes:
     """Unpack one chunk's payload, refusing anything past what it declares.
@@ -367,6 +380,10 @@ class AseTileset:
     tile_h: int = 1
     count: int = 0
     data: bytes = b""
+    #: Flag bit 4 of the 0x2023 chunk: "tile ID 0 is the empty tile". Off in
+    #: the pre-release layout, where tile 0 is a real tile and an erased cell
+    #: is stored as 0xffffffff instead.
+    zero_is_empty: bool = True
 
 
 @dataclass
@@ -399,6 +416,10 @@ class AseCel:
     #: tilemap cel is never routed through :func:`_decode`. ``None`` for
     #: every other cel kind.
     refs: np.ndarray | None = None
+    #: The cells the file stored as 0xffffffff, which ``refs`` holds as 0. Only
+    #: set when there were any: ``_build_tilemap_cel`` needs to tell an erased
+    #: cell from a real reference to id 0 when the tileset's tile 0 has art.
+    erased: np.ndarray | None = None
     #: This cel's user data, per *slot*: the format gives every cel chunk --
     #: linked ones included -- its own, exactly as it gives every one its own
     #: opacity byte, which is why both land in a dict keyed by the slot rather
@@ -446,6 +467,10 @@ class Sprite:
     #: Keyed by the file's own tileset chunk id (0x2023's own DWORD, not a
     #: position) -- an ``AseLayer.tileset`` names one of these.
     tilesets: dict[int, AseTileset] = field(default_factory=dict)
+    #: Ids of the tilesets that got a blank tile put in front of them so id 0
+    #: could be the empty cell (see :func:`document_from_aseprite`); every
+    #: reference into one of them moves up by one.
+    shifted_tilesets: set[int] = field(default_factory=set)
 
 
 class _Parse:
@@ -612,9 +637,25 @@ def _apply_frame_palettes(state: _Parse, frames: int) -> None:
         tables.append(current)
     base = tables[0]
     state.sprite.palette = list(base) or None
-    state.sprite.frame_palettes = {
-        index: list(table) for index, table in enumerate(tables) if table != base
-    }
+    # The 2026-10-14 audit, finding inker-codecs-01: ``_read_frame`` charges the
+    # two *snapshots*, but every frame between them gets a whole-table copy
+    # below, and nothing charged those -- a 65,536-entry palette changed on
+    # frame 1 and held over 65,535 empty frames retained frames x entries
+    # slots (~32 GiB) from ~1.8 MB. Charged per frame the fill gives a copy,
+    # before it is built, against the same colour budget the snapshots use.
+    charged = state.palette_entries
+    frame_palettes: dict[int, list[RGBA]] = {}
+    for index, table in enumerate(tables):
+        if table == base:
+            continue
+        charged += len(table)
+        if charged > pixelguard.MAX_DECODE_PIXELS:
+            raise ValueError(
+                "this .aseprite's per-frame palettes hold more than"
+                f" the {pixelguard.MAX_DECODE_PIXELS} colours this build will open"
+            )
+        frame_palettes[index] = list(table)
+    state.sprite.frame_palettes = frame_palettes
 
 
 def _read_frame(
@@ -863,7 +904,12 @@ def _read_tileset(state: _Parse, r: _Reader) -> None:
         f"the tileset {name!r}",
     )
     state.sprite.tilesets[tileset_id] = AseTileset(
-        name=name or "tiles", tile_w=tile_w, tile_h=tile_h, count=count, data=raw
+        name=name or "tiles",
+        tile_w=tile_w,
+        tile_h=tile_h,
+        count=count,
+        data=raw,
+        zero_is_empty=bool(flags & 4),
     )
 
 
@@ -1056,14 +1102,16 @@ def _read_cel(state: _Parse, r: _Reader) -> None:
             )
         cel.width, cel.height = grid_w, grid_h
         tiles = np.frombuffer(decompressed, dtype="<u4").reshape(grid_h, grid_w)
-        if (tiles == np.uint32(0xFFFFFFFF)).any():
+        erased = tiles == np.uint32(0xFFFFFFFF)
+        if erased.any():
             # The format's *other* empty: when a tileset's "tile ID 0 is empty"
             # flag is off (rare, pre-release Aseprite builds), an erased cell is
             # stored as 0xFFFFFFFF rather than 0. Left alone, the mask
             # arithmetic below would read it as a huge id wearing every flag --
             # so it is translated to this model's own empty, said out loud.
             state.warn("cells stored as 0xffffffff were read as empty")
-            tiles = np.where(tiles == np.uint32(0xFFFFFFFF), np.uint32(0), tiles)
+            tiles = np.where(erased, np.uint32(0), tiles)
+            cel.erased = erased
         cel.refs = _remap_tile_refs(tiles, id_mask, x_mask, y_mask, d_mask)
     else:
         raise ValueError(f"cel type {kind} is not one this build knows")
@@ -1181,8 +1229,13 @@ def _read_old_palette(state: _Parse, r: _Reader, six_bit: bool) -> None:
     """
     state.palette_touched = True
     packets = r.u16()
-    previous: list[RGBA] = list(state.old_palette or [])
-    table: list[RGBA] = list(previous)
+    # Edited in place. The 2026-10-14 audit, finding inker-codecs-07: this
+    # used to copy the whole accumulated table twice per chunk, however few
+    # bytes the chunk carried, so an 8-byte empty chunk cost 0.83 ms against a
+    # 65,280-entry table and a megabyte of them ~110 s of CPU. Nothing aliases
+    # ``state.old_palette`` any more -- ``_final_palette`` hands out copies --
+    # so the in-place edit cannot reach a snapshot already taken.
+    table: list[RGBA] = state.old_palette if state.old_palette is not None else []
     index = 0
     for _ in range(packets):
         index += r.u8()
@@ -1277,7 +1330,9 @@ def _final_palette(state: _Parse) -> list[RGBA] | None:
             max(state.palette_size, max(state.palette) + 1), _MAX_PALETTE_ENTRIES
         )
         return [state.palette.get(i, (0, 0, 0, 255)) for i in range(size)]
-    return state.old_palette or None
+    # A copy, for ``_read_old_palette``'s in-place edit: a snapshot that aliased
+    # the live table would be rewritten by the next frame's chunk.
+    return list(state.old_palette) if state.old_palette else None
 
 
 # --- from the parse to a document --------------------------------------------
@@ -1525,7 +1580,21 @@ def _build_tilemap_cel(
     size = (sprite.width, sprite.height)
     grid_h, grid_w = grid_shape(size, tile_w, tile_h)
     refs = gid.empty_layer(grid_w, grid_h)
-    src = cel.refs if cel.refs is not None else np.zeros((0, 0), dtype=gid.DTYPE)
+    if cel.refs is None:
+        # The 2026-10-14 audit, finding inker-codecs-12: a raster cel on a
+        # tilemap layer opened as an empty grid with no word, though this
+        # module refuses pixel-changing input and ``aseout`` refuses the mirror
+        # case by name. Refused here the same way.
+        raise ValueError(
+            f"a raster cel on layer {cel.layer} sits on a tilemap layer, which"
+            " holds tiles rather than pixels; this build cannot open it"
+        )
+    src = cel.refs
+    if layer.tileset in sprite.shifted_tilesets:
+        # Erased cells are 0 (the blank tile put in front); everything else
+        # names the same tile one place further along the strip.
+        shifted = src + gid.DTYPE(1)
+        src = shifted if cel.erased is None else np.where(cel.erased, gid.DTYPE(0), shifted)
     tx, ty = cel.x // tile_w, cel.y // tile_h
     src_h, src_w = src.shape
     x0, y0 = max(0, tx), max(0, ty)
@@ -1842,6 +1911,7 @@ def _slices_for(
     over every frame was still slices x frames across a file's chunks.
     """
     out: list[Slice] = []
+    overrides_held = 0
     for entry in sprite.slices:
         keys = sorted(entry.keys, key=lambda pair: pair[0])
         first_frame, base = keys[0]
@@ -1862,7 +1932,18 @@ def _slices_for(
             if key is base:
                 continue
             stop = keys[position + 1][0] if position + 1 < len(keys) else len(frames)
-            for index in range(max(0, at), min(stop, len(frames))):
+            first, last = max(0, at), min(stop, len(frames))
+            # Charged before the range is expanded, not after: a raise that
+            # only fired once the dict held the overrides would have paid the
+            # allocation it exists to refuse.
+            overrides_held += max(0, last - first)
+            if overrides_held > _MAX_SLICE_OVERRIDES:
+                raise ValueError(
+                    f"this .aseprite's slices cover more than the"
+                    f" {_MAX_SLICE_OVERRIDES} frame-by-slice keys this build"
+                    " will open"
+                )
+            for index in range(first, last):
                 overrides[frames[index].uid] = key
         out.append(
             Slice(
@@ -1894,7 +1975,7 @@ def document_from_aseprite(
     this function's, and not the reason ``format="ora"`` is stamped here.
     """
     from .document import Document, matte_for
-    from .ora import _install_groups, _layer_budget
+    from .ora import _install_groups, _layer_budget, fit_slices
     from .undo import UNDO_BYTES, UndoStack
 
     sprite = parse(data)
@@ -1927,6 +2008,22 @@ def document_from_aseprite(
     tileset_slots: dict[int, TilesetSlot] = {}
     for tileset_id, ase_tileset in sprite.tilesets.items():
         pixels = _decode_tileset(ase_tileset, sprite, tileset_lut)
+        if not ase_tileset.zero_is_empty and pixels[: ase_tileset.tile_h, :, 3].any():
+            # The 2026-10-14 audit, finding inker-codecs-11: with flag 4 off,
+            # tile 0 is a real tile and an erased cell is 0xffffffff, but this
+            # model's id 0 is the empty cell *and* strip tile 0 (it requires
+            # that tile blank), so an erased cell translated to 0 drew the
+            # file's tile 0 under a warning that said it was read as empty. A
+            # blank tile goes in front instead, every reference moves up by
+            # one (``_build_tilemap_cel``), and 0 is genuinely empty.
+            pixels = np.concatenate(
+                [np.zeros((ase_tileset.tile_h, ase_tileset.tile_w, 4), np.uint8), pixels]
+            )
+            sprite.shifted_tilesets.add(tileset_id)
+            warn(
+                "a tileset whose tile 0 holds art got an empty tile in front of"
+                " it, so its tile numbers moved up by one; the drawing is unchanged"
+            )
         real = Tileset(
             name=ase_tileset.name,
             pixels=pixels,
@@ -1952,6 +2049,21 @@ def document_from_aseprite(
     history = UndoStack(UNDO_BYTES if budget is None else budget)
 
     if animated:
+        # The 2026-10-14 audit, finding inker-codecs-08: the still branch below
+        # charges its empty rows against ``_layer_budget``, because opening
+        # composes every row at canvas size, and this branch built a Track per
+        # row with no ceiling at all -- 8,000 empty layers at 1024x1024 took
+        # 24 s to open (3 ms each), and a 65,535-layer file at 8192x8192 is
+        # hours. A row with a cel is already charged to ``decoded_pixels`` in
+        # ``_build_cels``; only the rows with none are free, so only they count.
+        rows_with_cels = {row for row, _ in made}
+        empty_rows = sum(1 for index in image_rows if index not in rows_with_cels)
+        allowed_empty_rows = _layer_budget(width, height)
+        if empty_rows > allowed_empty_rows:
+            raise ValueError(
+                f"this drawing holds more than the {allowed_empty_rows} "
+                f"empty layers of {width}x{height} this build will open"
+            )
         tracks = {
             index: Track(
                 name=sprite.layers[index].name,
@@ -2150,6 +2262,11 @@ def document_from_aseprite(
         member_uids = {index: layers[at].uid for at, index in enumerate(image_rows)}
 
     doc.tilesets.extend(tileset_slots.values())
+    # The 2026-10-14 audit, finding inker-sheets-02: an Aseprite slice may hang
+    # off the canvas, but ``add_slice``/``set_slice`` clamp every slice the
+    # editor holds, and an unclamped one exports a wrapped crop and raises an
+    # IndexError in the nine-slice stretch. The .ora reader fits the same way.
+    fit_slices(doc.slices, (width, height))
 
     nodes, group_of = _group_tree(sprite, member_uids)
     # ``ora``'s installer and not a second one: what it does past assigning the

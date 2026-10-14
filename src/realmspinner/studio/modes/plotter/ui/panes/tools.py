@@ -805,6 +805,12 @@ def _resize_form(ctx: Any, tab: Any) -> None:
     # so the button never acted and the map could not be resized at all. The
     # suffix is invisible to the reader and makes the id its own.
     if widgets.primary_button("Resize##apply", (-1, 0)):
+        locked = _resize_locked_layer(
+            tab.doc, int(form["w"]), int(form["h"]), int(form["dx"]), int(form["dy"])
+        )
+        if locked is not None:
+            plotter_mode._locked_toast(ctx, locked)
+            return
         try:
             tab.doc.resize(
                 int(form["w"]), int(form["h"]),
@@ -824,7 +830,17 @@ def _resize_form(ctx: Any, tab: Any) -> None:
     # Tiled's Map -> Autocrop. Delegated to ``resize`` verbatim inside the
     # document, so objects travel by the rule that already exists.
     if controls.button("Autocrop to content", (-1, 0)):
-        if tab.doc.autocrop():
+        bounds = tab.doc.content_bounds()
+        shrinks = bounds is not None and bounds != (
+            0,
+            0,
+            tab.doc.width - 1,
+            tab.doc.height - 1,
+        )
+        locked = _offset_locked_layer(tab.doc, "map") if shrinks else None
+        if locked is not None:
+            plotter_mode._locked_toast(ctx, locked)
+        elif tab.doc.autocrop():
             ctx.state.preview.pop(key, None)
             tab.view.fitted = False
         else:
@@ -946,6 +962,22 @@ def _offset_form(ctx: Any, tab: Any) -> None:
             return
         if not moved:
             ctx.toast("That offset moves nothing.", "warn")
+
+
+def _resize_locked_layer(doc: Any, width: int, height: int, dx: int, dy: int) -> Any:
+    """The first locked tile layer a Resize would shift or crop, or ``None``.
+
+    Offset refused to move a locked layer, but Resize's offset fields, a
+    shrinking Resize and Autocrop shift or crop the same cells through another
+    door with no lock check (the 2026-10-14 audit, finding plotter-mode-15).
+    Growing with no offset moves nothing, so it is allowed; an infinite map's
+    window slide moves no content either.
+    """
+    if doc.infinite:
+        return None
+    if not (dx or dy or width < doc.width or height < doc.height):
+        return None
+    return _offset_locked_layer(doc, "map")
 
 
 def _offset_locked_layer(doc: Any, scope: str) -> Any:

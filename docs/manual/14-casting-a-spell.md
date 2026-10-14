@@ -32,7 +32,8 @@ step: `Ctrl+Z` takes the whole group away, `Ctrl+Y` brings it back.
 
 Click any layer of the group. The **inspector** appears under the timeline's transport: seed,
 frame rate, look, the frames and loop flag of every phase, and a row of buttons. Under them, a
-layer picker and every parameter the picked ingredient has.
+layer picker and every parameter the picked ingredient has. The frame rate is part of the render: it
+also sets how long each frame the effect covers plays.
 
 Pick **Core** and set *color_outer* to a cold blue. Let go. About a quarter of a second after the
 slider rests the effect renders again in the background, the timeline updates when it lands, and
@@ -43,8 +44,9 @@ what a value starts at and what it ends at across the phase. Change the **seed**
 arrangement of the same sparks.
 
 Or type it: put *colder, more sparks, no smoke* in the prompt field under the buttons and press
-Enter. The toast lists what each word did. If Flourish's small optional text model is installed
-(Settings → Models) it reads the prompt directly; otherwise, or if it times out, this falls back
+Enter. The toast lists what each word did. If Flourish's small optional text model has been placed
+by hand in the `text-instruct` directory under the model root (it has no row in Settings, so
+nothing installs it) it reads the prompt directly; otherwise, or if it times out, this falls back
 to a fixed vocabulary of colours and adjectives, which is enough for most of what you would say to
 a fireball; whatever it maps a word to is clamped exactly like a slider.
 
@@ -75,9 +77,11 @@ Insert the same effect again with the look on **Pixel art**. This time the group
 the finished composite, hard alpha, one palette across every frame — because the pixel pass runs on
 the composite and a stack of separately quantised layers would not add up to it. The palette is
 derived from every frame of the effect at once, so the cast's glow and the dissipate's ash share
-one set of colours; an indexed document's own palette is used instead when it has one.
+one set of colours; a document's own palette is used instead when it has one, and a grayscale
+document gets greys. The second effect's tags take a `_2` suffix (`impact_2`), so regenerating one
+never touches the other's.
 
-With **Four directions** or **Eight**, the simulation itself is turned — the same spread, the same
+With **Four directions** or **Eight directions**, the simulation itself is turned — the same spread, the same
 gravity, facing down — and each phase gets a tag per facing: `impact/E`, `impact/S`, and so on.
 Not every effect can afford that. Fireball is already over the bake ceiling at more than one facing,
 and the Facings combo greys out whichever counts the chosen preset cannot bake, naming the cost, so

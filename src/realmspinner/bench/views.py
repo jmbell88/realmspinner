@@ -24,6 +24,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..core.safeio import atomic
 from ..kernels import sheet
 
 # Which of the eight yaws is meant to be the camera-matched view, as an offset
@@ -40,6 +41,7 @@ from ..kernels import sheet
 # 0 is not the matched view of anything. Any fidelity metric built on top of
 # this has to be max-over-8-views. See dev/measurements/
 # 2026-08-04-view-calibration.md for the tables and the reasoning.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 REFERENCE_YAW = 0.0
 REFERENCE_ELEVATION = 20.0
 
@@ -137,7 +139,7 @@ def render_views(
         "frames": [f"{i:04d}.png" for i in range(len(plan.cells))],
     }
     payload["worker"] = {"frames": result.get("frames")}
-    (out_dir / SIDECAR).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    atomic.write_text(out_dir / SIDECAR, json.dumps(payload, indent=2))
     return payload
 
 

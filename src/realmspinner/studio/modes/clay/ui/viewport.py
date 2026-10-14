@@ -31,6 +31,23 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 
+def advance_playback(view: Any, doc: Any, dt: float) -> bool:
+    """Tick the clip once for a drawn frame -- unless a transform drag is live. -> whether the
+    playhead moved.
+
+    The 2026-10-14 audit, finding clay-view-04: the tick ran every frame regardless, and
+    ``set_rig_time`` clears ``live_pose``, so a bone dragged while a clip played had its
+    held values wiped each frame (the bone snapped back to the clip) and its commit read
+    a press-time ``was`` from one playhead time and keyed at a later one. The playhead
+    holds still for the length of the drag and plays on when it ends.
+    """
+    if view.dragging:
+        return False
+    from .. import timeline as clay_timeline
+
+    return clay_timeline.tick(doc, dt)
+
+
 class ClayViewport:
     """Clay's pane drawing, mixed into :class:`~.main.App`.
 
@@ -100,7 +117,6 @@ class ClayViewport:
         from ....main import TARGET_FPS
         from ....panes import overlay
         from .. import texture_link
-        from .. import timeline as clay_timeline
         from .panes import header as clay_header
         from .panes import hud as clay_hud
         from .panes import menu as clay_menu
@@ -199,7 +215,7 @@ class ClayViewport:
         # Playback advances the playhead by the time since the last frame, before the view
         # draws it. ``delta_time`` for the reason Inker's playback uses it: a stalled frame
         # stalls the clip by the same amount it stalls everything else on screen.
-        clay_timeline.tick(tab.doc, imgui.get_io().delta_time)
+        advance_playback(view, tab.doc, imgui.get_io().delta_time)
         texture = view.draw(tab.doc, rect, 1.0 / TARGET_FPS)
         imgui.image(widgets.texture_ref(texture), (rect[2], rect[3]), (0, 1), (1, 0))
         self._build_hovered = imgui.is_item_hovered()

@@ -207,9 +207,9 @@ def _dedupe_pose_name(name: str, taken: set[str]) -> str:
     """The first ``"<name> N"`` (N >= 2) not already in *taken*.
 
     Exact-match, matching ``service.clips._check_shape``'s own pose-name
-    check -- not ``poselib.next_copy_name``'s case-folded ``.NNN`` scheme,
-    which is a different collision universe (library pose *records*, not the
-    keys inside one clip library document).
+    check -- not the case-folded ``.NNN`` copy-name scheme the retired pose
+    library used, which was a different collision universe (library pose
+    *records*, not the keys inside one clip library document).
     """
     if name not in taken:
         return name

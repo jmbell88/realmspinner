@@ -346,7 +346,7 @@ def finish(root: Path) -> None:
 
 
 def staged_dirs(root: Path) -> set[str]:
-    """The staging trees an open journal is protecting, as absolute strings.
+    """The staging and backup trees an open journal is protecting, as strings.
 
     The staging sweep spares these. Without it, a recovery and a sweep race in
     exactly the wrong direction: the sweep sees ``.thing.fetch.part``, calls it
@@ -365,11 +365,20 @@ def staged_dirs(root: Path) -> set[str]:
             except OSError:
                 return set()
         return set()
-    return {
-        str(Path(entry["staging"]))
-        for entry in (data.get("entries") or [])
-        if isinstance(entry, dict) and entry.get("staging")
-    }
+    # The paired ``.fetch.bak`` tree is spared too (the 2026-10-14 audit,
+    # finding service-02). It holds the *original* files ``move_into`` parked
+    # before overwriting them, and both sweeps match ``.fetch.bak`` by suffix.
+    # A recovery that failed on a locked file retains the journal precisely so a
+    # later run can put those files back; the next download's sweep deleted the
+    # only copy of the original weights.
+    spared: set[str] = set()
+    for entry in data.get("entries") or []:
+        if isinstance(entry, dict) and entry.get("staging"):
+            staging = Path(entry["staging"])
+            spared.add(str(staging))
+            # ``dest`` is ignored once a staging path is given, as in ``recover``.
+            spared.add(str(backup_dir(Path(entry.get("dest") or staging), staging)))
+    return spared
 
 
 def recover(root: Path) -> list[str]:

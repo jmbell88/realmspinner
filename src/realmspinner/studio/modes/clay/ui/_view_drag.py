@@ -363,10 +363,12 @@ class DragOps:
                 if not uids:
                     self._toast(gestures.POSE_NEEDS_BONE)
                     return False
-            # A weighted mesh's own transform is ignored when it is exported, so a drag
-            # that moved it would show a placement no file keeps: its bones are what move
-            # it. Dropped with a sentence, the way a hidden object is dropped silently
-            # above because that one needs no explaining.
+            # A weighted mesh moved alone is carried away from the bones its weights
+            # belong to, so a drag that moved it would show a placement no file keeps: its
+            # bones are what move it (the 2026-10-14 audit, finding clay-document-13: the
+            # old wording said its transform is ignored on export, which is false). Dropped with a
+            # sentence, the way a hidden object is dropped silently above because that one
+            # needs no explaining.
             weighted = [uid for uid in uids if index[uid].skin is not None]
             if weighted:
                 names = ", ".join(repr(index[uid].name) for uid in weighted)
@@ -1476,6 +1478,7 @@ class DragOps:
         once and only the positions and normals are recomputed per frame. A
         200k-triangle import went 368 ms a frame to 92 -- see
         ``dev/measurements/2026-08-16-interactive-defects.md``.
+        (Document lost with the 2026-09-20 backup; re-measure before changing this.)
         """
         # The overlay first, and whatever the GPU half below does: a
         # ``ValueError`` from ``update_vertices`` returning from here before

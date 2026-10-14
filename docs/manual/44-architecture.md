@@ -111,7 +111,7 @@ test never exercises a different path from the one the button presses. And there
 the UI and the queue except this layer: no adapter, no serialisation, no protocol to keep in sync.
 
 The functions are free functions rather than methods on a god object on purpose. The split into
-modules is by subject — `jobs`, `rig`, `sheets`, `export`, `files`, `derive`, `system` — and folding
+modules is by subject — `jobs`, `rig`, `sprites`, `export`, `files`, `derive`, `system` — and folding
 them into a single class would only put that structure back inside one file.
 
 `RealmspinnerService` itself holds the small amount of state the functions share: the config, the store,
@@ -138,10 +138,13 @@ triangle budget. So a partial parameter update goes through `merge_params`, whic
 applies the changes and writes it back under one hold of the lock. Neither writer touches the keys
 the other cares about, so merging loses nothing.
 
-The schema itself is append-only. `MIGRATIONS` is a list of statement batches, each applied in one
-transaction and bumping SQLite's `user_version` by one; a fresh database gets the base schema and
-then replays every entry, so a new install and a two-year-old one converge on the same shape. An
-entry that has shipped is never edited, only followed by another.
+The schema itself is append-only. `MIGRATIONS` is a list of statement batches, each run in order and
+then bumping SQLite's `user_version` by one; a fresh database gets the base schema and then replays
+every entry, so a new install and a two-year-old one converge on the same shape. An entry is **not** one
+transaction — SQLite runs DDL and `PRAGMA` in autocommit — so one that fails part-way leaves its earlier
+statements applied and the version unbumped, and the next open replays the whole entry. What makes that
+safe is the per-statement guard on `ADD COLUMN`, not atomicity, and it is the property to write a new
+entry against. An entry that has shipped is never edited, only followed by another.
 
 One startup detail is a deliberate refusal to be clever: a job still marked `running` when the
 process starts was orphaned by a crash, and it is surfaced as such rather than silently re-queued.

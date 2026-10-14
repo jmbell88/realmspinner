@@ -6,7 +6,9 @@ this module is pure routing logic, called from the frame thread and from
 either without dragging a GL context or an event loop in.
 
 **Slot plan.** ``pipelines/llama.py`` runs the server with
-``PARALLEL_SLOTS = 2`` (llama.py:62) and ``CTX_SIZE = 16384`` (llama.py:63):
+``PARALLEL_SLOTS = 2`` and ``CTX_SIZE = 16384`` (named constants there, not
+line numbers -- the 2026-10-14 audit, finding familiar-core-10, found the cited
+lines had drifted onto unrelated code):
 slot 0 is reserved for the router's own short, constrained generation
 (:data:`ROUTE_SCHEMA` against :data:`SKILLS`) and slot 1 for the routed
 skill's generation, so a long-running skill reply never blocks the next

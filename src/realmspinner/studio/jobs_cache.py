@@ -64,6 +64,17 @@ SEARCH_KEY = "jobs-search"
 #: the ceiling is a frame-time bound as much as a query one.
 
 
+class _Reading(dict):
+    """A search reading that remembers which (generation, filter) asked for it.
+
+    A ``dict`` subclass with the stamp as an attribute rather than a key, so the
+    reading's own shape -- ``ids``, ``rows`` and the semantic pair -- is what it
+    always was and a caller that compares key sets still sees exactly that.
+    """
+
+    search_key: Any = None
+
+
 class JobsCache:
     """A recent job list plus what changed since the frame before."""
 
@@ -313,6 +324,21 @@ class JobsCache:
             "files": files_snapshot,
             "window_generation": window_generation,
         }
+        # The 2026-10-14 audit, finding shell-documents-03: this COUNT(*) used
+        # to run in :meth:`adopt`, on the frame thread, taking the JobStore
+        # RLock the asyncio worker holds across its writes -- with a full page
+        # every 5 s and after every UI action the window froze behind it. It
+        # runs here, on the task thread, and rides the reading; ``adopt`` only
+        # publishes the figure. Same cadence as before: only a full page can
+        # disagree with ``len(jobs)``, and only when due or after a UI action.
+        if len(top) + len(old) >= self.limit and (
+            self._read_was_dirty or time.monotonic() >= self._next_count
+        ):
+            try:
+                reading["total"] = int(self.svc.store.count())
+            except Exception as exc:  # a count is not worth failing the refresh over
+                log.exception("could not count the job list")
+                reading["count_error"] = str(exc)
         if self._probe_trash:
             try:
                 reading["trash_present"] = bool(self.svc.store.trashed())
@@ -382,15 +408,16 @@ class JobsCache:
         if len(jobs) < self.limit:
             self.total = len(jobs)
             self.count_error = None
-        elif self._read_was_dirty or now >= self._next_count:
+        elif "total" in reading or "count_error" in reading:
+            # Taken by :meth:`read` on the task thread (shell-documents-03, the
+            # 2026-10-14 audit); a full page whose count was not due carries
+            # neither key and keeps the last figure.
             self._next_count = now + COUNT_SECONDS
-            try:
-                self.total = self.svc.store.count()
-            except Exception as exc:  # a count is not worth failing the refresh over
-                log.exception("could not count the job list")
+            if "count_error" in reading:
                 self.total = len(jobs)
-                self.count_error = str(exc)
+                self.count_error = str(reading["count_error"])
             else:
+                self.total = int(reading["total"])
                 self.count_error = None
         self.by_id = {j["id"]: j for j in jobs}
         if on_transition is not None:
@@ -645,6 +672,9 @@ class JobsCache:
         """
         from .state import parse_query
 
+        scoped = getattr(filters, "job_ids", None)
+        if scoped is not None:
+            return self._request_scoped(filters, runner, scoped)
         text = (filters.text or "").strip()
         terms, fields = parse_query(text) if text else ([], [])
         tags = tuple(v for f, v in fields if f == "tag")
@@ -712,11 +742,62 @@ class JobsCache:
                 # fetches only rows the window does not already hold.
                 frozenset(self._last_status),
                 semantic,
+                key,
             )
         )
         if submitted:
             self._search_key = key
         return submitted
+
+    def _request_scoped(self, filters: Any, runner: Any, scoped: Any) -> bool:
+        """The widen for a list scoped to named jobs (``Filters.job_ids``).
+
+        The 2026-10-14 audit, finding shell-home-library-04: Review's "Show
+        examples" sets only ``job_ids``, and this method's ordinary predicates
+        (text, status, favourites) are all at rest then, so no search was ever
+        asked for -- a finding drawn from sweep units older than the newest
+        ``LIST_LIMIT`` rows opened the Library with some or all of its examples
+        missing and "Nothing matches". The named ids the window does not hold
+        are pulled in by id instead, through the same ``SEARCH_KEY`` door, and
+        merged before ``Filters.matches`` runs. -> whether a fetch was submitted.
+        """
+        wanted = frozenset(str(job_id) for job_id in scoped)
+        key = (self._generation, "job_ids", wanted)
+        if key == self._search_key:
+            return False
+        # No meaning search applies to a scope, and a stale answer for the
+        # words the box held before must not outlive it.
+        self._publish_semantic("", frozenset())
+        have = frozenset(self._last_status)
+        if not (wanted - have):
+            self._search_key = key
+            self._widened = {}
+            return False
+        submitted = bool(runner.submit(SEARCH_KEY, self._fetch_ids, wanted, have, key))
+        if submitted:
+            self._search_key = key
+        return submitted
+
+    def _fetch_ids(
+        self, wanted: frozenset[str], have: frozenset[str], key: Any = None
+    ) -> dict[str, Any]:
+        """The blocking half of :meth:`_request_scoped` -- the rows for the
+        named ids the window does not hold, off the frame thread. Same
+        reading shape as :meth:`_search`, so :meth:`adopt_widen` publishes it."""
+        rows: dict[str, dict[str, Any]] = {}
+        ids = sorted(wanted)
+        for job_id in ids:
+            if job_id in have:
+                continue
+            try:
+                rows[job_id] = svc_jobs.get_job(self.svc, job_id)
+            except Exception:
+                # A job deleted for good since the finding was written has no
+                # row; the rest of its examples must still arrive.
+                log.debug("could not load example job %s", job_id, exc_info=True)
+        reading = _Reading(ids=ids, rows=rows)
+        reading.search_key = key
+        return reading
 
     def _search(
         self,
@@ -728,6 +809,7 @@ class JobsCache:
         trash: bool,
         have: frozenset[str] = frozenset(),
         semantic_text: str = "",
+        key: Any = None,
     ) -> dict[str, Any]:
         """The blocking half of :meth:`request_widen` -- one ``search_ids``
         call and the rows it names, off the frame thread. ->
@@ -791,7 +873,11 @@ class JobsCache:
                 rows[job_id] = svc_jobs.get_job(self.svc, job_id)
             except Exception:
                 log.exception("could not load search match %s", job_id)
-        reading: dict[str, Any] = {"ids": ids, "rows": rows}
+        # ``key`` is the (generation, filter) this search was asked for, so
+        # :meth:`adopt_widen` can tell a search for a box that has since been
+        # cleared from one that still applies (shell-documents-09).
+        reading: dict[str, Any] = _Reading(ids=ids, rows=rows)
+        reading.search_key = key
         if semantic_ids is not None:
             reading["semantic"] = sorted(semantic_ids)
             reading["semantic_text"] = semantic_text
@@ -821,6 +907,17 @@ class JobsCache:
             return
         rows = reading.get("rows")
         if not isinstance(rows, dict):
+            return
+        # The 2026-10-14 audit, finding shell-documents-09: a search still in
+        # flight when the filter box was cleared (or changed to words it was
+        # not run for) landed here afterwards and folded its older, out-of-window
+        # rows into ``jobs`` and ``by_id`` -- rows from a query that no longer
+        # applies, in the unfiltered list, until the next ``adopt``. A reading
+        # stamped with the key it was asked for is dropped once that is not the
+        # key ``request_widen`` last recorded. An unstamped reading (a direct
+        # ``_search`` call) is the caller's own business and lands as before.
+        stamped = getattr(reading, "search_key", None)
+        if stamped is not None and stamped != self._search_key:
             return
         # Kept for :meth:`adopt`, which rebuilds ``jobs`` from the window at
         # every refresh and would otherwise drop these until the next search.

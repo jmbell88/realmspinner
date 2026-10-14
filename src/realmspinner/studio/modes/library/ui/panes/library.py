@@ -135,10 +135,9 @@ def draggable_mesh(ctx: Any, job: Any) -> None:
 def can_drag_mesh(job: Any) -> bool:
     """A finished mesh, which is what Mason's viewport places.
 
-    ``poser_mode.riggable``'s predicate for "a finished mesh job", minus its
-    ``rig.glb`` requirement -- Mason places the mesh itself, not a rig beside
-    it. Deliberately a **second** predicate rather than ``can_drag`` widened
-    to accept ``stage == "model"`` as well as ``"reference"``: Create's 3D
+    "A finished mesh job" without a ``rig.glb`` requirement -- Mason places the
+    mesh itself, not a rig beside it. Deliberately a **second** predicate rather than
+    ``can_drag`` widened to accept ``stage == "model"`` as well as ``"reference"``: Create's 3D
     source slot only ever reads ``DRAG_JOB``, so widening the one predicate
     both drag sources shared would not change what that slot sees, but it
     would change what a *reader* of this function believes a liftable card
@@ -223,8 +222,8 @@ def draw(ctx: Any) -> None:
     _measure_footer(below)
     # Top level, not nested in anything above: the popup's own
     # ``imgui.open_popup``/``begin_popup_modal`` pair has to run outside any
-    # popup or child window the rest of this frame opened, exactly as
-    # ``poser_send``'s modal does from the overlay.
+    # popup or child window the rest of this frame opened, as every modal
+    # drawn from an overlay has to.
     _draw_export_popup(ctx)
     _draw_convert_popup(ctx)
 
@@ -290,10 +289,32 @@ def _measure_footer(top: float) -> None:
 def _empty(ctx: Any) -> None:
     """Why the list is empty, in the three senses it can be."""
     if ctx.state.filters.trash:
+        # The 2026-10-14 audit, finding shell-home-library-06: this answered
+        # "The trash is empty." before it considered any filter, so a trash
+        # whose rows the text, status, kind or favourites filter was hiding read
+        # as holding nothing, and the user could skip a restore. Loaded rows
+        # that the filters hide are the workshop view's "Nothing matches".
+        if ctx.cache.jobs:
+            widgets.empty_state(
+                icons.TRASH,
+                "Nothing matches.",
+                "The trash has assets the filters above are hiding.",
+            )
+            return
         widgets.empty_state(
             icons.TRASH,
             "The trash is empty.",
             "Deleted assets wait here until you empty it.",
+        )
+        return
+    if getattr(ctx.state.filters, "job_ids", None) is not None:
+        # The scope is what is hiding the rest, and the way out is the "Show
+        # all" button the filter block draws -- not the filters, which are at
+        # rest (the 2026-10-14 audit, finding shell-home-library-03).
+        widgets.empty_state(
+            icons.IMAGE,
+            "Nothing matches.",
+            "The list is scoped to a few examples. Press Show all to leave them.",
         )
         return
     fresh = not ctx.cache.jobs
@@ -361,13 +382,49 @@ def filtering(filters: Any) -> bool:
     Read off the fields rather than tracked, so a filter added later is
     included by construction. ``sort``, ``descending`` and ``trash`` are
     excluded deliberately: they reorder or re-address, they do not hide.
+
+    ``job_ids`` counts: Review's "Show examples" scopes the list to a handful of
+    jobs, which hides everything else as surely as a text filter does (the
+    2026-10-14 audit, finding shell-home-library-03).
     """
     return bool(
         filters.text
         or filters.favorites_only
         or filters.status != "all"
         or filters.kind != "all"
+        or getattr(filters, "job_ids", None) is not None
     )
+
+
+def clear_scope(filters: Any) -> None:
+    """Lift the examples scope Review's "Show examples" set, back to the whole
+    workshop. The "Show all" button's whole action, apart from the drawing so it
+    can be asserted without a frame."""
+    filters.job_ids = None
+
+
+def scope_row(ctx: Any) -> bool:
+    """The "Scoped to N examples - Show all" affordance. -> whether it drew.
+
+    The 2026-10-14 audit, finding shell-home-library-03: ``Filters.job_ids`` was
+    assigned by Review's "Show examples" and then never cleared, shown or offered
+    a control anywhere in the Library -- the list showed a handful of jobs for
+    the rest of the session, the rail had no chip for it, and the empty state
+    said "Loosen the filters above" about filters that were all at rest. It is
+    drawn by both compositions of the Library (this pane's filter block and the
+    full window's rail), because the two write one ``Filters`` object.
+    """
+    filters = ctx.state.filters
+    scoped = getattr(filters, "job_ids", None)
+    if scoped is None:
+        return False
+    count = len(scoped)
+    widgets.muted_wrapped(
+        f"Scoped to {count} example{'s' if count != 1 else ''} from Review."
+    )
+    if controls.small_button("Show all##library-scope"):
+        clear_scope(filters)
+    return True
 
 
 #: Below this many rows the list is drawn whole. Every card is the same height,
@@ -613,6 +670,7 @@ def _filters(ctx: Any, jobs: list[Any]) -> None:
     not scale with either.
     """
     filters = ctx.state.filters
+    scope_row(ctx)
     imgui.set_next_item_width(-1)
     if _prefix_focus[0]:
         # A *command*, issued on the frame after a chip was clicked and never
@@ -911,10 +969,10 @@ def _card_body(ctx: Any, job: Any, queue_pos: dict[str, int] | None = None) -> N
         widgets.muted(f"{float(rank['score']) * 100:.0f}%")
         if imgui.is_item_hovered():
             imgui.set_tooltip(
-                "How well framed this reference is, how close it looks to the "
-                "profile's style anchor when there is one, and -- with "
+                "Order hint: how well framed this reference is, how close it looks "
+                "to the profile's style anchor when there is one, and -- with "
                 "PickScore installed -- how likely a person is to prefer it. "
-                "Advisory."
+                "A sorting aid, not a quality score."
             )
     if job["status"] == "queued":
         # Where in line it is: the queue used to be invisible past the pill.
@@ -1172,11 +1230,12 @@ def _overflow(ctx: Any, job: Any) -> None:
             compare(ctx, job_id)
         if ctx.rigging_available and controls.menu_item("Rig", "", False)[0]:
             run_action(ctx, job, "rig")
-        if (
-            ctx.rigging_available
-            and "rig.glb" not in files
-            and controls.menu_item("Rig by hand in Clay", "", False)[0]
-        ):
+        # Not gated on Blender: the 2026-10-14 audit, finding
+        # shell-home-library-07, found this item hidden on a machine without it
+        # although Clay holds bones, poses and animations itself since
+        # 2026-10-13 -- only "Weight with Blender" needs Blender, and that
+        # button carries its own reason (``clay.mode.rig_blocked_why``).
+        if "rig.glb" not in files and controls.menu_item("Rig by hand in Clay", "", False)[0]:
             run_action(ctx, job, "clay")
     widgets.divider()
     if controls.menu_item("Delete", "Delete", False)[0]:
@@ -1192,16 +1251,19 @@ def _trash_menu(ctx: Any, job_id: str) -> None:
     if controls.menu_item("Restore", "", False)[0]:
         restore_asset(ctx, job_id)
     if controls.menu_item("Delete permanently...", "", False)[0]:
-        ctx.confirms.ask(
-            dialogs.Confirm(
-                title="Delete permanently?",
-                message="The job and everything derived from it are removed from disk. "
-                "This cannot be undone.",
-                confirm_label="Delete",
-                cancel_label="Keep",
-                on_confirm=lambda: purge_asset(ctx, job_id),
-            )
-        )
+        ctx.confirms.ask(_purge_confirm(ctx, job_id))
+
+
+def _purge_confirm(ctx: Any, job_id: str) -> Any:
+    """The permanent delete's question, shared by the trash menu and the Delete key."""
+    return dialogs.Confirm(
+        title="Delete permanently?",
+        message="The job and everything derived from it are removed from disk. "
+        "This cannot be undone.",
+        confirm_label="Delete",
+        cancel_label="Keep",
+        on_confirm=lambda: purge_asset(ctx, job_id),
+    )
 
 
 def _open_folder(ctx: Any, job_id: str, job: Any = None) -> None:
@@ -1318,9 +1380,14 @@ def open_selected(ctx: Any) -> None:
     has nothing it could mean.
     """
     from ..... import asset_open
+    from .full import should_open_on_double_click
 
     job = ctx.cache.get(ctx.state.selected)
-    if job is None:
+    # The double-click's own gate (the 2026-10-14 audit, finding
+    # shell-home-library-08): Enter used to open a trashed row into Create or
+    # Clay where every action is live, although the menu offers it only
+    # Restore, and a queued or failed row has nothing to open.
+    if job is None or not should_open_on_double_click(job):
         return
     asset_open.open_asset(ctx, job)
 
@@ -1510,24 +1577,67 @@ def pick_and_import_mesh(ctx: Any) -> None:
     mesh a user already had could not enter at all. The only file-open path for
     a ``.glb`` was a drop onto Clay, which converts it into an editable Clay
     *document* (and, until 2026-10-13, refused a rigged one outright because Clay had no skinning).
-    So the supplied-base-mesh path that Poser's character-sheet stage (built
-    as Troupe, folded in by P9 2026-09-18) whole intake assumes had no door:
-    ``jobs.import_mesh`` was written, tested and reachable only from Clay
-    exporting its own work back out.
+    So a supplied base mesh had no door: ``jobs.import_mesh`` was written,
+    tested and reachable only from Clay exporting its own work back out.
 
     Nothing new happens to the file. It becomes an ordinary finished model row,
-    and every consumer inherits it at once -- render a sheet, Poser's pose
-    session, the triangle retarget, every export -- because all of them are
-    pure functions of ``model.glb``. That is the same payoff ``import_mesh``'s
+    and every consumer inherits it at once -- Clay's rig route, the triangle
+    retarget, every export -- because all of them are pure functions of
+    ``model.glb``. That is the same payoff ``import_mesh``'s
     own docstring claims for Clay, collected a second time for a door that
     costs nothing.
     """
     ctx.submit(IMPORT_MESH_KEY, _pick_and_import, ctx)
 
 
-def import_mesh_path(ctx: Any, path: Any) -> None:
-    """The same, for a file that arrived by drag and drop."""
-    ctx.submit(IMPORT_MESH_KEY, _read_and_import, ctx, Path(path))
+#: What a drop that found the import door taken is told.
+IMPORT_BUSY = "A mesh import is already running. Drop the file again once it finishes."
+
+
+def import_mesh_path(ctx: Any, path: Any) -> bool:
+    """The same, for a file that arrived by drag and drop. -> whether it started.
+
+    The answer is the door's, because the caller used to toast "Importing ..."
+    whatever ``submit`` said (the 2026-10-14 audit, finding shell-shell-pkg-03).
+    """
+    return bool(ctx.submit(IMPORT_MESH_KEY, _read_and_import, ctx, Path(path)))
+
+
+def import_mesh_paths(ctx: Any, paths: Any) -> bool:
+    """Several files from one drop, as the one task the key allows. -> whether it started.
+
+    The key is one for the whole mode, so N single-path submits kept the first
+    and had ``TaskRunner.submit`` refuse the rest silently (the 2026-10-14
+    audit, finding shell-shell-pkg-03). One task imports them in order; a file
+    that is refused (over the ceiling, not a mesh) is recorded in the result's
+    ``refused`` rather than costing the others their import.
+    """
+    return bool(ctx.submit(IMPORT_MESH_KEY, _read_and_import_many, ctx, [Path(p) for p in paths]))
+
+
+def _read_and_import_many(ctx: Any, paths: list[Path]) -> dict[str, Any]:
+    """Blocking; task thread only. -> the last imported row, plus the tally.
+
+    ``imported`` counts the rows made and ``refused`` is ``[(name, sentence)]``.
+    Raises the first refusal only when nothing was imported at all, so a batch
+    of bad files fails like a single bad file does.
+    """
+    last: dict[str, Any] | None = None
+    imported = 0
+    refused: list[tuple[str, str]] = []
+    first_error: Exception | None = None
+    for path in paths:
+        try:
+            last = _read_and_import(ctx, path)
+        except Exception as exc:  # noqa: BLE001 -- one bad file must not cost the rest
+            log.warning("could not import %s", path, exc_info=True)
+            first_error = first_error or exc
+            refused.append((path.name, str(exc) or exc.__class__.__name__))
+            continue
+        imported += 1
+    if last is None:
+        raise first_error or ValueError("There was no mesh to import.")
+    return {**last, "imported": imported, "refused": refused}
 
 
 def _pick_and_import(ctx: Any) -> dict[str, Any] | None:
@@ -1665,7 +1775,18 @@ def delete_asset(ctx: Any, job_id: str) -> None:
     of that is a property of the app rather than of each call site. The
     permanent version is :func:`purge_asset`, and the only thing that reaches
     it is the trash.
+
+    **In the trash view a row is already trashed**, so "move it to the trash"
+    is not a thing this can do. The 2026-10-14 audit, finding
+    shell-home-library-09: the Delete key reached here from the trash, re-stamped
+    ``deleted_at`` and toasted "Moved to trash." with an Undo that restored the
+    asset into the workshop -- a sentence that was false and an undo that went
+    further than the action had. It asks the permanent-delete question instead,
+    the one the row's own menu asks.
     """
+    if getattr(getattr(ctx.state, "filters", None), "trash", False):
+        ctx.confirms.ask(_purge_confirm(ctx, job_id))
+        return
     ctx.state.checked.discard(job_id)
     if ctx.state.selected == job_id:
         ctx.state.select(None)
@@ -1690,8 +1811,29 @@ def restore_asset(ctx: Any, job_id: str) -> None:
         ctx.submit(f"restore:{one}", svc_jobs.restore_job, ctx.svc, one)
 
 
+def _trashed_ids(ctx: Any, ids: list[str]) -> list[str]:
+    """The ids among ``ids`` whose loaded row is actually in the trash.
+
+    The trash's Restore and "Delete permanently..." act on the tick set, and
+    ``service.jobs.delete_job`` has no trashed check of its own, so a live id
+    that got into the set (the palette's "Show the trash" once left the
+    library's ticks standing) was removed from disk by the irreversible button
+    (the 2026-10-14 audit, finding shell-03). A row the cache does not hold is
+    left alone: the act is irreversible, so it needs proof, not an absence.
+    """
+    rows = (ctx.cache.get(job_id) for job_id in ids)
+    return [
+        job["id"] for job in rows if job is not None and job.get("deleted_at")
+    ]
+
+
 def purge_asset(ctx: Any, job_id: str) -> None:
     """Delete one trashed asset for real."""
+    row = ctx.cache.get(job_id) if getattr(ctx, "cache", None) is not None else None
+    if row is not None and not row.get("deleted_at"):
+        # A live asset is never purged from here (the 2026-10-14 audit,
+        # finding shell-03); the trash is the only way out of the library.
+        return
     ctx.state.checked.discard(job_id)
     if ctx.state.selected == job_id:
         ctx.state.select(None)
@@ -1837,16 +1979,20 @@ def _bulk_action(ctx: Any, key: str, picked: list[str], hidden: int) -> None:
     if key == "clear":
         ctx.state.checked.clear()
     elif key == "restore":
-        for job_id in picked:
+        for job_id in _trashed_ids(ctx, picked):
             restore_asset(ctx, job_id)
     elif key == "purge":
+        gone = _trashed_ids(ctx, picked)
+        if not gone:
+            return
         ctx.confirms.ask(
             dialogs.Confirm(
                 title="Delete permanently?",
-                message=_delete_message(len(picked), hidden) + " This cannot be undone.",
+                message=_delete_message(len(gone), min(hidden, len(gone)))
+                + " This cannot be undone.",
                 confirm_label="Delete",
                 cancel_label="Keep",
-                on_confirm=lambda: [purge_asset(ctx, j) for j in picked],
+                on_confirm=lambda: [purge_asset(ctx, j) for j in gone],
             )
         )
     elif key == "retry":
@@ -2518,6 +2664,26 @@ def _storage(ctx: Any, jobs: list[Any]) -> None:
 # prefix and this one must collide with none of them.
 TRASH_SIZE_KEY = "trash-size"
 TRASH_SIZE_SLOT = "trash_size"
+TRASH_SIZE_ASKED_SLOT = "trash_size_asked"
+#: How long a trash whose measurement has been asked for waits before it is asked
+#: again. Long enough that a failing read is a few attempts a minute, not sixty
+#: a second; a *successful* one never waits (the figure is then keyed current).
+TRASH_SIZE_RETRY_SECONDS = 10.0
+
+
+def _trash_size_quietly(svc: Any) -> dict[str, Any] | None:
+    """``service.jobs.trash_size``, answering None instead of raising.
+
+    The reading is a background one the user never asked for, so a failure has
+    nothing to tell them: the task's generic failure path toasts every error, and
+    ``main._on_task_done`` adopts only a dict, so None leaves the last figure
+    standing -- the arrangement ``UPDATE_CHECK_KEY``'s "auto" check makes.
+    """
+    try:
+        return svc_jobs.trash_size(svc)
+    except Exception:
+        log.debug("could not measure the trash", exc_info=True)
+        return None
 
 
 def measure_trash(ctx: Any, jobs: list[Any]) -> dict[str, Any] | None:
@@ -2563,7 +2729,20 @@ def measure_trash(ctx: Any, jobs: list[Any]) -> dict[str, Any] | None:
     # only reads and returns; ``main._on_task_done`` adopts the reading on
     # the frame thread, keyed by the ``tag`` so a late answer for a trash
     # that has since moved on is still discarded rather than believed.
-    ctx.submit(TRASH_SIZE_KEY, svc_jobs.trash_size, ctx.svc, tag=key)
+    #
+    # Asked at most once per ``TRASH_SIZE_RETRY_SECONDS`` for one trash, and
+    # through ``_trash_size_quietly``: the 2026-10-14 audit, finding
+    # shell-home-library-11, found a persistently failing store read re-asked
+    # every frame and each failure raising an uncoalesced "That did not work."
+    # toast for a figure the user never asked for. The stamp moves only when the
+    # runner accepted the submit, so a refused key (already in flight) is still
+    # re-asked next frame as above.
+    now = time.monotonic()
+    asked = ctx.state.preview.get(TRASH_SIZE_ASKED_SLOT)
+    if asked is not None and asked[0] == key and now - asked[1] < TRASH_SIZE_RETRY_SECONDS:
+        return cached[1] if cached else None
+    if ctx.submit(TRASH_SIZE_KEY, _trash_size_quietly, ctx.svc, tag=key):
+        ctx.state.preview[TRASH_SIZE_ASKED_SLOT] = (key, now)
     # The last measurement meanwhile, stale or not, exactly as the workshop
     # figure above is drawn: a number that vanishes while it is being re-taken
     # is a row that changes height every time something is restored.
@@ -2684,7 +2863,7 @@ def ask_clean(ctx: Any) -> None:
             "including ones you accepted and images you labelled, which is "
             "what the quality judge and the tier checks are measured against. "
             "The verdict rows survive; the pixels behind them do not. Your "
-            "pose library, style anchors and settings are kept. This cannot "
+            "style anchors and settings are kept. This cannot "
             "be undone.",
             confirm_label="Delete everything",
             cancel_label="Keep",

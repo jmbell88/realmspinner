@@ -160,7 +160,10 @@ def test_every_history_pushing_op_is_greyed_while_the_tab_is_busy(name):
         assert op.enabled(state, tab), f"{name} must be live on a ready tab (fixture)"
         _busy_variants(state, tab)[variant](True)
         assert not op.enabled(state, tab), f"{name} stayed enabled while {variant}"
-        assert inker_ops.reason_for(op, state, tab) == inker_ops.BUSY
+        # An open free transform has its own sentence since the 2026-10-14 audit's inker-mode-10
+        # (F31): "a save, an export or playback" was false with only a transform open.
+        expected = inker_ops.TRANSFORM_WHY if variant == "transforming" else inker_ops.BUSY
+        assert inker_ops.reason_for(op, state, tab) == expected
 
 
 def test_play_is_greyed_while_saving_or_transforming_but_stays_live_to_stop():
@@ -501,7 +504,10 @@ def test_a_greyed_op_names_busy_when_only_busy_greys_it():
                     continue
                 flipped.add(op.name)
                 said = inker_ops.reason_for(op, state, tab)
-                assert said == inker_ops.BUSY, (
+                # A transform names itself (the 2026-10-14 audit, finding inker-mode-10, F31);
+                # saving and playing are still "busy".
+                expected = inker_ops.TRANSFORM_WHY if variant == "transforming" else inker_ops.BUSY
+                assert said == expected, (
                     f"{op.name} is greyed only because the tab is {variant}, but says: {said!r}"
                 )
     # The sweep must actually have reached the rows the audit names.

@@ -230,9 +230,14 @@ def preview_note(ctx: Any, note: int) -> bool:
     if ctx.busy(f"{PREVIEW_PREFIX}{tab.uid}"):
         return False
 
-    from .engine import rsng
-
-    data = rsng.rsng_bytes(tab.doc)
+    # **Not a whole-document ``rsng_bytes`` (the 2026-10-14 audit, finding
+    # sirens-playback-02).** ``render_note`` reads the instrument table, the
+    # samples and the tempo and nothing else -- it builds its own one-pattern
+    # scratch song -- but the snapshot DEFLATEd every pattern and encoded every
+    # sample, on the frame thread, per typed note: ~40 ms with a minute of sample
+    # and ~350 ms with eight. ``snapshot`` copies the cheap, mutable parts and
+    # shares the sample arrays, which the document replaces and never edits.
+    doc = tab.doc.snapshot()
     uid, value, kind = int(state.instrument), int(note), _caret_kind(ctx, tab)
 
     def run() -> dict[str, Any]:
@@ -241,7 +246,6 @@ def preview_note(ctx: Any, note: int) -> bool:
         from .engine import synth
 
         try:
-            doc = rsng.read_rsng(data, reserve=False)
             samples = synth.render_note(
                 doc, uid, value, kind=kind, rows=PREVIEW_ROWS
             )
@@ -622,6 +626,17 @@ def follow_playhead(ctx: Any) -> bool:
     tab = state.active
     if tab is not None and tab.doc.pattern(pattern) is None:
         return False
+    # **Nor onto a row the pattern no longer has (the 2026-10-14 audit, finding
+    # sirens-playback-01).** The same stale row map, the other half of the same
+    # skip: the Rows slider shortens the playing pattern while the old render
+    # still names row 40, and the caret followed it to row 40 of a 16-row
+    # pattern. Every hex digit typed after that raised IndexError in
+    # ``write_hex`` ("Something went wrong handling that action") until playback
+    # ended, because Follow is on by default.
+    if tab is not None:
+        owner = tab.doc.pattern(pattern)
+        if owner is not None and row >= owner.rows:
+            return False
     # **The order index moves with the caret, not only the pattern and row
     # (the 2026-09-08 audit, finding sirens-02).** A pattern reused at two
     # order entries has the same pattern/row answer at both, so the early

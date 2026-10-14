@@ -59,6 +59,7 @@ class Advisory(str):
     is worth telling somebody about and nowhere near a verdict. An advisory
     that blocked would be the app claiming a certainty the corpus does not
     support.
+    (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 
     Same ``field`` contract as ``Problem`` so one repair helper can serve both.
     """

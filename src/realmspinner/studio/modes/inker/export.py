@@ -393,7 +393,7 @@ def export_sheet(ctx: Any, tab: InkerDoc | None = None, *, repeat: bool = False)
     the tab is locked (``saving``, which already refuses every mutation), a
     stepper is parked on the mode state, and :func:`pump_export` flattens one
     frame per app frame until the work list is done. Then, and only then, the
-    encode is submitted. This is ``viewer/sheet.StripRender``'s answer to
+    encode is submitted. This is the answer the retired direction-strip preview gave to
     exactly the same problem -- sixteen GPU readbacks in one frame versus
     sixteen frames of one -- at a different layer.
     """

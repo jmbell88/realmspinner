@@ -9,9 +9,12 @@ says both before the button rather than after. A retarget is a couple of seconds
 of gltfpack; this queues ten SDXL passes (one per ``retexture.VIEWS`` entry)
 around two Blender runs, so it is a
 job with a place in the queue. And a retarget makes a rig, its poses and its
-sheets describe a mesh that no longer exists, where a re-texture makes none of
-them stale -- a rig references geometry, not pixels. What it *does* invalidate
-is the exports that carry the skin, and the service names them.
+sheets describe a mesh that no longer exists, where a re-texture leaves the rig's
+*geometry* valid -- a rig references geometry, not pixels. What it does
+invalidate is every file that carries the skin: the exports the service rebuilds,
+and the rig-bearing GLBs it does not (``rig.glb`` is a Blender export that
+embeds the old base-colour texture, and each baked pose and ``animated.glb`` is
+derived from it), which :func:`rig_skin_note` names before the button.
 
 The bake's one limitation is stated per run rather than papered over: an
 *un-anchored* run has no occlusion test, so an overhang's front-view colours
@@ -35,7 +38,7 @@ from ...service import jobs as svc_jobs
 from ...service.validation import MAX_PROMPT
 from .. import controls, forms, theme, widgets
 from ..manual import render as manual_render
-from . import model_gate
+from . import model_gate, remesh_panel
 
 # The 2026-09-07 audit, finding create-01: ``ctx.state.field_errors`` is one
 # flat, unnamespaced dict, and this panel's "strength" and "texture_size"
@@ -91,6 +94,16 @@ def draw(ctx: Any, job: Any) -> None:
     if not widgets.header("Surface texture", default_open=False):
         return
     manual_render.help_button(ctx, "retexture")
+
+    # Before the form, ``remesh_panel``'s gate and wording: a re-texture runs
+    # Blender twice (``op_views`` then ``op_project``) and the job fails at the
+    # first of them without it, so a live button on a host with no Blender queued
+    # a job that could only die (the 2026-10-14 audit, finding create-panes-03).
+    if not remesh_panel.blender_available(ctx):
+        widgets.muted_wrapped(
+            "A re-texture runs in Blender, which is not installed (the rig extra)."
+        )
+        return
 
     job_id = job["id"]
     form = _form(ctx, job_id)
@@ -251,14 +264,36 @@ def _warn(ctx: Any, job: Any, form: dict[str, Any]) -> None:
     widgets.muted_wrapped(
         "The current surface is kept under Earlier meshes below, so this can be undone."
     )
-    if "rig.glb" in set(job.get("files") or []):
-        # Said out loud rather than left as an absence: the retarget panel two
-        # headers up warns about exactly these, so silence here would read as an
-        # oversight rather than as the answer.
-        widgets.muted("The rig, its poses and its sheets are unaffected.")
+    skin_note = rig_skin_note(present)
+    if skin_note:
+        # Said out loud rather than left as an absence, and *not* as "unaffected":
+        # the 2026-10-14 audit, finding create-panes-01, found ``rig.glb``
+        # embedding the old base-colour texture (a Blender export), untouched by
+        # a re-texture, so the Pose viewport, the rigged download, every baked
+        # pose and ``animated.glb`` all kept the old skin while this line said
+        # the rig was safe.
+        widgets.text_colored(theme.WARN, skin_note)
     note = occlusion_note(bool(form["depth"]))
     if note:
         widgets.muted(note)
+
+
+def rig_skin_note(files: Any) -> str | None:
+    """The warning for a rigged asset, or None: what a re-texture does *not* redo.
+
+    The rig's joints and weights stay valid (they describe geometry), but
+    ``rig.glb`` is a Blender export that embeds the base-colour texture of the
+    mesh it was made from, and the re-texture publish rebuilds only the exports
+    in ``retexture.SURFACE_DERIVED``. Pure over the cached ``job["files"]`` names,
+    like the stale-export line above it, so it costs the frame no I/O.
+    """
+    if "rig.glb" not in set(files or ()):
+        return None
+    return (
+        "The rig's own GLB, its saved poses' GLBs and the animated GLB still carry the "
+        "old surface; a re-texture does not rebuild them. Rig the asset again afterwards "
+        "to put the new surface on them."
+    )
 
 
 def submit_kwargs(form: dict[str, Any]) -> dict[str, Any]:

@@ -60,7 +60,6 @@ def create_rig(
     job_id: str,
     *,
     template: str | None = None,
-    refuse_existing: bool = False,
     bones: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Queue a rig for a finished job's mesh.
@@ -70,11 +69,11 @@ def create_rig(
     progress and history for free -- and guarantees it never overlaps a trellis
     or SDXL run.
 
-    ``refuse_existing`` is opt-in and defaults to False because this door has
-    callers with different rules: Library's "Rig this mesh again" calls it *to
-    replace* an existing rig on purpose, while a caller that must never replace
-    one asks for the check here rather than doing a read of its own before
-    calling in (finding agents-character-03, the 2026-09-26 audit, below).
+    This door replaces an existing rig on purpose (Library's "Rig this mesh
+    again", Create's Rig stage). A ``refuse_existing`` opt-out, which the
+    character agent surface used so that it never replaced one, left with that
+    surface (the 2026-10-14 audit, finding docs-E-17); the in-flight check below
+    is what every caller shares.
 
     ``bones`` is an exact skeleton the caller already holds -- a registry-built
     character's own joints -- validated against *template* the way
@@ -95,24 +94,12 @@ def create_rig(
     # ask first.
     # The 2026-09-20 audit, finding agents-03: the check above and the insert
     # below used to be two separate operations with nothing holding the gap
-    # between them, so two concurrent calls (an agent host has two service
-    # workers) could both read "no rig in flight" and both mint a rig
+    # between them, so two concurrent calls (two ``TaskRunner`` threads -- say
+    # Create's Rig stage and the Library's Rig button, which share no submit
+    # key) could both read "no rig in flight" and both mint a rig
     # row for the same mesh -- both finalizing into the same job_dir.
     # The guard is wrapped in ``convert_lock``, keyed on this door's own name.
     with svc.convert_lock(job_id, "rig"):
-        # The 2026-09-26 audit, finding agents-character-03: an agent's
-        # "never replaces an existing rig" check used to be a
-        # store.read_rig read entirely outside this lock -- the exact TOCTOU
-        # shape the 2026-09-20 audit
-        # (agents-03, just below) already fixed for rig_in_flight. Two
-        # concurrent calls on a mesh with no rig yet could both
-        # read "no rig" before either had reached this lock at all. Checked
-        # here instead, under the same hold as rig_in_flight's own check, so
-        # a caller that opts in (refuse_existing) gets one atomic
-        # check-and-insert rather than two separate reads with a gap between
-        # them.
-        if refuse_existing and store.read_rig(svc.job_dir(job_id)) is not None:
-            raise Conflict("an agent adds rigs; it never replaces one", field="job_id")
         if rig_in_flight(svc, job_id) is not None:
             # One wording for "there is already a rig job for this mesh"
             # wherever it is met, mirroring create_rig's own Blender refusal
@@ -131,8 +118,8 @@ def create_rig(
                 raise invalid_from(exc, "Those joint positions cannot be used") from exc
         # After every other refusal, and still before the row is written: this UI
         # hides the Rig button when ``rig_templates``' own probe says bpy is
-        # absent, so the only paths that reach here on such a host are the MCP
-        # agent surface and a stale frame -- exactly the reachable-by-an-agent case
+        # absent, so the only paths that reach here on such a host are a stale
+        # frame or a direct service call -- reachable all the same, and
         # worth refusing at the door rather than leaving to queue a job that dies
         # in ``pipelines/blender_worker.py`` with exit code 3. One sentence, so the app
         # has one wording for "this needs Blender" wherever it is met.
@@ -170,7 +157,7 @@ def adjust_joints(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]
     trellis run.
 
     A rig whose ``skeleton`` is already ``"custom"`` (built by
-    :func:`edit_skeleton`) is checked against *its own* structure, not the
+    :func:`rig_with_skeleton`) is checked against *its own* structure, not the
     base template's -- ``skeleton.validate_joints`` only ever accepts a joint
     move that keeps the structure it is handed, so validating against the
     template here would refuse a plain joint move on a rig with, say, an
@@ -213,8 +200,8 @@ def adjust_joints(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]
 
     # The 2026-09-15 audit, finding poser-02: service-03 (the 2026-09-14
     # audit) moved this check into ``create_rig`` on the claim that every
-    # caller was then covered, but this door and ``edit_skeleton``'s below
-    # mint a rig job of their own and never called it -- so the Joints pane's
+    # caller was then covered, but this door and a sibling skeleton-editing door
+    # (since deleted) minted a rig job of their own and never called it -- so the Joints pane's
     # "Apply joint positions" (submit key ``joints:<id>``, unshared with
     # ``create_rig``'s callers) could still queue a second rig for a mesh
     # that already had one in flight.
@@ -222,11 +209,10 @@ def adjust_joints(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]
     # The 2026-09-26 audit, service-assets-03: poser-02 added the check back
     # but not the lock around it -- ``create_rig`` holds ``convert_lock(job_id,
     # "rig")`` across its own identical check-then-insert, and this door and
-    # ``edit_skeleton``'s below did the check and the ``store.create`` as two
+    # that sibling did the check and the ``store.create`` as two
     # separate, unlocked operations. Two joint-move requests for the same mesh
-    # landing on AgentHost's two service workers (the same race agents-03
-    # found for ``create_rig``) could both read "no rig in flight" and both
-    # mint one.
+    # from two ``TaskRunner`` threads (the same race agents-03 found for
+    # ``create_rig``) could both read "no rig in flight" and both mint one.
     with svc.convert_lock(job_id, "rig"):
         if rig_in_flight(svc, job_id) is not None:
             raise Conflict("a rig for this mesh is already running", field="job_id")
@@ -249,70 +235,6 @@ def adjust_joints(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]
     return {"id": new_id, "source_job": job_id}
 
 
-def edit_skeleton(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Re-rig a mesh with a skeleton whose *shape* the user edited.
-
-    ``adjust_joints``'s shape, for a caller that may have added or removed a
-    pivot, split a bone, renamed one or grafted a limb preset on -- anything
-    :func:`skeleton.validate_skeleton` accepts, not only a joint moved within
-    the base template's own structure. The queue is serial, exactly like
-    every other rig job: two edits queued against the same source job can
-    never race each other's temp names (``store.RIG_GLB_TMP``/
-    ``RIG_JSON_TMP``), because only one rig job ever runs at a time.
-
-    ``rig.json`` keeps naming the *base* template this rig started from
-    (``rig["template"]``) even once its shape has diverged from it --
-    ``skeleton.clip_coverage`` and the pose library both need to know which
-    template's poses/clips this rig might still play.
-    """
-    source = svc.require_job(job_id)
-    job_dir = svc.job_dir(job_id)
-    rig = store.read_rig(job_dir)
-    if rig is None or not (job_dir / "model.glb").exists():
-        raise Invalid("job is not rigged")
-    # poser-48, as in ``adjust_joints``: a vanished template is a refusal, not a ValueError.
-    try:
-        base = templates.get_template(str(rig.get("template") or svc.config.rig_template))
-    except ValueError as exc:
-        raise invalid_from(
-            exc, "This rig's skeleton template is no longer available", field="rig_template"
-        ) from exc
-    bounds = rig.get("bounds")
-    try:
-        if not isinstance(bounds, dict) or "min" not in bounds or "max" not in bounds:
-            raise store.RigError("rig.json has no usable bounds", field="bounds")
-        result = skeleton.validate_skeleton(payload, base=base, bounds=bounds)
-    except ValueError as exc:
-        raise invalid_from(exc, "That skeleton cannot be used") from exc
-
-    # The 2026-09-15 audit, finding poser-02: the same missing check as
-    # ``adjust_joints``'s above, and for the same reason -- this door mints
-    # its own rig job and was never on service-03's "every caller is
-    # covered" list either.
-    #
-    # The 2026-09-26 audit, service-assets-03: the same missing lock as
-    # ``adjust_joints``'s above, and for the same reason -- see its comment.
-    with svc.convert_lock(job_id, "rig"):
-        if rig_in_flight(svc, job_id) is not None:
-            raise Conflict("a rig for this mesh is already running", field="job_id")
-        # Same door as ``create_rig``'s and ``adjust_joints``'s, for the same
-        # reason: this queues a fresh job that runs Blender exactly like they do.
-        if not doctor.blender_check().ok:
-            raise Invalid("Rigging needs Blender, which is not installed.")
-        params = {
-            "source_job": job_id,
-            "template": base.key,
-            "bones": result["bones"],
-            "root": result["root"],
-            "mirror_pairs": [list(p) for p in result["mirror_pairs"]],
-            "skeleton": result["skeleton"],
-            "adjusted": True,
-        }
-        new_id = svc.store.create("rig", source["prompt"], params, uuid.uuid4().hex[:12])
-    svc.wake_worker()
-    return {"id": new_id, "source_job": job_id, "skeleton": result["skeleton"]}
-
-
 def rig_with_skeleton(
     svc: RealmspinnerService,
     job_id: str,
@@ -323,7 +245,7 @@ def rig_with_skeleton(
 ) -> dict[str, Any]:
     """Queue a rig whose skeleton the caller built, for a mesh that has no rig yet.
 
-    ``edit_skeleton``'s tail without its head: that door re-rigs a mesh the library already
+    ``adjust_joints``'s tail without its head: that door re-rigs a mesh the library already
     rigged and reads the box it validates against out of the existing ``rig.json``; Clay's
     "Rig with Blender weights" has a mesh and a skeleton it drew itself and no rig at all, so it
     brings its own *bounds* (the mesh's box in Blender axes, in the frame the library row
@@ -368,21 +290,6 @@ def rig_with_skeleton(
     return {"id": new_id, "source_job": job_id, "skeleton": result["skeleton"]}
 
 
-def limb_presets() -> list[dict[str, Any]]:
-    """The shipped limb presets the skeleton editor can graft onto a bone.
-
-    Read-only and job-independent, like :func:`rig_templates`'s own
-    ``templates`` list: ``{key, label, bone_count}`` is enough for a menu. The
-    coordinate frame a preset is authored in, and what ``side``/``mirror``
-    mean, are documented on :func:`skeleton.attach_limb`, which is what
-    actually places one -- this is only the catalogue.
-    """
-    return [
-        {"key": p["key"], "label": p["label"], "bone_count": len(p["bones"])}
-        for p in templates.limb_presets().values()
-    ]
-
-
 def get_rig(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:
     check_job_id(job_id)
     rig = store.read_rig(svc.job_dir(job_id))
@@ -408,6 +315,12 @@ def _rig_bones(svc: RealmspinnerService, job_id: str) -> list[str]:
     if bones is None:
         raise NotFound("job is not rigged")
     return bones
+
+
+def _unknown_pose_bones(pose_bones: Any, rig_bones: list[str]) -> list[str]:
+    """The bone names in a pose's map that the *current* rig does not have."""
+    known = set(rig_bones)
+    return sorted(str(name) for name in pose_bones if name not in known)
 
 
 def list_poses(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:
@@ -439,6 +352,21 @@ def list_poses(svc: RealmspinnerService, job_id: str) -> dict[str, Any]:
                 "pose %s/%s has an unusable bones map; omitting it from the list",
                 job_id,
                 record.get("id"),
+            )
+            continue
+        # A pose saved against another skeleton: the rig was rebuilt (humanoid
+        # to quadruped, say) after it was saved, so applying it would move
+        # nothing and baking it would hand back a rest-pose file under the
+        # pose's name. Omitted from the list like every other unusable pose,
+        # and ``posed_model`` refuses it by name if a caller still holds the id
+        # (the 2026-10-14 audit, finding poser-poses-03).
+        missing = _unknown_pose_bones(raw, bones)
+        if missing:
+            log.warning(
+                "pose %s/%s names bone(s) the current rig lacks (%s); omitting it from the list",
+                job_id,
+                record.get("id"),
+                ", ".join(missing[:5]),
             )
             continue
         kept.append(record)
@@ -534,11 +462,13 @@ def _pose_or_not_found(job_dir: Path, pose_id: str) -> dict[str, Any]:
     worker spec with nothing to catch ``blender_worker.main()``'s unwrapped
     ``op(bpy, spec)`` (the 2026-09-11 audit, finding poser-01).
 
-    Not checked against the rig's *current* bone names -- unlike ``save_pose``'s
-    write-time check -- because a rig can be rebuilt with a different template
-    after a pose was saved, and that is a stale pose, not a corrupt one; only
-    the record's own shape (a non-empty bones map of valid quaternions) is
-    re-verified here.
+    Not checked against the rig's *current* bone names *here* -- this is the
+    record's own shape only (a non-empty bones map of valid quaternions) -- but
+    ``posed_model`` does that check next, with the rig in hand: a rig can be
+    rebuilt with a different template after a pose was saved, and a stale pose
+    is refused there by field rather than baked into a rest-pose file (the
+    2026-10-14 audit, finding poser-poses-03; this docstring used to say the
+    stale pose was deliberately let through).
     """
     record = store.read_pose(job_dir, pose_id)
     if record is None:
@@ -616,9 +546,36 @@ def posed_model(svc: RealmspinnerService, job_id: str, pose_id: str) -> Path:
     # recreate the GLB with no .json beside it.
     with svc.convert_lock(job_id, f"pose:{pose_id}"):
         pose = _pose_or_not_found(job_dir, pose_id)
+        # After the record's own shape and before the cache or the bake: a rig
+        # rebuilt on another skeleton leaves poses naming bones it does not
+        # have, which ``set_rotation`` ignores one by one and the worker only
+        # prints. ``None`` is a job with no ``rig.json``; that is the
+        # "not rigged" refusal just below, not a stale pose.
+        try:
+            rig_bones = store.rig_bone_names(job_dir)
+        except ValueError as exc:
+            raise invalid_from(exc, "That rig cannot be read") from exc
+        if rig_bones is not None:
+            missing = _unknown_pose_bones(pose["bones"], rig_bones)
+            if missing:
+                shown = ", ".join(missing[:5]) + (" ..." if len(missing) > 5 else "")
+                raise Invalid(
+                    "that pose was saved for a different skeleton and names bones this "
+                    f"rig does not have ({shown}); pose the rig again and save a new one",
+                    field="pose_id",
+                )
         if not path.exists():
             if not (job_dir / "rig.glb").exists():
                 raise NotFound("job is not rigged")
+            # Only a bake that has to *run* needs Blender; a cached pose GLB is
+            # served without it, which is why this sits under ``exists()``. Since
+            # Clay writes ``rig.glb`` with no Blender, a rigged asset can exist on
+            # a host that has none, and the bake used to end in the generic
+            # "could not bake this pose" -- the 2026-10-14 audit, finding
+            # create-panes-05. One sentence, ``create_rig``'s, so the app has one
+            # wording for "this needs Blender".
+            if not doctor.blender_check().ok:
+                raise Invalid("Rigging needs Blender, which is not installed.")
             # Baked through a staging file and renamed, like every other
             # derivation in this codebase. Existence *is* this artifact's
             # freshness test, so a Blender that dies part way through -- a

@@ -680,8 +680,18 @@ def _hex(ctx: Any, state: Any, tab: Any, slot: int | None, colour: tuple) -> Non
     if not changed:
         return
     parsed = parse_hex(typed)
-    if parsed is not None:
-        write(ctx, state, tab, slot, parsed)
+    if parsed is None:
+        # The 2026-10-14 audit, finding inker-panes-11: the entry was dropped
+        # and the field reverted on the next frame with nothing said -- the
+        # silent ignore ``parse_hex``'s own docstring calls indistinguishable
+        # from a field that is not wired up.
+        ctx.toast(
+            f"\"{str(typed).strip()}\" is not a colour -- type RRGGBB or "
+            "RRGGBBAA, with or without the #.",
+            "warn",
+        )
+        return
+    write(ctx, state, tab, slot, parsed)
 
 
 def parse_hex(text: str) -> tuple[int, int, int, int] | None:

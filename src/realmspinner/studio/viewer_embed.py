@@ -1,7 +1,7 @@
 """The Viewer: everything the UI is allowed to know about the 3D pane.
 
 One object, one contract. The panes never touch a framebuffer, a camera or a
-GLB -- they call ``load_model``, ``enter_pose_mode``, ``get_pose`` and so on,
+GLB -- they call ``adopt_model``, ``enter_pose_mode``, ``get_pose`` and so on,
 and get back plain Python. Which is what lets the renderer be tested against a
 standalone context with no window, and the panes be tested with no GL at all.
 
@@ -27,7 +27,6 @@ from .viewer import bonelines as bonelineslib
 from .viewer import capture, glctx, picking
 from .viewer import markers as markerslib
 from .viewer import scene as scenelib
-from .viewer import sheet as sheetlib
 from .viewer.camera import Camera, screen_ray
 from .viewer.gizmo import RotateGizmo, TranslateGizmo
 from .viewer.pose import PoseEditor
@@ -65,36 +64,12 @@ class Viewer(PoseOps, FrameOps):
 
         self.wireframe = False
         self.pose_mode = False
-        #: Where the right button went down while posing, or None. Read and
-        #: cleared by the pane that draws the joint menu -- ``clay_view``'s
-        #: rule, and its reason: this layer may not know imgui exists.
-        self.menu_request: tuple[float, float] | None = None
-        #: The pending right-button press ``FrameOps._rmb_release`` resolves on
-        #: release -- see ``_press``'s button-3 branch. Until the 2026-09-20
-        #: audit (finding create-04) the menu opened straight from the press,
-        #: bypassing the four-pixel slop rule ``_rmb_release`` exists to apply,
-        #: so a right-drag still popped the joint menu.
-        self._rmb_at: tuple[float, float] | None = None
         # Which job's rig the editor is bound to, so a write can never land on
         # whichever asset happens to be selected. See enter_pose_mode.
         self.pose_job_id: str | None = None
         self.editor = PoseEditor()
         self.markers = markerslib.JointMarkers(ctx, self.renderer.programs)
         self.bonelines = bonelineslib.BoneLines(ctx, self.renderer.programs)
-        # One extra buffer per onion-skin ghost. Separate instances rather than
-        # extra draws off ``bonelines``: a ``DrawItem`` counts vertices from
-        # zero with no offset, so two skeletons cannot share one upload -- and
-        # forty vertices apiece is not a cost worth a format change over.
-        # Two, because onion-skinning here means the key before and the key
-        # after, which is the comparison a keyframe is actually judged in.
-        self.ghostlines = [
-            bonelineslib.BoneLines(ctx, self.renderer.programs) for _ in range(2)
-        ]
-        #: The poses those ghosts show -- ``{bone: quat}`` each, at most two,
-        #: set by the clip editor and empty everywhere else. Held on the viewer
-        #: rather than read out of a mode so the render path stays ignorant of
-        #: what a clip is.
-        self._onion: list[dict[str, Any]] = []
         # Which (parent, bone) pairs the skeleton lines connect; derived once
         # per bind from the node graph, cleared on the way out.
         self._bone_pairs: list[tuple[str, str]] = []
@@ -109,6 +84,10 @@ class Viewer(PoseOps, FrameOps):
         #: click. Set when a left press in pose mode hits no marker; cleared by
         #: anything that starts a real drag. See ``_press``.
         self._deselect_on_click = False
+        #: Where the press in hand landed. A click is decided by how far the pointer
+        #: has got *from here*, not by the size of one motion event (the 2026-10-14
+        #: audit, finding create-viewer-02).
+        self._press_at: tuple[float, float] | None = None
         # The open ``editor.record()`` for a live gizmo gesture, or None. One
         # undo step per *gesture*, not per frame: ``rotate_selected`` and
         # ``move_handle`` are called on every motion event, so recording each
@@ -135,8 +114,6 @@ class Viewer(PoseOps, FrameOps):
         # "Edit pose" / "Apply" has a rig parsing on a task, else None.
         # ``pending`` above is the freshness check; this is what to adopt.
         self.pose_loading: Any = None
-        # The direction strip being rendered a cell at a time, if any.
-        self._strip: Any = None
         # The 2026-10-11 audit, finding create-03: a library card's thumbnail
         # was captured straight after ``adopt_model``, but adoption only uploads
         # and frames -- the viewport texture still held the previous frame, so
@@ -167,17 +144,6 @@ class Viewer(PoseOps, FrameOps):
         textures on the one GL context, and so does releasing the old one.
         """
         gpu = scenelib.GpuModel(self.ctx, model)
-        # create-05, the 2026-09-14 audit: a direction-strip preview in flight
-        # (``begin_sheet_strip``) holds a direct reference to the GpuModel
-        # that was current when it started. Only the explicit Clear path
-        # (``App._clear_viewport``) called ``cancel_sheet_strip()`` before
-        # this method released and replaced ``self.gpu`` -- but this method
-        # also fires from the Library timer whenever the user selects a
-        # different job, not just on an explicit Clear. Selecting another job
-        # mid-strip emptied the GpuModel the strip was drawing out from under
-        # it, so the remaining cells came back blank while the pane still
-        # thought the strip had finished normally.
-        self.cancel_sheet_strip()
         self._release_model()
         # Whatever parse was in flight is no longer wanted: this *is* the
         # viewport's content now. Without this, the blocking path -- entering
@@ -194,7 +160,7 @@ class Viewer(PoseOps, FrameOps):
         self.model, self.gpu, self.path = model, gpu, Path(path)
         # The 2026-10-10 audit, finding create-33: ``stats`` memoises the
         # bounds with a reference to the model it measured, and only ``clear``
-        # dropped it. Review, Poser and Inker replace a model through here, so
+        # dropped it. Review and Create replace a model through here, so
         # the replaced one (its CPU geometry and decoded textures, up to
         # 768 MiB) stayed alive until the next ``stats`` call happened to
         # overwrite the memo -- or for good if none did.
@@ -204,31 +170,7 @@ class Viewer(PoseOps, FrameOps):
         self.exit_pose_mode()
         self.frame()
 
-    def load_model(self, path: Path) -> None:
-        """Show a GLB, both halves at once. Blocking -- it decodes textures.
-
-        Kept for the callers where the wait is the point: loading a Review
-        unit happens because the user just pressed something, and a hand-over
-        there would flash an empty viewport for a frame instead.
-        ``_sync_viewer`` uses the split above, because it fires on a *timer*,
-        on the frame a job finishes. The pose pane's "Edit pose" and "Apply"
-        were on this list until the 2026-10-04 audit's create-50 found the
-        parse stalling the frame they were pressed on; they now parse on a task
-        and adopt on landing (``pose_panel.land_enter``).
-        """
-        self.adopt_model(self.parse_model(path), path)
-
     def clear(self) -> None:
-        # The 2026-09-15 audit, finding create-04: create-05 (2026-09-14) only
-        # taught ``adopt_model`` to cancel a strip in flight before releasing
-        # the GpuModel it draws from -- but ``poser_mode``, ``review_panes``,
-        # ``inker_mode`` and two ``main.py`` handlers call this method
-        # directly, not through ``App._clear_viewport`` (which cancels the
-        # strip itself first). Any of those firing mid-strip released the
-        # GpuModel the paused strip still held a direct reference to, so the
-        # strip resumed drawing its remaining cells blank instead of finishing
-        # or being cancelled. Cancelling here means every caller gets it.
-        self.cancel_sheet_strip()
         self._render_dirty = True
         self._release_model()
         self.exit_pose_mode()
@@ -358,23 +300,6 @@ class Viewer(PoseOps, FrameOps):
         self.renderer.fit_grid(lo, hi)
         return self.radius
 
-    def frame_bounds(self, lo: Any, hi: Any) -> float:
-        """Frame a box the *caller* knows about rather than the model's own.
-
-        The Poser armature has no mesh, so ``Model.bounds()`` is zeros and
-        :meth:`frame` would clamp the radius to 1e-4 -- the joint markers
-        become invisible and ``nearest_hit`` misses everything, because both
-        key off ``radius``. The caller computes the box host-side over every
-        fitted bone's head *and tail* (leaf tails have no nodes, so a
-        joint-node box would clip the skull) and hands it over.
-        """
-        self._render_dirty = True
-        lo = np.asarray(lo, dtype="f8")
-        hi = np.asarray(hi, dtype="f8")
-        self.radius = self.camera.frame(lo, hi)
-        self.renderer.fit_grid(lo, hi)
-        return self.radius
-
     def _world_bounds(self):
         lo, hi = self.model.bounds()
         corners = np.array(
@@ -465,8 +390,7 @@ class Viewer(PoseOps, FrameOps):
         self._render_dirty = False
         # Set only on this path: a skipped frame returns the texture the last
         # draw left, which is the stale one ``request_thumbnail`` waits out.
-        # (``getattr``: a test drives ``render`` on a bare namespace, as it does
-        # for ``onion`` below.)
+        # (``getattr``: a test drives ``render`` on a bare namespace.)
         if getattr(self, "_thumb_request", None) is not None:
             self._thumb_drawn = self.gpu is not None
         self._resize(width, height)
@@ -499,36 +423,21 @@ class Viewer(PoseOps, FrameOps):
             )
         return self.viewport.texture
 
-    @property
-    def onion(self) -> list[dict[str, Any]]:
-        return getattr(self, "_onion", [])
-
-    @onion.setter
-    def onion(self, ghosts: list[dict[str, Any]]) -> None:
-        # The 2026-10-04 audit, finding create-14: Poser assigns this straight
-        # from its clip editor, and the ghosts are drawn from it -- with pose
-        # mode off the redraw bypass, nothing marked the viewer dirty for it,
-        # and with the bypass gone it would be a picture that never updates.
-        self._onion = ghosts
-        self._render_dirty = True
-
     def _pose_signature(self) -> tuple[Any, ...]:
         """What pose mode's overlays are drawn from that no mutator here marks.
 
-        Panes write ``editor.selected``, ``editor.mode`` and
-        ``editor.root_translate`` straight onto the editor (the bone list, the
-        Move-root toggle), and undo/redo restores handles through it; none of
-        those pass a ``Viewer`` method that sets ``_render_dirty``. Cheap by
+        Panes write ``editor.selected`` and ``editor.mode`` straight onto the
+        editor (the bone list, the joints toggle), and undo/redo restores
+        handles through it; none of those pass a ``Viewer`` method that sets
+        ``_render_dirty``. Cheap by
         construction -- a handful of scalars, the model's own pose version and
         one flat copy of the handle positions -- because it runs every frame to
         spare the frame a full MSAA draw.
 
         The rest of what :meth:`_overlays` and :meth:`_active_gizmo` read off
-        the editor is here too (F19-4): the draft's *connectivity* rather than
-        its length (a reparent or rename keeps the length and redraws the
-        skeleton lines), the root that picks translate against rotate rings,
-        the handle and bone *names* (a rename moves no handle), and the marker
-        radius and placement the picture is scaled and placed by.
+        the editor is here too (F19-4): the handle and bone *names* (a rename
+        moves no handle), and the marker radius and placement the picture is
+        scaled and placed by.
         """
         editor = self.editor
         handles = editor.handles
@@ -537,10 +446,7 @@ class Viewer(PoseOps, FrameOps):
         return (
             editor.selected,
             editor.mode,
-            editor.root_translate,
-            editor.root,
             getattr(self.model, "world_version", None),
-            tuple((b.get("name"), b.get("parent")) for b in editor.draft),
             tuple(handles),
             tuple(editor.bones),
             flat,
@@ -556,78 +462,6 @@ class Viewer(PoseOps, FrameOps):
 
     def screenshot(self) -> Any:
         return capture.image(self.viewport)
-
-    # There is deliberately no whole-strip ``render_sheet_strip`` here any
-    # more. It rendered every direction in one call -- a draw plus a
-    # synchronous GPU-to-CPU readback per cell -- which for sixteen cells is a
-    # visible freeze on the frame thread, the exact thing ``StripRender``'s
-    # one-cell-per-``step()`` rule exists to prevent. It had no callers left,
-    # and a live method whose whole documented property is that it must never
-    # be called is worse than an absent one: nothing stops the next caller.
-
-    def begin_sheet_strip(self, yaws: list[float], elevation: float, flat: bool) -> bool:
-        """Start an incremental direction strip. -> whether there was a mesh.
-
-        Any strip already in progress is dropped: the user has changed what
-        they want, and finishing the old one would spend frames on an image
-        about to be replaced.
-        """
-        self.cancel_sheet_strip()
-        if self.gpu is None or self.model is None:
-            return False
-        self._strip = sheetlib.StripRender(
-            self.renderer,
-            self.gpu,
-            self.model,
-            yaws,
-            elevation=elevation,
-            flat=flat,
-            model_matrix=self.placement,
-        )
-        return True
-
-    def step_sheet_strip(self) -> Any:
-        """Render one more cell. -> the finished image, or None while it runs.
-
-        Frame thread only, like every other GL call here -- the point of the
-        split is *how much* of it happens per frame, not which thread it is on.
-        """
-        if self._strip is None:
-            return None
-        if not self._strip.step():
-            return None
-        # Release before returning: the image is a CPU-side PIL object with no
-        # tie to the viewport, but the viewport itself -- texture, MSAA
-        # renderbuffers, framebuffers -- is only freed by ``release``, and the
-        # cancel path was the sole caller. Dropping the finished strip here
-        # unreleased leaked its render target for the life of the context,
-        # once per completed preview.
-        strip, self._strip = self._strip, None
-        strip.release()
-        return strip.image
-
-    @property
-    def stripping(self) -> bool:
-        return self._strip is not None
-
-    @property
-    def strip_progress(self) -> tuple[int, int]:
-        """``(cells done, cells total)`` for the strip in flight, else (0, 0).
-
-        Derived from the renderer rather than counted by the pane (L104): the
-        pane calls ``step`` once per frame and could keep its own tally, but a
-        cancelled-and-restarted strip would leave that tally describing the
-        previous run -- and the state is already here.
-        """
-        strip = self._strip
-        if strip is None:
-            return (0, 0)
-        return (int(strip.index), len(strip.yaws))
-
-    def cancel_sheet_strip(self) -> None:
-        if self._strip is not None:
-            self._strip.release()
-            self._strip = None
 
     # -- input -------------------------------------------------------------
 
@@ -652,11 +486,6 @@ class Viewer(PoseOps, FrameOps):
             return self._press(event.button, local)
         if event.type == pygame.MOUSEBUTTONUP:
             self._render_dirty = True
-            if event.button == 3:
-                # Routed through the shared slop rule rather than the generic
-                # ``_release`` below: see ``_press``'s button-3 branch and the
-                # 2026-09-20 audit, finding create-04.
-                return self._rmb_release(local)
             return self._release(event.button)
         if event.type == pygame.MOUSEMOTION:
             return self._motion(local)
@@ -668,6 +497,7 @@ class Viewer(PoseOps, FrameOps):
 
     def _press(self, button: int, local: tuple[float, float]) -> bool:
         self._last_mouse = local
+        self._press_at = local
         if button not in (1, 2, 3):
             return False
         # The 2026-10-04 audit, finding create-01 (Clay's and Mason's own guard
@@ -718,29 +548,6 @@ class Viewer(PoseOps, FrameOps):
             # model as it always did; only a press that hits nothing and moves
             # nowhere clears the selection, which ``_release`` decides.
             self._deselect_on_click = self.editor.selected is not None
-        if button == 3 and self.pose_mode:
-            # **Button 2 pans; button 3 asks what can be done here** (B7). The
-            # right button was a second pan in this viewport and a context menu
-            # in Clay's, so which one the user got depended on which viewport
-            # they were over -- and the menu is the Wings3D idea the whole ops
-            # registry exists for, so the convergence goes the other way.
-            #
-            # Gated on ``pose_mode`` deliberately: this class also draws
-            # Create's inspector, where a joint menu would appear over an asset
-            # nobody is posing. Recorded rather than opened, ``clay_view``'s
-            # rule -- the pane layer is the only one allowed to know imgui
-            # exists.
-            #
-            # Recorded here, not opened: the menu itself only appears on a
-            # *clean* release, through ``FrameOps._rmb_release``'s four-pixel
-            # slop rule. Opening it straight from the press (the 2026-09-20
-            # audit, finding create-04) skipped that rule entirely, so a
-            # right-drag still popped the menu -- exactly the "grabbing the
-            # wrong button mid-orbit costs nothing" promise the comment below
-            # makes for every other viewport. ``handle_event`` routes the
-            # matching release to ``_rmb_release`` rather than ``_release``.
-            self._rmb_at = local
-            return True
         # **Alt+drag orbits, as it does in Clay, and the middle button pans.**
         # Until 2026-09-05 Alt+drag *panned* here, with a comment citing Maya
         # and Blender, while ``_view_drag`` two viewports over said Alt+drag
@@ -748,9 +555,11 @@ class Viewer(PoseOps, FrameOps):
         # with opposite results depending on which 3-D view the pointer was
         # over, and the shortcut sheet advertising only Clay's. One rule, the
         # one already written down: Alt+drag orbits in every mode, in every
-        # viewport. The right button, outside pose mode, does nothing rather
-        # than being a second orbit, for the same reason Clay's does nothing
-        # on a drag: grabbing the wrong button mid-gesture costs nothing.
+        # viewport. The right button does nothing here (this viewport has no
+        # context menu: the joint menu left with Poser on 2026-10-14, the 2026-10-14
+        # audit's finding create-viewer-03) rather than being a second orbit,
+        # for the same reason Clay's does nothing on a drag: grabbing the
+        # wrong button mid-gesture costs nothing.
         if button == 3:
             return True
         self._grab = "pan" if button == 2 else "orbit"
@@ -817,6 +626,8 @@ class Viewer(PoseOps, FrameOps):
             step.__exit__(None, None, None)
 
     def _motion(self, local: tuple[float, float]) -> bool:
+        # ``getattr``: the wiring tests drive this over a stub that never saw a press.
+        anchor = getattr(self, "_press_at", None) or self._last_mouse
         dx = local[0] - self._last_mouse[0]
         dy = local[1] - self._last_mouse[1]
         self._last_mouse = local
@@ -824,8 +635,13 @@ class Viewer(PoseOps, FrameOps):
         # The first real movement makes this a drag rather than a click, which
         # is what decides the deselect at the release. A threshold rather than
         # any motion at all: a pen reports sub-pixel jitter on a tap, and a
-        # click that happened to wobble must still deselect.
-        if dx * dx + dy * dy > 4:
+        # click that happened to wobble must still deselect. Measured from the
+        # press: a slow orbit of many sub-2 px events never crossed a per-event
+        # threshold, so the release cleared the joint the user had orbited around
+        # (the 2026-10-14 audit, finding create-viewer-02).
+        away_x = local[0] - anchor[0]
+        away_y = local[1] - anchor[1]
+        if away_x * away_x + away_y * away_y > 4:
             self._deselect_on_click = False
         if self._grab is None:
             if self.pose_mode and self.editor.selected is not None:
@@ -855,18 +671,14 @@ class Viewer(PoseOps, FrameOps):
                 # drops the grab now; this is the same guard ``_release`` keeps.
                 self._grab = None
                 return True
-            # Dispatch on which gizmo is active, not on the mode: pose mode
-            # holds the translate gizmo too while the root is being moved.
+            # Dispatch on which gizmo is active, not on the mode: only joints
+            # mode holds the translate gizmo, but the gizmo is what has the
+            # drag state.
             if gizmo is self.translate_gizmo:
                 moved = gizmo.update(origin, direction)
                 if moved is not None:
                     point = picking.from_world(self.placement, moved)
-                    if self.editor.mode in ("joints", "skeleton"):
-                        self.editor.move_handle(self.editor.selected, point)
-                    else:
-                        self.editor.move_root(point)
-                        if self.gpu is not None:
-                            self.gpu.refresh_palettes()
+                    self.editor.move_handle(self.editor.selected, point)
             else:
                 delta = gizmo.update(origin, direction)
                 if delta is not None:
@@ -885,12 +697,9 @@ class Viewer(PoseOps, FrameOps):
     def release(self) -> None:
         self.clear_reference()
         self._release_model()
-        self.cancel_sheet_strip()
         self.exit_compare()
         self.markers.release()
         self.bonelines.release()
-        for ghost in self.ghostlines:
-            ghost.release()
         self.rotate_gizmo.release()
         self.translate_gizmo.release()
         self._forget(self.viewport.texture)

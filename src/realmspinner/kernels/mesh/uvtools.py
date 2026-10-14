@@ -529,6 +529,15 @@ def _tri_tri_overlap_2d(t1: np.ndarray, t2: np.ndarray) -> bool:
     return True
 
 
+def _pair_ceiling_error(count: int) -> OpError:
+    return OpError(
+        f"This uv layout would run {count:,} pairwise overlap "
+        f"tests, past the {MAX_OVERLAP_PAIRS:,} an overlap check reads -- "
+        f"too many triangles share too few grid cells. Check a smaller "
+        f"selection."
+    )
+
+
 def overlap_faces(mesh: Mesh) -> np.ndarray:
     """``(F,)`` bool: does this face's uv overlap another (different) face's.
 
@@ -648,15 +657,20 @@ def overlap_faces(mesh: Mesh) -> np.ndarray:
             keys.append(np.minimum(ta, tb) * n_tri + np.maximum(ta, tb))
             total_pairs += len(ta)
             if total_pairs > 4 * MAX_OVERLAP_PAIRS:
-                break  # far past the ceiling: refuse without finishing the count
+                # The 2026-10-14 audit, finding clay-texturing-02: this used to ``break`` here,
+                # and ``total_pairs`` counts a pair once per shared grid cell, so a layout of
+                # repeated pairs reached the break with few unique ones, the ceiling below then
+                # judged the partial list, and every overlap in a later bucket read as clean.
+                # Fold the list down to its unique pairs instead -- memory stays bounded by the
+                # ceiling -- and refuse only when the *unique* count really is past it.
+                merged = np.unique(np.concatenate(keys))
+                if len(merged) > MAX_OVERLAP_PAIRS:
+                    raise _pair_ceiling_error(len(merged))
+                keys = [merged]
+                total_pairs = len(merged)
     pairs = np.unique(np.concatenate(keys)) if keys else np.zeros(0, dtype=np.int64)
     if len(pairs) > MAX_OVERLAP_PAIRS:
-        raise OpError(
-            f"This uv layout would run {len(pairs):,} pairwise overlap "
-            f"tests, past the {MAX_OVERLAP_PAIRS:,} an overlap check reads -- "
-            f"too many triangles share too few grid cells. Check a smaller "
-            f"selection."
-        )
+        raise _pair_ceiling_error(len(pairs))
     for key in pairs.tolist():
         ta, tb = divmod(key, n_tri)
         if _tri_tri_overlap_2d(tris[ta], tris[tb]):

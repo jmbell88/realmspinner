@@ -42,16 +42,13 @@ def _on_the_ladder(
     key: str,
     default: int,
     ladder: Sequence[int],
-    *,
-    value_range: tuple[int, int] | None = None,
 ) -> int:
     """One whole-number field, defaulted when absent and refused when wrong.
 
-    ``value_range``, when given, is a second way to pass: a whole number
-    inside the inclusive range is accepted even off the ladder, which is
-    Troupe's custom sprite size (task G) -- a size the ladder does not name
-    but the renderer builds anyway. Without it the ladder is the only door,
-    unchanged from before this parameter existed.
+    The ladder is the only door. (A ``value_range`` second way to pass, fed by
+    ``check_pixel_options``'s ``size_range``, left with the character-sheet
+    pipeline's custom sprite size: the 2026-10-14 audit, finding
+    service-assets-06.)
     """
     raw = entries.get(key)
     if raw in _UNSET:
@@ -62,14 +59,6 @@ def _on_the_ladder(
         raise Invalid(f"{key} must be a whole number", field=key) from None
     if value in tuple(ladder):
         return value
-    if value_range is not None:
-        lo, hi = value_range
-        if lo <= value <= hi:
-            return value
-        raise Invalid(
-            f"{key} must be between {lo} and {hi}px, or one of {list(ladder)}",
-            field=key,
-        )
     raise Invalid(f"{key} must be one of {list(ladder)}", field=key)
 
 
@@ -85,29 +74,25 @@ def check_pixel_options(
     allow_outline: bool = True,
     allow_reduce_mode: bool = True,
     outline_refusal: str = "",
-    size_range: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     """Validate one request's pixelisation block and return it normalised.
 
     ``sizes`` and ``colors`` are the ladders this particular path offers --
-    they differ per path (a Troupe sheet is laid out at ``charsheet.SIZES``, a
-    tile sheet is not) and there is no defensible common set, so they are
-    passed rather than picked here.
+    they differ per path (a sprite and a tile sheet do not share one) and there
+    is no defensible common set, so they are passed rather than picked here.
 
-    ``size_range``, when given, widens the size question from "is it on the
-    ladder" to "is it on the ladder, or a whole number in this range" -- so a
-    caller who wants an exact pixel size the ladder does not name (Troupe's
-    custom sprite size) is not stuck between the presets on offer. Every path
-    that leaves it ``None`` keeps the strict ladder it always had: tile sheets
-    and characters have no renderer that accepts an off-ladder size, so
-    accepting one there would be a form offering a size the pipeline refuses.
+    Every path keeps the strict ladder: no renderer accepts an off-ladder
+    size, and accepting one would be a form offering a size the pipeline
+    refuses. (A ``size_range`` parameter that widened it served the removed
+    character-sheet pipeline's custom sprite size and had no caller: the
+    2026-10-14 audit, finding service-assets-06.)
 
     ``allow_outline`` and ``allow_reduce_mode`` gate the two options a path may
     not *have*, and what False does depends on whether the caller **asked**:
 
     * A request that said nothing has the key dropped -- neither validated nor
       returned -- so the params blob never carries a setting nothing reads,
-      which is the dead field ``_charsheet`` found ``reduce_mode`` to be.
+      which is the dead field the removed character-sheet door found ``reduce_mode`` to be.
     * A request that named a mode is **refused**, on ``field="outline"`` /
       ``field="reduce_mode"``. A caller that hands an outline mode to a path
       with no outline pass has made a mistake, and diagnosing a mistake and
@@ -132,9 +117,7 @@ def check_pixel_options(
     """
     from . import palettes
 
-    logical = _on_the_ladder(
-        entries, "logical_size", size_default, sizes, value_range=size_range
-    )
+    logical = _on_the_ladder(entries, "logical_size", size_default, sizes)
     count = _on_the_ladder(entries, "colors", colors_default, colors)
 
     out: dict[str, Any] = {"logical_size": logical, "colors": count}

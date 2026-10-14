@@ -170,7 +170,9 @@ def test_the_pack_failure_remedy_does_not_suggest_trimming_for_a_grid_pack():
     assert "trim" not in remedy.lower(), remedy
     assert "max size" in remedy
 
-    packwright_mode.set_settings(ctx, tab, mode="maxrects")
+    # Trim off, because the 2026-10-14 audit's packwright-11 stopped the remedy
+    # naming trimming when it is already on (its default).
+    packwright_mode.set_settings(ctx, tab, mode="maxrects", trim=False)
     remedy = packwright_items._pack_error_remedy(tab)
     assert "trim" in remedy.lower(), "maxrects can still trim, and the remedy should say so"
 

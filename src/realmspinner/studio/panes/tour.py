@@ -195,6 +195,46 @@ def _untouched(obj: Any, defaults: dict[str, Any]) -> bool:
         return False
 
 
+#: Memoises the Clay conditions that walk every object (``clay_shapes_at_least``,
+#: ``clay_painted_at_least``) on the document's generation -- the 2026-10-14
+#: audit, finding tour-06: only :func:`_notes` was memoised, so a reader who
+#: skipped into the torch tour inside a large model paid a per-face
+#: ``material != 0`` pass over every object each frame while the step showed.
+#:
+#: One generation at a time (the tour has one active step), held under the key
+#: ``"gen"`` beside the answers: ``(tab.uid, doc.rev, history.head, len(objects))``.
+#: ``tab.uid`` for the reason :data:`_notes_cache` gives (an address is reused,
+#: a uid never is); ``history.head`` moves on every push, undo and redo;
+#: ``rev`` is bumped by every Clay door's ``touch()`` and the object count is
+#: the belt -- the same key ``ClayDoc._triangle_key`` trusts for its own cache.
+#: ``clay_shape_placed`` is deliberately *not* memoised: it reads an object's
+#: translation, scale and params, which a live drag edits in place with no
+#: ``rev`` or history step behind it, so any generation key would serve a stale
+#: "not yet" until the drag commits.
+_clay_cache: dict[Any, Any] = {}
+
+
+def _clay_memo(tab: Any, doc: Any, question: tuple[str, str | None], compute: Any) -> bool:
+    """``compute()``, remembered for ``question`` while ``doc`` stays on the
+    generation it was asked on. A stub with no ``history`` (or one whose head is
+    missing) is answered uncached rather than keyed on a made-up value."""
+    head = getattr(getattr(doc, "history", None), "head", None)
+    if head is None:
+        return bool(compute())
+    gen = (
+        getattr(tab, "uid", None) or id(doc),
+        getattr(doc, "rev", 0),
+        int(head),
+        len(doc.objects),
+    )
+    if _clay_cache.get("gen") != gen:
+        _clay_cache.clear()
+        _clay_cache["gen"] = gen
+    if question not in _clay_cache:
+        _clay_cache[question] = bool(compute())
+    return _clay_cache[question]
+
+
 def _clay_satisfied(ctx: Any, name: str, arg: str | None) -> bool:
     """The Clay conditions. Every read is tolerant of a document shaped
     differently (a stub, a tab mid-teardown): a traceback in the frame loop is
@@ -209,7 +249,12 @@ def _clay_satisfied(ctx: Any, name: str, arg: str | None) -> bool:
             if parsed is None:
                 return False
             kind, need = parsed
-            return sum(1 for o in doc.objects if o.generator == kind) >= need
+            return _clay_memo(
+                tab,
+                doc,
+                (name, arg),
+                lambda: sum(1 for o in doc.objects if o.generator == kind) >= need,
+            )
         if name == "clay_shape_placed":
             from ...kernels.mesh import primitives
 
@@ -229,8 +274,14 @@ def _clay_satisfied(ctx: Any, name: str, arg: str | None) -> bool:
             need = _count(arg)
             if need is None:
                 return False
-            painted = sum(1 for o in doc.objects if bool((o.mesh.material != 0).any()))
-            return painted >= need
+            return _clay_memo(
+                tab,
+                doc,
+                (name, arg),
+                lambda: (
+                    sum(1 for o in doc.objects if bool((o.mesh.material != 0).any())) >= need
+                ),
+            )
         if name == "clay_saved":
             return getattr(tab, "path", None) is not None and not tab.dirty
         if name == "clay_exported":

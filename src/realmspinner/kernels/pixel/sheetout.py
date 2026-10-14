@@ -19,10 +19,6 @@ It does not go through ``sheet.plan``. That function's job is poses by yaws, and
 its ``FRAME_SIZES`` check would refuse a 300x180 canvas outright -- so the cells
 are built here and the *format* is still emitted there.
 
-It does not go through ``sheet.plan``. That function's job is poses by yaws, and
-its ``FRAME_SIZES`` check would refuse a 300x180 canvas outright -- so the cells
-are built here and the *format* is still emitted there.
-
 The core takes plain arrays rather than a ``Document`` so every rule about the
 grid is assertable without one; ``from_document`` is the adapter.
 """
@@ -40,6 +36,7 @@ from typing import Any
 import numpy as np
 
 from .. import sheet as sheetlib
+from ._doc_slices import fit_center
 from .animation import DirectionalLayout
 
 __all__ = [
@@ -516,7 +513,12 @@ def plan_frames(
                 ),
             )
         else:  # "columns"
-            columns = wrap
+            # The 2026-10-14 audit, finding inker-sheets-05: a typed count above
+            # the frame count was taken verbatim -- three 16px frames with
+            # ``wrap=10`` made a 160x16 atlas with seven empty slots and a
+            # sidecar ``columns: 10`` -- while Rows clamps to the content. Clamped
+            # here the same way, so no arrange can leave a dead trailing slot.
+            columns = max(1, min(wrap, count))
         rows = -(-count // columns)  # ceil
     sheetlib.check_atlas_size(columns * frame_w, rows * frame_h)
 
@@ -1090,6 +1092,23 @@ def _trim_shift_slices(
             x1, y1 = min(ow, x + entry["w"]), min(oh, y + entry["h"])
             e_pivot = entry.get("pivot")
             e_center = entry.get("center")
+            new_center = None
+            if e_center is not None and x1 > x0 and y1 > y0:
+                # The 2026-10-14 audit, finding inker-sheets-01: the bounds were
+                # clipped to the trim box but the centre was only translated, so
+                # a 10x10 slice with centre (1,1,8,8) exported bounds 5x5 and a
+                # centre at (-2,-2) 8x8 -- a nine-slice inset larger than the
+                # slice it insets. Fitted into the *clipped* bounds by the one
+                # rule ``Document.set_slice`` applies (a centre is relative to
+                # its slice, the snapshot's is absolute, hence the two shifts).
+                # A slice trimmed to nothing has no extent to inset, so it
+                # carries no centre.
+                cx0, cy0 = e_center[0] - ox - x0, e_center[1] - oy - y0
+                fx0, fy0, fx1, fy1 = fit_center(
+                    (cx0, cy0, cx0 + e_center[2], cy0 + e_center[3]),
+                    (x0, y0, x1, y1),
+                )
+                new_center = (x0 + fx0, y0 + fy0, fx1 - fx0, fy1 - fy0)
             shifted.append(
                 {
                     **entry,
@@ -1100,11 +1119,7 @@ def _trim_shift_slices(
                     "pivot": (
                         None if e_pivot is None else (e_pivot[0] - ox, e_pivot[1] - oy)
                     ),
-                    "center": (
-                        None
-                        if e_center is None
-                        else (e_center[0] - ox, e_center[1] - oy, e_center[2], e_center[3])
-                    ),
+                    "center": new_center,
                 }
             )
         out.append(
@@ -1198,7 +1213,8 @@ def snapshot(
 # and a visible freeze on the frame the user pressed the button. It cannot move
 # to a task thread -- ``frame_flat`` fills and evicts the very cache the
 # onion-skin draw is walking -- so the only place left to spend it is *later
-# frames*, which is ``viewer/sheet.StripRender``'s answer to the same problem.
+# frames*, which is the answer the retired direction-strip preview gave to the
+# same problem.
 
 
 def _clamped_span(count: int, span: tuple[int, int] | None) -> tuple[int, int]:

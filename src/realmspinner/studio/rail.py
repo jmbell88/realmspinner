@@ -90,7 +90,26 @@ def expanded_fits() -> bool:
         + style.item_spacing.x * 3
         + style.window_padding.x * 2
     )
-    return imgui.get_main_viewport().work_size[0] >= need
+    width = imgui.get_main_viewport().work_size[0]
+    if width < need:
+        return False
+    # The Familiar dock claims width this arithmetic never budgeted: at the 1100 px
+    # minimum window with the dock open the labelled rail was judged to fit and left a
+    # 188 px centre, under its own floor, where the icon rail leaves 300 (the 2026-10-14
+    # audit, finding shell-chrome-04). Ask ``proportions`` itself -- the one function
+    # that hands the room out -- whether the centre keeps its floor with the wide rail.
+    # Only while the dock is opening or open, so the closed shell keeps the threshold
+    # above exactly.
+    if layout_mod.FAMILIAR_OPEN_T > 0.0:
+        room = width - style.window_padding.x * 2
+        _rail, _left, centre, _right, _dock = layout_mod.proportions(
+            room,
+            layout_mod.FAMILIAR_OPEN_T,
+            style.item_spacing.x,
+            rail=sp(RAIL_EXPANDED_W),
+        )
+        return centre >= sp(layout_mod.CENTRE_MIN) - 0.5
+    return True
 
 
 def tick(layout: Any) -> float:

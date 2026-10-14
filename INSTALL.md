@@ -12,8 +12,8 @@ This covers the packaged Windows installer only. If you want to run Realmspinner
 - **An NVIDIA GPU with CUDA, 16 GB VRAM or more**, for 3D reconstruction and image generation. Tested on an RTX 5090 (32 GB); a 16 GB 4080/5080-class card runs the image model and the 3D engine one at a time, and resolution 1536 needs a 24 GB card. Keep your NVIDIA driver up to date via the NVIDIA app or GeForce Experience.
 - **32 GB of system RAM**, recommended. Windows counts the GPU's memory allocation against your system RAM as well as VRAM, so a low-RAM machine can refuse to start jobs even when VRAM is free.
 - **Free disk space** for four things, each sized separately below: the installer download, the installed base runtime, whichever dependency packs you choose, and whichever model weights you choose. All four together were roughly 35 GB under the old all-in-one installer; the base install alone is a small fraction of that now, and the exact figures for this build are:
-  - Installer download: **about 170 MB** (169,666,529 bytes) — a fifth of what it was before 2026-09-10, when the 3D engine left it
-  - Installed base runtime: **about 539 MB** — most of it the bundled Python runtime (446 MB), then the pack wheels that cannot be downloaded (48 MB) and the application itself (41 MB)
+  - Installer download: **about 175 MB** — a fifth of what it was before 2026-09-10, when the 3D engine left it
+  - Installed base runtime: **about 550 MB** — most of it the bundled Python runtime, then the application itself and the pack wheels that cannot be downloaded
   - Dependency packs: see [Step 4](#step-4-add-dependency-packs), sized per pack
   - Model weights: see [First launch](#first-launch), sized per model
 - **A 1920×1080 or larger display** at 100% scaling. The app window opens at 1600×950.
@@ -22,7 +22,7 @@ This covers the packaged Windows installer only. If you want to run Realmspinner
 ## Step 1: Download Realmspinner
 
 1. Go to the **Releases** page of the [Realmspinner GitHub repository](https://github.com/jmbell88/realmspinner) and open the latest release.
-2. Under **Assets**, download `RealmspinnerSetup-v0.1.4.exe` (version numbers change between releases) — a single file, the same **about 170 MB** sized above under [What you'll need](#what-youll-need). There is nothing to unzip and no other file to fetch alongside it. The release page lists that build's SHA-256; check it against the file you downloaded if you want to be certain it arrived intact.
+2. Under **Assets**, download `RealmspinnerSetup-v0.1.4.exe` (version numbers change between releases) — a single file, the same **about 175 MB** sized above under [What you'll need](#what-youll-need). There is nothing to unzip and no other file to fetch alongside it. The release page lists that build's SHA-256; check it against the file you downloaded if you want to be certain it arrived intact.
 3. Wait for the download to finish before opening it.
 
 ## Step 2: Install Realmspinner
@@ -111,9 +111,11 @@ Everything Realmspinner downloads or creates lives under your Realmspinner home,
 
 ## Upgrading
 
-Installing a newer version over an existing one keeps `%USERPROFILE%\.realmspinner` — your assets, your model weights, and the pack wheel cache — untouched. **What it does not currently do is reinstall the dependency packs you had.** The upgrade replaces the app's own runtime, and that runtime is where packs are installed *into*; today nothing restores them automatically afterward. This is a known gap, not an intended behaviour.
+Installing a newer version over an existing one keeps `%USERPROFILE%\.realmspinner` — your assets, your model weights, and the pack wheel cache — untouched. The upgrade does replace the app's own runtime, and that runtime is where dependency packs are installed *into*, so the packs you had are removed with it.
 
-**After upgrading, check Settings → Packs and reinstall anything that shows as not installed.** Because the wheel cache under `%USERPROFILE%\.realmspinner\packs` survives the upgrade, reinstalling a pack you'd already fetched should be fast — it re-verifies the cached wheels rather than downloading them again, as long as their pinned versions haven't changed in the new release.
+**Realmspinner puts them back for you.** The next time it starts it reinstalls the packs you had, before the app finishes loading, and the splash screen says so. Because the wheel cache under `%USERPROFILE%\.realmspinner\packs` survives the upgrade, this normally downloads nothing — it re-verifies the cached wheels, as long as their pinned versions haven't changed in the new release.
+
+**If it cannot — you are offline, or the disk is full — the app starts anyway.** Settings → Packs then says which packs are missing, and **Restore packs** there does the same thing on request. The automatic attempt is not repeated on every launch until the next update.
 
 ## Uninstalling
 

@@ -1,13 +1,14 @@
 """Characters: what a species is, what a request for one is, and how to build it.
 
-The layer sits between a prompt and a Troupe job. It owns four things and
+The layer sits between a prompt and a rigged mesh: a character is minted from a
+recipe, with no render and no reconstruction behind it. It owns four things and
 deliberately not a fifth:
 
 * :mod:`.family` -- the registries. Four **archetypes** (body plans, each owning
   a rig template, a clip library, sockets and material regions) and the
   **species** of each (channel defaults, themes, height, aliases).
-* :mod:`.recipe` -- one flat, validating record of everything a character sheet
-  needs. It refuses by name and never clamps.
+* :mod:`.recipe` -- one flat, validating record of a character request. It
+  refuses by name and never clamps.
 * :mod:`.instantiate` -- recipe in, ``source.glb`` / ``model.glb`` /
   ``character.json`` out. Archetype-agnostic: it reads the species' baked asset
   and its mask file and knows nothing about how either was made.

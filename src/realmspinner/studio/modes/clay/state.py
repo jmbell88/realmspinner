@@ -282,7 +282,7 @@ class ClayState(docmodes.DocTabs[ClayTab]):
     snap_rotate: float = DEFAULT_SNAP_ROTATE
     grid: bool = True
     # The grid's own size, in metres -- a user setting rather than something
-    # derived from the document, unlike Mason's, Poser's and the asset
+    # derived from the document, unlike Mason's and the asset
     # viewer's grids (``viewer/grid.py``'s ``span_for``). 100 m at 1 m cells
     # by default: room enough for most props with no resize needed, and a
     # round unit a user reads at a glance. Persisted with ``grid`` (see

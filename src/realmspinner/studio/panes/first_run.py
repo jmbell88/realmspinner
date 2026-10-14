@@ -77,7 +77,18 @@ def snapshot(ctx: Any) -> dict[str, Any]:
     # imported) reports ``ok=True`` so the banner stays quiet; here it is
     # *not* ready, or the panel says "No CUDA GPU detected" and "Ready" on one
     # screen. The snapshot is retaken when the health poll lands.
-    three_d_ready = bool(_settled(cuda) and _settled(budget))
+    #
+    # A CUDA row with ``pending_install`` is a third state, *unmeasured*: on a
+    # base install torch is the Image generation pack and is not on disk yet,
+    # so the row is ``ok=False`` for a reason that says nothing about the card
+    # (the 2026-10-14 audit, finding shell-review-settings-01: a healthy 24 GiB
+    # RTX was told "Requires an NVIDIA GPU" on every fresh install). TRELLIS
+    # runs natively and needs no torch, so there the NVML-backed VRAM row alone
+    # decides.
+    cuda_unmeasured = bool(
+        cuda and not cuda.ok and getattr(cuda, "pending_install", False)
+    )
+    three_d_ready = bool((_settled(cuda) or cuda_unmeasured) and _settled(budget))
 
     entries = [fetch.find(key) for key in GENERATION_ROWS]
     chosen = [entry for entry in entries if entry is not None]
@@ -112,7 +123,8 @@ def snapshot(ctx: Any) -> dict[str, Any]:
     # here to sit beside.
     packs = model_gate.missing_packs(ctx, "create")
     return {
-        "gpu_name": gpu_name or ("CUDA GPU" if cuda and cuda.ok else "No CUDA GPU detected"),
+        "gpu_name": gpu_name
+        or ("CUDA GPU" if cuda and (cuda.ok or cuda_unmeasured) else "No CUDA GPU detected"),
         "vram_total_gib": total,
         "vram_free_gib": free,
         "three_d": {

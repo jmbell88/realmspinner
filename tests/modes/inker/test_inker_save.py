@@ -805,7 +805,9 @@ def test_a_dirty_aseprite_tabs_journal_payload_is_still_ora(tmp_path):
     doc = inker.Document.blank(8, 8)
     tab = InkerDoc(doc=doc, title=src.name, path=src, file_format="aseprite")
 
-    payload = inker_mode._journal_encode(tab)
+    # ``_journal_encode`` returns the callable the task runs (the 2026-10-14 audit, finding
+    # inker-mode-04, F31): the zlib work is off the frame thread.
+    payload = inker_mode._journal_encode(tab)()
 
     copy = tmp_path / "journal.ora"
     copy.write_bytes(payload)

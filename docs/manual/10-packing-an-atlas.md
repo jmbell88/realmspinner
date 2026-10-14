@@ -6,7 +6,7 @@ weights, nothing to download.
 
 ## Getting sprites in
 
-Six doors, and they all produce the same kind of thing:
+Five doors, and they all produce the same kind of thing:
 
 - **Add an image** — a file picker.
 - **Drag and drop** — several files at once, as one add with one undo step. A file already in the

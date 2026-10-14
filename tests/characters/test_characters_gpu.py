@@ -74,9 +74,9 @@ def _built_and_rigged(bpy: Any, spec: recipe_mod.Recipe, out_dir: Path) -> dict[
     """Instantiate the recipe into *out_dir* and rig it, in this process.
 
     Returns ``op_rig``'s own result dict. The joints handed to the rig are the
-    instance's exact ones and ``joints="measured"`` is withheld, which is what
-    ``service.characters`` does at the real door -- measuring reads joints off a
-    reference image a generated character never had.
+    instance's exact ones, which is what ``service.characters`` does at the real
+    door -- a reference image a generated character never had is not asked to
+    place them.
     """
     from realmspinner.pipelines import blender_worker
 
@@ -152,7 +152,7 @@ async def test_a_character_end_to_end_ends_at_a_rigged_mesh(svc):
     made = create_character(svc, recipe_mod.DEFAULT_RECIPE.as_dict(), name="P28 ogre")
     model = svc.store.get(made["id"])
     # The mesh row is minted finished -- ``import_mesh``'s arrangement, which is
-    # what makes ``rerun_job`` refuse it and ``reroll_character`` the door.
+    # what makes ``rerun_job`` refuse it.
     assert (model["stage"], model["status"]) == ("model", "done")
     assert model["params"]["built"] is True
 
@@ -208,9 +208,8 @@ def test_a_generated_character_imports_into_blender_with_its_material_slots(
     mesh = _quiet(blender_worker._import_glb, bpy, tmp_path / "model.glb")
 
     # The regions survive as distinct, correctly *named* slots -- the name is
-    # what ``characters.effects`` and any exporter downstream address them by,
-    # so a slot that came back as "Material.001" is a lost region even if the
-    # colour is right.
+    # what any exporter downstream addresses them by, so a slot that came back as
+    # "Material.001" is a lost region even if the colour is right.
     #
     # A *subset* of the archetype's regions, and in its order. The tuple is the
     # body plan's whole vocabulary while the bake is one silhouette's use of it:

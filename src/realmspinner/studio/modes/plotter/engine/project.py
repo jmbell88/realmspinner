@@ -227,6 +227,28 @@ def check(projection: str) -> str:
     return value
 
 
+def check_skew(projection: str, tile_w: int, tile_h: int, skew_x: int, skew_y: int) -> None:
+    """Refuse an oblique skew whose lattice has no inverse.
+
+    ``tile_w * tile_h - skew_x * skew_y == 0`` folds the two lattice axes onto
+    one line, and ``cell_at`` / ``cell_point`` divide by that determinant. The
+    2026-10-14 audit (finding plotter-map-04) found it accepted by the settings
+    setter, ``set_tile_size`` and all three readers -- a tile of 32x32 with a
+    skew of (32, 32) opened from a ``.tmx`` and survived an ``.rmap`` round
+    trip -- and then raised from the canvas's per-draw ``cell_bounds``, out of
+    the frame loop. Refused at every door that stores one, so no document can
+    hold it and the projection functions keep their ``ValueError`` only as a
+    backstop. Other projections ignore the skew, so they are never refused.
+    """
+    if projection != OBLIQUE:
+        return
+    if int(tile_w) * int(tile_h) - int(skew_x) * int(skew_y) == 0:
+        raise ValueError(
+            f"a skew of {int(skew_x)}x{int(skew_y)} collapses an oblique map of "
+            f"{int(tile_w)}x{int(tile_h)} tiles onto a line; choose a smaller skew"
+        )
+
+
 def _origin_x(lat: Lattice) -> float:
     """How far right the lattice sits, so no cell has a negative x.
 

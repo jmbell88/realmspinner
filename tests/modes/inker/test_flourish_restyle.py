@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -212,11 +213,16 @@ def test_the_restyle_door_queues_polls_interpolates_and_lands(tmp_path, monkeypa
     state = ctx.state.inker
     calls: list = []
 
+    from realmspinner.service import jobs as svc_jobs
+
+    real_signature = inspect.signature(svc_jobs.create_job)
+
     def fake_create_job(svc, **kwargs):
+        # Bound to the real signature (the 2026-10-14 audit, finding
+        # inker-flourish-01): a ``**kwargs`` fake hid a keyword the door rejects.
+        real_signature.bind(svc, **kwargs)
         calls.append(kwargs)
         return {"id": f"job{len(calls)}"}
-
-    from realmspinner.service import jobs as svc_jobs
 
     monkeypatch.setattr(svc_jobs, "create_job", fake_create_job)
     assert inker_ops.run(ctx, inker_ops.get("flourish_restyle"))
@@ -236,6 +242,7 @@ def test_the_restyle_door_queues_polls_interpolates_and_lands(tmp_path, monkeypa
     for i, job_id in enumerate(pending["jobs"].values()):
         ctx.svc.store.jobs[job_id] = {"status": "done" if i < 2 else "running"}
     inker_flourish.poll_restyle(ctx, state, now=10.0)
+    ctx.land_all()  # the store reads are a task now; their answer lands on the frame thread
     assert state.flourish_restyle_pending is not None
     # All done: the anchors are read, keyed out, interpolated and landed.
     colours = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
@@ -250,6 +257,7 @@ def test_the_restyle_door_queues_polls_interpolates_and_lands(tmp_path, monkeypa
         picture.save(job_dir / "input.png")
     tracks = len(tab.doc.anim.tracks)
     inker_flourish.poll_restyle(ctx, state, now=20.0)
+    ctx.land_all()
     assert state.flourish_restyle_pending is None
     ctx.land_all()
     assert len(tab.doc.anim.tracks) == tracks + 1
@@ -387,6 +395,7 @@ def test_a_failed_job_ends_the_restyle_with_a_warning(tmp_path):
     ctx.svc.store.jobs["a"] = {"status": "done"}
     ctx.svc.store.jobs["b"] = {"status": "failed", "error": "no VRAM"}
     inker_flourish.poll_restyle(ctx, state, now=1.0)
+    ctx.land_all()
     assert state.flourish_restyle_pending is None
     assert ctx.toasts[-1][1] == "warn"
 

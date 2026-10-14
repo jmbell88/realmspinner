@@ -71,6 +71,7 @@ def render(layer: Any, ctx: Any, below: np.ndarray | None) -> np.ndarray | None:
     # stamp() now returns only its window (dev/measurements/
     # 2026-09-13-native-batch-10-candidates.md §3) -- a layer render() still
     # returns a full-frame plane, so paste the patch into one zeroed frame.
+    # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     out = np.zeros((ctx.height, ctx.width, 4), dtype=np.float32)
     out[win.rows, win.cols] = patch
     return out

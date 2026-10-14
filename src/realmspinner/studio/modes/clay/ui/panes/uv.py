@@ -668,8 +668,16 @@ def _refused(ctx: Any, error: Exception) -> bool:
 def apply_translate(
     doc: Any, uid: int, island_ids: Any, translate: tuple[float, float], *, ctx: Any = None
 ) -> bool:
-    """Slide the chosen islands by *translate*, as one step. -> whether it moved."""
-    obj = doc.by_uid(uid)
+    """Slide the chosen islands by *translate*, as one step. -> whether it moved.
+
+    ``False`` for an object that is no longer in the document: a drag frame can land after
+    something removed the object it was dragging (the 2026-10-14 audit, finding clay-46 saw an
+    undo do it), and a bare ``KeyError`` out of the pane is not an answer.
+    """
+    try:
+        obj = doc.by_uid(uid)
+    except KeyError:
+        return False
     try:
         mesh = uvtools.transform_islands(obj.mesh, list(island_ids), translate=translate)
     except el.OpError as error:
@@ -1444,6 +1452,12 @@ def _canvas(ctx: Any, tab: Any, doc: Any, obj: Any, view_state: UvPaneState) -> 
             # that this same field also carries "rotate"/"scale", which
             # *are* meaningful between frames.
             view_state.drag_mode = ""
+        elif view_state.drag_mode == "move" and not imgui.is_item_active():
+            # "move" now counts as a live gesture to the mode layer (the 2026-10-14 audit,
+            # finding clay-46), so a press that ended without this item seeing the
+            # deactivation (the pane was not drawn on the release frame) must not leave the
+            # tab reading as mid-drag for good.
+            view_state.drag_mode = ""
 
     if hovered:
         _handle_pan_zoom(view, origin, size_px, region, (mouse.x, mouse.y))
@@ -1667,17 +1681,27 @@ def _concave_triangles(cache: dict[str, Any], mesh: Any) -> dict[int, list[tuple
     ``overlap_faces`` already uses (``earclip.corner_triangles``), on the mesh's own
     positions, so the fill and the overlap tint triangulate a face the same way.
 
-    **Memoised on the identity of ``positions``, ``loops`` and ``starts``**, the three
-    arrays the triangulation reads and a live UV drag never replaces (it moves ``uv``
+    **Memoised on the content of ``positions``, ``loops`` and ``starts``**, the three
+    arrays the triangulation reads and a live UV drag never changes (it moves ``uv``
     only), so a frame that pans, zooms or hovers -- or a drag -- does not clip again.
-    Held as strong references, as :func:`_screen_corners` does, so an address cannot be
+    The 2026-10-14 audit, finding clay-texturing-03: this said the *identity* of the three
+    survives a drag, but ``Mesh.__post_init__`` copies every array, so each frame's
+    ``replace(mesh, uv=...)`` handed over fresh ones and the memo missed every frame (1.9 ms
+    a frame at the 2,000-face ceiling, on the frame thread) -- the trap ``_same_layout``
+    already avoids by comparing content. Identity is still the fast path (an untouched
+    mesh), and a content match re-keys the entry onto the new arrays so the next frame takes
+    it. Held as strong references, as :func:`_screen_corners` does, so an address cannot be
     reused under the key. A convex mesh (the common case) costs one vectorised screen,
     once, and answers ``{}``.
     """
     key = (mesh.positions, mesh.loops, mesh.starts)
     hit = cache.get("concave_tris")
-    if hit is not None and all(a is b for a, b in zip(hit[0], key, strict=True)):
-        return hit[1]
+    if hit is not None:
+        if all(a is b for a, b in zip(hit[0], key, strict=True)):
+            return hit[1]
+        if all(np.array_equal(a, b) for a, b in zip(hit[0], key, strict=True)):
+            cache["concave_tris"] = (key, hit[1])
+            return hit[1]
     normals = bm.face_normals(mesh)
     concave = earclip.concave_faces(mesh.positions, mesh.loops, mesh.starts, normals)
     out: dict[int, list[tuple[int, int, int]]] = {}

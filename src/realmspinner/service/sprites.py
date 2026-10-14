@@ -2,8 +2,8 @@
 
 The door for the 2D entry point. Everything a ``sprite_synthesis`` job can be
 refused for is checked here, before the row exists, for the reason
-``create_sheet`` and ``create_pixel_sheet`` both state: an unrunnable request
-should cost the request, not a place in the queue and two SDXL generations.
+every door that queues GPU work shares: an unrunnable request should cost the
+request, not a place in the queue and two SDXL generations.
 
 Nothing here reads a draft's *pixels*. The listing and the reads are
 ``store``'s pure file helpers behind the id guards, so the pane can call them
@@ -36,10 +36,6 @@ from .validation import (
 #: guide behind them, discovered on disk rather than listed here.
 SPRITE_LEGACY_SHEET_TYPES = ("turnaround", "walk")
 
-#: Historical spelling, kept because it is what several callers and tests import
-#: and because it still names exactly what it always did.
-SPRITE_SHEET_TYPES = SPRITE_LEGACY_SHEET_TYPES
-
 #: What one band of one direction costs, in seconds, for the "about N minutes"
 #: line a form draws before anything is queued. The worker's own ``nominal`` for
 #: one SDXL generation on this path, restated rather than guessed at, and it is
@@ -47,12 +43,13 @@ SPRITE_SHEET_TYPES = SPRITE_LEGACY_SHEET_TYPES
 #: direction for a promise about how long somebody will be waiting.
 SECONDS_PER_GENERATION = 20.0
 
-# Its own tuple rather than ``sheets.PIXEL_LOGICAL_SIZES``, deliberately. That
-# one is the set of sizes that divide a *rendered* sheet's frame exactly, which
-# is a constraint this path does not have -- the atlas is reduced in one pass
-# and any size lands on a cell boundary. Sharing the tuple would tie two
-# unrelated menus together and offer 16px cells here, which is below the size a
-# recognisable four-direction character fits in.
+# Its own tuple, deliberately: the sizes a *rendered* sheet's frame divides
+# into exactly are a constraint this path does not have -- the atlas is reduced
+# in one pass and any size lands on a cell boundary. Borrowing another path's
+# ladder would tie two unrelated menus together and offer 16px cells here,
+# which is below the size a recognisable four-direction character fits in.
+# (The rendered-sheet ladder this comment used to name left with the
+# character-sheet pipeline; the 2026-10-14 audit, finding poser-jobs-04.)
 SPRITE_LOGICAL_SIZES = (32, 48, 64)
 
 SPRITE_COLOR_CHOICES = (8, 16, 32, 64)
@@ -69,9 +66,8 @@ DEFAULT_SPRITE_COLORS = 32
 DEFAULT_SPRITE_OUTLINE = spritesynth.DEFAULT_SPRITE_OUTLINE
 
 # The base every draft generates on today. Named here, and written into params,
-# for the reason ``create_pixel_sheet`` gives: params outlive today's UI, and
-# the day this becomes a control the pairing refusal below is already at the
-# door.
+# because params outlive today's UI: the day this becomes a control, the
+# pairing refusal below is already at the door.
 SPRITE_BASE_MODEL = "sdxl_cfg"
 
 # The three non-base weights a synthesis loads: (registry kind, registry key,
@@ -365,7 +361,7 @@ def sprite_palettes(svc: RealmspinnerService) -> list[str]:
 def _check_options(svc: RealmspinnerService, entries: dict[str, Any]) -> dict[str, Any]:
     """The pixelisation options a sprite request may carry, validated once.
 
-    ``troupe._check_options``' shape and its reason: this is where the sprite
+    This is where the sprite
     path's ladders and its ``inner`` default live, so neither of the two doors
     below has to restate them -- and there are exactly two, which is why a
     shared function rather than a copy is the difference between "both refuse
@@ -625,8 +621,7 @@ def create_sprite_synthesis(
     # The pixel look is the style LoRA, so a base it does not fit is refused
     # here rather than queued -- the worker would drop the adapter and publish
     # two smooth illustrations chopped into a grid, which is two generations
-    # spent on a result the request did not mean. Same refusal, same wording
-    # and same field as ``create_pixel_sheet``.
+    # spent on a result the request did not mean.
     base = models.BASE_MODELS[SPRITE_BASE_MODEL]
     pixel_lora = models.STYLE_LORAS[models.PIXEL_SHEET_LORA]
     if not models.lora_fits(base, pixel_lora):
@@ -646,9 +641,9 @@ def create_sprite_synthesis(
 
     draft_id = store.new_id()
     params = {
-        # Inputs only, exactly as ``create_pixel_sheet`` says: what actually
-        # ran is recorded in the draft's own sidecar recipe, so nothing here is
-        # derived and a rerun copies it verbatim.
+        # Inputs only: what actually ran is recorded in the draft's own
+        # sidecar recipe, so nothing here is derived and a rerun copies it
+        # verbatim.
         "source_job": job_id,
         "sheet_type": kind,
         # How many of the pair to draw. Written always rather than only when
@@ -730,8 +725,8 @@ def sprite_draft_png(
     """One candidate's atlas, once the draft has finished.
 
     Gated on the sidecar and not on the PNG's existence: both PNGs are written
-    before it, so a file that is there may still be half-written -- the same
-    completion-marker rule ``sheet_pixel_png`` follows.
+    before it, so a file that is there may still be half-written: the sidecar is
+    the completion marker, as it is for every artifact written in two steps.
     """
     check_job_id(job_id)
     check_sprite_draft_id(draft_id)
@@ -757,8 +752,7 @@ def _synthesis_in_flight(svc: RealmspinnerService, draft_id: str) -> bool:
     the sidecar right back afterwards. The result is a draft
     ``list_sprite_drafts`` never shows (one candidate missing) whose files
     ``delete_sprite_draft`` can never reach again, because its own id is
-    already spent -- exactly the orphan ``sheets._restyle_in_flight`` exists
-    to prevent for the sibling pixel-sheet door.
+    already spent. The lock and this in-flight check are what stop that orphan.
     """
     for j in svc.store.active_jobs():
         if j["kind"] != "sprite_synthesis":

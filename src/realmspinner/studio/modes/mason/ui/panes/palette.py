@@ -93,12 +93,26 @@ def _body(ctx: Any) -> None:
 def _mesh_jobs(ctx: Any) -> list[dict[str, Any]]:
     """Every finished mesh a row can offer, newest first.
 
-    Read straight off the job cache rather than the filesystem --
-    ``poser_mode.riggable_assets``'s own shape, one dimension over: this pane
-    is drawn every frame Mason's Assets tab is open, so a disk walk here would
-    be a disk walk every frame.
+    Read straight off the job cache rather than the filesystem -- the Library's
+    own rule for its cards: this pane is drawn every frame Mason's Assets tab is
+    open, so a disk walk here would be a disk walk every frame.
+
+    The 2026-10-14 audit, finding mason-mode-12: this filtered and reversed the
+    whole library every frame it was drawn. Memoised on the jobs cache's
+    generation (bumped every time its list is replaced -- ``JobsCache``'s own
+    key for the Library's ``visible`` memo), on the cache itself so a second
+    cache cannot read another's answer. A cache with no generation (a test's
+    stand-in) is simply not memoised.
     """
-    return [job for job in reversed(ctx.cache.jobs) if library.can_drag_mesh(job)]
+    cache = ctx.cache
+    generation = getattr(cache, "_generation", None)
+    held = vars(cache).get("_mason_mesh_jobs") if generation is not None else None
+    if held is not None and held[0] == generation and held[1] is cache.jobs:
+        return held[2]
+    rows = [job for job in reversed(cache.jobs) if library.can_drag_mesh(job)]
+    if generation is not None:
+        vars(cache)["_mason_mesh_jobs"] = (generation, cache.jobs, rows)
+    return rows
 
 
 def _library(ctx: Any, state: Any) -> None:
@@ -107,39 +121,51 @@ def _library(ctx: Any, state: Any) -> None:
     if not jobs:
         widgets.muted("No finished models yet -- build one in Create or Clay.")
         return
-    for job in jobs:
-        imgui.push_id(job["id"])
-        thumbs.job_thumb(ctx, job, sp(32.0))
-        imgui.same_line()
-        label = job.get("name") or job.get("prompt") or job["id"]
-        kind = f"job:{job['id']}"
-        # The 2026-09-26 audit's mason-mode-05: this row used to place at once
-        # on click, contradicting Chapter 17 ("clicking *arms* the asset
-        # rather than placing it") and Chapter 31's "Arming and placing"
-        # section, which both promise the same click-then-click-in-viewport
-        # gesture the primitive grid and the lights already give. Armed the
-        # same way ``_primitives``/``_lights`` arm theirs -- ``_arm_kind`` and
-        # ``mason_mode.place_armed`` -- rather than placing here directly, so
-        # the row also lights up while its own asset is the one armed.
-        #
-        # ``controls.selectable`` and never ``imgui.selectable``: every
-        # interactive widget in this app goes through the one chokepoint
-        # ``controls._finish_item``, which is what ``studio/probe.py`` taps to
-        # census a mode's controls. A raw imgui call draws the same row and is
-        # invisible to that census -- so ``exercise_mode`` would press
-        # everything in this pane except the library rows and report full
-        # coverage, which is the blind spot ``test_probe`` pins a count
-        # against precisely so it cannot grow quietly.
-        if controls.selectable(f"{label}##masonlib", state.place_kind == kind)[0]:
-            _arm_kind(state, kind)
-        # The pane's own drag source, over the same row the click above
-        # arms from -- ``library.draggable_mesh`` is the predicate and the
-        # payload this row and the viewport's drop target both have to agree
-        # on; that agreement lives in ``panes/library.py``, not here. Dragging
-        # still places at once, which is a different gesture from a click and
-        # is not what either manual chapter above is describing.
-        library.draggable_mesh(ctx, job)
-        imgui.pop_id()
+    # The 2026-10-14 audit, finding mason-mode-12: every finished mesh in the
+    # library was submitted each frame the pane was visible -- a thumbnail stat,
+    # a texture get and an image draw apiece, 12 ms of stats alone for 500
+    # models. Clipped as the outliner's rows are: only the rows in view are drawn.
+    clipper = imgui.ListClipper()
+    clipper.begin(len(jobs))
+    while clipper.step():
+        for i in range(clipper.display_start, clipper.display_end):
+            _library_row(ctx, state, jobs[i])
+    clipper.end()
+
+
+def _library_row(ctx: Any, state: Any, job: Any) -> None:
+    imgui.push_id(job["id"])
+    thumbs.job_thumb(ctx, job, sp(32.0))
+    imgui.same_line()
+    label = job.get("name") or job.get("prompt") or job["id"]
+    kind = f"job:{job['id']}"
+    # The 2026-09-26 audit's mason-mode-05: this row used to place at once
+    # on click, contradicting Chapter 17 ("clicking *arms* the asset
+    # rather than placing it") and Chapter 31's "Arming and placing"
+    # section, which both promise the same click-then-click-in-viewport
+    # gesture the primitive grid and the lights already give. Armed the
+    # same way ``_primitives``/``_lights`` arm theirs -- ``_arm_kind`` and
+    # ``mason_mode.place_armed`` -- rather than placing here directly, so
+    # the row also lights up while its own asset is the one armed.
+    #
+    # ``controls.selectable`` and never ``imgui.selectable``: every
+    # interactive widget in this app goes through the one chokepoint
+    # ``controls._finish_item``, which is what ``studio/probe.py`` taps to
+    # census a mode's controls. A raw imgui call draws the same row and is
+    # invisible to that census -- so ``exercise_mode`` would press
+    # everything in this pane except the library rows and report full
+    # coverage, which is the blind spot ``test_probe`` pins a count
+    # against precisely so it cannot grow quietly.
+    if controls.selectable(f"{label}##masonlib", state.place_kind == kind)[0]:
+        _arm_kind(state, kind)
+    # The pane's own drag source, over the same row the click above
+    # arms from -- ``library.draggable_mesh`` is the predicate and the
+    # payload this row and the viewport's drop target both have to agree
+    # on; that agreement lives in ``panes/library.py``, not here. Dragging
+    # still places at once, which is a different gesture from a click and
+    # is not what either manual chapter above is describing.
+    library.draggable_mesh(ctx, job)
+    imgui.pop_id()
 
 
 def _arm_kind(state: Any, kind: str) -> None:

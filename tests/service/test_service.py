@@ -27,6 +27,23 @@ from realmspinner.service import rig as svc_rig
 from realmspinner.service.validation import DERIVED_PARAMS, MAX_SEED
 
 
+@pytest.fixture(autouse=True)
+def _blender_present_for_the_retexture_door(request, monkeypatch):
+    """``retexture_job`` refuses up front when Blender is absent (the 2026-10-14 audit,
+    finding create-panes-03, as ``remesh_job`` always has), so the tests that exercise its
+    other rules answer "present" -- a host without ``bpy`` must not turn each of them into
+    that one refusal. ``test_audit_2026_10_14_c1_retexture_door.py`` pins the refusal."""
+    if "retexture" not in request.node.name:
+        return
+    from types import SimpleNamespace
+
+    from realmspinner import doctor
+
+    monkeypatch.setattr(
+        doctor, "blender_check", lambda *a, **k: SimpleNamespace(ok=True, detail="")
+    )
+
+
 def _png_bytes(size=(8, 8), fmt="PNG") -> bytes:
     from PIL import Image
 

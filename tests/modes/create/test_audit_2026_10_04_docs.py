@@ -160,19 +160,18 @@ def test_manual_22_names_the_conditioning_header_the_pane_draws():
 
 
 def test_character_controls_in_the_manual_match_the_column():
-    """The column draws ``settings_2d.seed_row`` -- Seed, Reroll, Lock seed -- so
-    the Controls subsection lists those three captions by name."""
-    assert "settings_2d.seed_row(ctx, form, form_ui)" in inspect.getsource(
-        settings_character.draw_block
-    )
-    row = inspect.getsource(settings_2d.seed_row)
+    """The column draws no Seed row -- the build reads none, and the form's ``seed`` is
+    the SDXL arm's draw (the 2026-10-14 audit, finding poser-characters-01) -- so the
+    Controls subsection must not list Seed, Reroll or Lock seed as its controls and
+    must say a character has no Seed."""
+    block = inspect.getsource(settings_character.draw_block)
+    assert "seed_row" not in block
     captions = ('"Seed"', '"Reroll"', '"Lock seed"')
-    for caption in captions:
-        assert caption in row, f"seed_row no longer draws {caption}"
 
     controls = _section(_chapter("22-generating-references"), "The controls", level="###")
     for caption in captions:
-        assert f"**{caption.strip(chr(34))}**" in controls, caption
+        assert f"**{caption.strip(chr(34))}**" not in controls, caption
+    assert "A character has no Seed" in controls
 
 
 # --- create-61 -------------------------------------------------------------------

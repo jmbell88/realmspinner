@@ -60,6 +60,9 @@ SOURCES = (
     # Created in the 2026-08-21 consolidation: the merged interop ledger, which
     # cites the fixture inventories, the manual and this file's other sources.
     ROOT / "docs" / "COMPAT.md",
+    # The 2026-10-14 audit, finding docs-A-B-16: the Create quality page links
+    # into the manual and was never walked, so its citations rotted unseen.
+    ROOT / "docs" / "create-quality.md",
     # The 2026-09-06 docs audit, finding docs-10: the docs slice's own root
     # sources stopped at the seven above, so INSTALL.md:124's citation of a
     # manual chapter and THIRD-PARTY-NOTICES.md's links to docs/MODELS.md were

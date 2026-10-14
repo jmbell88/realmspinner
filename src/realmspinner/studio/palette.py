@@ -343,14 +343,42 @@ def _doc_history(ctx: Any):
     return getattr(doc, "history", None)
 
 
+def _history_blocked_why(ctx: Any) -> str:
+    """Why the mode in front would refuse an Undo or Redo right now, or ``""``.
+
+    The 2026-10-14 audit, finding shell-chrome-07: Clay's ``undo`` and ``redo``
+    refuse under a save or a live gesture, but these rows asked only whether the
+    stack had a step, so they stayed lit and the press returned silently. A mode
+    that can refuse says so through ``history_blocked_why(ctx, tab)``; one with
+    no such function is never blocked, which is what every other mode was.
+    """
+    from importlib import import_module
+
+    entry = _DOC_MODES.get(ctx.state.mode)
+    if entry is None:
+        return ""
+    # Ask the module before the tab: ``commands`` builds the row's reason every
+    # frame, and a mode that cannot refuse has no reason to look up its tab.
+    module = import_module(f".{entry[0]}", __package__)
+    blocked = getattr(module, "history_blocked_why", None)
+    if blocked is None:
+        return ""
+    try:
+        tab = module.active(ctx)
+    except AttributeError:
+        # A context that never opened this mode's state has no tab to refuse on.
+        return ""
+    return blocked(ctx, tab) if tab is not None else ""
+
+
 def _can_undo(ctx: Any) -> bool:
     history = _doc_history(ctx)
-    return bool(history is not None and history.can_undo)
+    return bool(history is not None and history.can_undo and not _history_blocked_why(ctx))
 
 
 def _can_redo(ctx: Any) -> bool:
     history = _doc_history(ctx)
-    return bool(history is not None and history.can_redo)
+    return bool(history is not None and history.can_redo and not _history_blocked_why(ctx))
 
 
 def _step(ctx: Any, name: str) -> None:
@@ -544,7 +572,7 @@ def _clay_op_command(op: Any, doc: Any, tab: Any, gesture: bool = False) -> Comm
     )
 
 
-def _clay_build(doc: Any, tab: Any, gesture: bool = False) -> list[Command]:
+def _clay_build(doc: Any, tab: Any, gesture: bool = False, ctx: Any = None) -> list[Command]:
     from . import verbs
     from .modes.clay import doc_io
     from .modes.clay import mode as clay_mode
@@ -725,7 +753,23 @@ def _clay_build(doc: Any, tab: Any, gesture: bool = False) -> list[Command]:
 
     def can_import_animation(ctx: Any) -> bool:
         live = _clay_tab(ctx)
-        return live is not None and not live.saving and any(o.bone for o in live.doc.objects)
+        return (
+            live is not None
+            and not live.saving
+            and not clay_mode._gesture_live(ctx, live)
+            and any(o.bone for o in live.doc.objects)
+        )
+
+    # The reason is the one the File menu's row gives for the same state, said at build
+    # time (the memo's key carries what it depends on): the row used to say "Mark some
+    # shapes as bones first." while the document was saving or a drag was live (the
+    # 2026-10-14 audit, finding shell-chrome-06).
+    if tab.saving:
+        import_animation_why = clay_header.SAVING_WHY
+    elif gesture:
+        import_animation_why = doc_io.GESTURE_WHY
+    else:
+        import_animation_why = "Mark some shapes as bones first."
 
     out.append(
         Command(
@@ -734,7 +778,7 @@ def _clay_build(doc: Any, tab: Any, gesture: bool = False) -> list[Command]:
             group=_CLAY_GROUP,
             run=_clay_run(import_animation),
             enabled=can_import_animation,
-            why="Mark some shapes as bones first.",
+            why=import_animation_why,
         )
     )
 
@@ -745,6 +789,15 @@ def _clay_build(doc: Any, tab: Any, gesture: bool = False) -> list[Command]:
     def can_weight(ctx: Any) -> bool:
         return not clay_mode.rig_blocked_why(ctx, _clay_tab(ctx))
 
+    # ``rig_blocked_why`` is the sentence the Rig card's button gives, so the row and the
+    # button refuse for the same reason (the 2026-10-14 audit, finding shell-chrome-06: the
+    # row kept a fixed "Needs Blender..." in the weighting and saving states).
+    weight_why = (
+        clay_mode.rig_blocked_why(ctx, tab)
+        if ctx is not None
+        else ""
+    ) or "Needs Blender, some bones, and a visible shape that is not a bone."
+
     out.append(
         Command(
             key="clay-rig:weights",
@@ -752,7 +805,7 @@ def _clay_build(doc: Any, tab: Any, gesture: bool = False) -> list[Command]:
             group=_CLAY_GROUP,
             run=_clay_run(weight_with_blender),
             enabled=can_weight,
-            why="Needs Blender, some bones, and a visible shape that is not a bone.",
+            why=weight_why,
         )
     )
 
@@ -827,12 +880,16 @@ def _clay_commands(ctx: Any) -> list[Command]:
         # The greyed rows' reason differs while a drag is live, so the memo must
         # not hand the idle build to a frame that is mid-drag.
         gesture,
+        # What "Weight with Blender..." says when it is shut depends on these two, and
+        # neither moves the document's revision.
+        tab.pending_rig is not None,
+        bool(getattr(ctx, "rigging_available", False)),
     )
     cache = _clay_cache
     held = cache.doc_ref() if cache.doc_ref is not None else None
     if cache.key == key and held is doc:
         return cache.commands
-    cache.commands = _clay_build(doc, tab, gesture)
+    cache.commands = _clay_build(doc, tab, gesture, ctx)
     cache.key = key
     cache.doc_ref = weakref.ref(doc)
     cache.builds += 1
@@ -952,6 +1009,11 @@ def commands(ctx: Any) -> list[Command]:
 
     def show_trash(ctx: Any) -> None:
         ctx.state.filters.trash = not ctx.state.filters.trash
+        # The tick set is per-view, the rule both Library toggles keep: ids
+        # ticked on live assets survived into the trash, whose bulk bar offers
+        # "Delete permanently...", and a purge of every ticked id removed live
+        # assets from disk (the 2026-10-14 audit, finding shell-03).
+        ctx.state.checked.clear()
         state.set_mode(ctx.state, "library")
 
     def empty_trash(ctx: Any) -> None:
@@ -1156,7 +1218,7 @@ def commands(ctx: Any) -> list[Command]:
             run=_doc_undo,
             hint="Ctrl+Z",
             enabled=_can_undo,
-            why="Nothing to undo in the document in front.",
+            why=_history_blocked_why(ctx) or "Nothing to undo in the document in front.",
         ),
         Command(
             key="redo",
@@ -1165,7 +1227,7 @@ def commands(ctx: Any) -> list[Command]:
             run=_doc_redo,
             hint="Ctrl+Shift+Z",
             enabled=_can_redo,
-            why="Nothing to redo: this is the newest step.",
+            why=_history_blocked_why(ctx) or "Nothing to redo: this is the newest step.",
         ),
         # --- the application commands ---------------------------------------
         Command(

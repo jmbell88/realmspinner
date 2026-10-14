@@ -270,16 +270,18 @@ def test_revert_writes_model_glb_through_a_staging_name(svc, monkeypatch):
 
     # A list, not a dict overwritten in place: ``modelhistory.keep`` (also
     # called by this revert, to snapshot the mesh it is about to replace) does
-    # its own staged ``os.replace`` calls through the same module-global
-    # ``os``, so the interesting one has to be found rather than assumed last.
+    # its own staged replaces, so the interesting one has to be found rather
+    # than assumed last. The seam is ``core.safeio.atomic.replace``, which
+    # ``derive._staged`` calls since the 2026-10-14 audit (finding
+    # service-assets-05) -- ``derive`` no longer holds an ``os`` of its own.
     calls: list[tuple[str, str]] = []
-    original_replace = svc_derive.os.replace
+    original_replace = svc_derive.safeio_atomic.replace
 
     def spy(src, dst):
         calls.append((Path(src).name, Path(dst).name))
         return original_replace(src, dst)
 
-    monkeypatch.setattr(svc_derive.os, "replace", spy)
+    monkeypatch.setattr(svc_derive.safeio_atomic, "replace", spy)
 
     svc_jobs.revert_model(svc, job_id, version=n)
 

@@ -50,7 +50,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .. import models, winjob
+from .. import leases, models, winjob
 from .reference import has_alpha, subject_mask
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -461,8 +461,22 @@ def _request(payload: dict[str, Any], key: str) -> None:
             try:
                 _start_child(key)
             except OSError as exc:
+                # Only a spawn that *cannot* succeed again memoizes as a load
+                # failure -- an interpreter that is missing or unrunnable will
+                # not start for the next image either. Any other refusal (WinError
+                # 1455, the paging file, the commit limit this app has hit
+                # before; a transient ENOMEM) says nothing about the weights
+                # and gets its own stage, because recording it as a load
+                # failure turned one transient into every later matte falling
+                # back to the corner fill, and a red "last load failed" in
+                # doctor, until idle eviction -- the 2026-10-14 audit, finding
+                # pipelines-image-04.
+                persistent = isinstance(
+                    exc, (FileNotFoundError, NotADirectoryError, PermissionError)
+                )
                 raise _ChildFailed(
-                    f"could not start the matting worker: {exc}", stage="load"
+                    f"could not start the matting worker: {exc}",
+                    stage="load" if persistent else "spawn",
                 ) from exc
         proc, lines = _proc, _lines
         assert proc is not None and proc.stdin is not None
@@ -561,15 +575,23 @@ def _model_mask(image: PILImage, path: Path, device: str):
         dest = scratch / "mask.png"
         image.convert("RGB").save(source, "PNG")
         try:
-            _request(
-                {
-                    "model_dir": str(path),
-                    "device": device,
-                    "input": str(source),
-                    "output": str(dest),
-                },
-                key,
-            )
+            # The shared model lease is held across the child's load and
+            # inference, as ``t2i_client`` and ``music_client`` hold it (the
+            # 2026-10-14 audit, finding service-queue-07): the model runs in a
+            # child that no in-process lease saw, so a Download could start while
+            # it was mid-``from_pretrained``. ``unload`` deliberately does not
+            # take it -- it runs on the loop thread, which must never park behind
+            # a maintainer that holds the lease for as long as a fetch lasts.
+            with leases.MODELS.use():
+                _request(
+                    {
+                        "model_dir": str(path),
+                        "device": device,
+                        "input": str(source),
+                        "output": str(dest),
+                    },
+                    key,
+                )
         except _ChildFailed as exc:
             if exc.stage == "load":
                 _cache[key] = _FAILED

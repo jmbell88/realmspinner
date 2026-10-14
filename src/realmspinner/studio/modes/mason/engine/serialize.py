@@ -901,10 +901,33 @@ def _read_node(
         kwargs["range"] = _float_field(entry, "range", 0.0)
         kwargs["inner_cone_angle"] = _float_field(entry, "inner_cone_angle", 0.0)
         kwargs["outer_cone_angle"] = _float_field(entry, "outer_cone_angle", math.pi / 4)
+        # The 2026-10-14 audit's mason-engine-07: the numbers only the file
+        # could carry, because the Properties pane has always clamped them
+        # (intensity and range at 0, the inner cone at 0) and ``set_props`` now
+        # refuses them. Refused by name, like a non-finite one. The pairs the
+        # pane *could* still make (inner at or past outer, outer above pi/2, a
+        # near plane past the far one) are deliberately not refused here: a
+        # scene saved that way before this check must still open, and every
+        # other field of it stays editable.
+        for key, ok in (
+            ("intensity", kwargs["intensity"] >= 0.0),
+            ("range", kwargs["range"] >= 0.0),
+            ("inner_cone_angle", kwargs["inner_cone_angle"] >= 0.0),
+            ("outer_cone_angle", kwargs["outer_cone_angle"] > 0.0),
+        ):
+            if not ok:
+                raise ValueError(f"a light in this mason scene has a {key} below its minimum")
     elif cls is nd.CameraNode:
         kwargs["yfov"] = _float_field(entry, "yfov", math.radians(60.0))
         kwargs["znear"] = _float_field(entry, "znear", 0.1)
         kwargs["zfar"] = _float_field(entry, "zfar", 1000.0)
+        for key, ok in (
+            ("yfov", kwargs["yfov"] > 0.0),
+            ("znear", kwargs["znear"] > 0.0),
+            ("zfar", kwargs["zfar"] >= 0.0),
+        ):
+            if not ok:
+                raise ValueError(f"a camera in this mason scene has a {key} below its minimum")
     elif cls is nd.PrefabNode:
         template = entry.get("template", "")
         if not isinstance(template, str):
@@ -919,6 +942,25 @@ def _read_node(
 
 
 def read_rscn(data: bytes) -> MasonDoc:
+    """A ``.rscn``'s bytes back into a :class:`MasonDoc`; see :func:`_read_rscn`.
+
+    The 2026-10-14 audit's mason-engine-08: a ``scene.json`` nested about
+    100,000 arrays deep escaped this reader as a bare ``RecursionError`` out of
+    ``json.loads`` ("maximum recursion depth exceeded while decoding a JSON
+    array") instead of the named refusal every other malformed file gets --
+    ``kernels/mesh/serialize.py`` and ``glbio.py`` already catch it. The whole
+    read is inside the net, not only the decode, because ``refs._normalize``
+    recurses through a ref's parameters too.
+    """
+    try:
+        return _read_rscn(data)
+    except RecursionError as exc:
+        raise ValueError(
+            "this is not a Realmspinner Mason scene (it nests deeper than this build reads)"
+        ) from exc
+
+
+def _read_rscn(data: bytes) -> MasonDoc:
     """A ``.rscn``'s bytes back into a :class:`MasonDoc`.
 
     The returned document has an empty history and reads clean: a file that

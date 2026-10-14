@@ -99,6 +99,7 @@ def default_form_2d() -> dict[str, Any]:
         # it is the only layout that draws a 3/4 or an isometric tile. The door
         # refuses it unless the request says ``allow_grid``, which the pane
         # sends only when this field says so.
+        # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
         "tile_mode": DEFAULT_TILE_MODE,
         # The materials layout's list, one surface per line. One string rather
         # than a list because ``restore_form`` gates on
@@ -417,7 +418,7 @@ def _restore_sheet_block(form: dict[str, Any], params: dict[str, Any]) -> None:
 DEFAULT_FORM_3D: dict[str, Any] = {
     "platform": "",
     # "raw", not "standard": since the game-ready remesh landed
-    # (dev/measurements/2026-09-23-default-mesh-budget.md), the Budget
+    # (dev/measurements/2026-09-23-default-mesh-budget.md [lost; re-measure to change]), the Budget
     # combo's own default rung is Game-ready 5k, which bakes from the *full*
     # reconstruction (``resolve_lowpoly`` forces ``profile`` to "raw" whenever
     # a lowpoly budget runs) -- shipping an already gltfpack-simplified mesh
@@ -1330,6 +1331,9 @@ class AppState:
     focus_key: dict[str, str] = field(default_factory=dict)
     focus_order: dict[str, list[str]] = field(default_factory=dict)
     focus_moved: bool = False
+    #: ``"pump:<pane>"``/``"begin:<pane>"`` -> the imgui frame it last ran
+    #: on, so two panes sharing one ring key move and record it once a frame.
+    focus_stamps: dict[str, int] = field(default_factory=dict)
     # One-shot: "somebody asked for the shortcuts list this frame". A flag
     # rather than a call because ``imgui.open_popup`` names a popup registered
     # inside the *current* window, so neither the Ctrl+/ handler nor the
@@ -1531,7 +1535,7 @@ class AppState:
     sirens: Any = None
     # Muse's brief, its recipe and which take is auditioning, built on first
     # use by ``muse_state.ensure``. Untyped and None for the reason the others
-    # are -- and, like Troupe's, holding no document: a take is a job row a
+    # are -- and holding no document: a take is a job row a
     # worker wrote, so the store owns it and there is nothing here to lose.
     muse: Any = None
     # Mason's own state, built on first use once a later stage gives the mode
@@ -1804,7 +1808,10 @@ def result_actions(job: dict[str, Any], *, rigging_available: bool = True) -> tu
     actions.append(primary_action(job, rigging_available=rigging_available) or "open")
     if params.get("asset_intent") == "tileset" or job.get("kind") == "tile_sheet":
         actions.append("plotter")
-    elif "model.glb" in files and rigging_available:
+    elif "model.glb" in files:
+        # Not gated on Blender: the 2026-10-14 audit, finding
+        # shell-home-library-07. Clay holds bones, poses and animations itself,
+        # and only its Weight with Blender button needs Blender.
         actions.append("clay")
     # Preserve order while avoiding a duplicate primary action.
     return tuple(dict.fromkeys(actions))

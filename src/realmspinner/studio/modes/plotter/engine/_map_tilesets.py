@@ -32,6 +32,70 @@ from .edits import (
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .tilemap import MapDoc
 
+#: Most tilesets one map holds. The 2026-10-14 audit, finding plotter-map-06,
+#: found this ceiling enforced only by ``read_rmap``: ``add_tileset`` had none,
+#: so a map built through the public methods with 1001 tilesets saved and then
+#: failed to reopen ("declares 1001 tilesets"), and the Tiled readers called the
+#: host's loader once per ``<tileset>`` element with no bound at all. One
+#: number, read by every door, so no state is reachable that ``.rmap`` will not
+#: read back. Not a fact about any format: a thousand tilesets is not a map
+#: anyone drew by hand.
+MAX_TILESETS = 1000
+
+#: Most pixels the pictures of one document may decode to, in total: its
+#: tilesets' images and its image layers' pictures together. ``pixelguard``
+#: bounds each picture (8192 x 8192) and nothing summed them: the 2026-10-14
+#: audit, finding plotter-map-02, opened a 386 KB ``.rmap`` of 24 distinct blank
+#: PNG members and held 384 MiB, and ``MAX_TILESETS`` of full-size ones is about
+#: 250 GiB from a file under the 100 MB open ceiling. Two full-size pictures
+#: (2**27 pixels, 512 MiB of RGBA) is far past any map this editor writes -- a
+#: large atlas is tens of MiB -- and far short of a machine's memory. Read at
+#: call time so a test lowers it rather than building a gigabyte.
+MAX_DOCUMENT_PIXELS = 1 << 27
+
+
+class PixelBudget:
+    """What one document read may decode to, shared by every picture of it.
+
+    A running counter rather than a sum taken at the end, for ``rmap``'s
+    ``_ReadBudget`` reason: the refusal has to land *before the next decode*,
+    and each reader meets its pictures one at a time.
+    """
+
+    __slots__ = ("pixels",)
+
+    def __init__(self) -> None:
+        self.pixels = 0
+
+    def charge(self, width: int, height: int, what: str) -> None:
+        self.pixels += int(width) * int(height)
+        if self.pixels > MAX_DOCUMENT_PIXELS:
+            raise ValueError(
+                f"{what} takes this map's pictures past the {MAX_DOCUMENT_PIXELS} "
+                "pixels this build will hold at once"
+            )
+
+
+def refuse_overlapping_tilesets(refs: list[TilesetRef]) -> None:
+    """Refuse a tileset list in which one range of gids reaches the next.
+
+    ``resolve`` and ``ref_for`` return the first reference that claims an id,
+    where Tiled resolves a gid to the tileset with the greatest ``firstgid`` not
+    above it. The two agree only while the ranges are disjoint and ascending, so
+    a file whose ranges overlap -- an atlas row added after painting, say --
+    drew one tileset's tiles where Tiled draws another's and saved them that way
+    (the 2026-10-14 audit, finding plotter-map-09). The same refusal this
+    package's ``rmap`` module states for a file that "opens nearly right and can
+    be saved over the original", applied at both Tiled readers and ``.rmap``.
+    """
+    for earlier, later in zip(refs, refs[1:], strict=False):
+        if later.firstgid <= earlier.last_gid:
+            raise ValueError(
+                f"this map's tilesets overlap: {earlier.tileset.name!r} answers for "
+                f"ids {earlier.firstgid}-{earlier.last_gid} but "
+                f"{later.tileset.name!r} begins at {later.firstgid}"
+            )
+
 
 class TilesetOps:
     """Tilesets, gid resolution and the projection, mixed into ``MapDoc``."""
@@ -72,6 +136,11 @@ class TilesetOps:
     # -- changes ---------------------------------------------------------------
 
     def add_tileset(self: MapDoc, tileset: Tileset, *, source: str = "") -> TilesetRef:
+        if len(self.tilesets) >= MAX_TILESETS:
+            raise ValueError(
+                f"this map already holds {len(self.tilesets)} tilesets; "
+                f"{MAX_TILESETS} is the most this build keeps"
+            )
         ref = TilesetRef(firstgid=self.next_firstgid, tileset=tileset, source=source)
         self.history.push(TilesetAddEdit(ref=ref))
         self._attach_tileset(ref)

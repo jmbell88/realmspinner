@@ -273,7 +273,8 @@ def test_every_generator_key_is_a_clay_add_primitive_enum_option_and_vice_versa(
 def test_every_op_name_is_a_clay_op_enum_option_and_vice_versa() -> None:
     tools = {t.name: t for t in agent_clay.tools()}
     enum = set(tools["clay_op"].schema["properties"]["name"]["enum"])
-    assert enum == {op.name for op in clay_ops.OPS}
+    # The 2026-10-14 audit's clay-12: bar the Pose-mode ops no agent can ever enable.
+    assert enum == {op.name for op in clay_ops.OPS} - set(clay_ops.POSE_OPS)
 
 
 def test_the_placement_ops_reach_the_clay_op_enum() -> None:
@@ -4578,11 +4579,18 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     visible to an agent. ``clay_scene``'s rows gain ``bone`` (and ``skin`` for a weighted mesh)
     and its reply gains ``rig`` (bone count, frame rate, the animations summarised), which is
     the 600-odd characters of ``outputSchema`` this catalogue carries for them.
+
+    Raised 2026-10-14 to 53,600 (surface 53,561; catalogue JSON 45,149 + instructions 8,412) by
+    the 2026-10-14 audit's fixes: the rig prose in ``clay_scene``'s description and in
+    ``instructions()`` (agents-15), the ``clay_program`` description's added limits and naming
+    rules (``PROGRAM_MAX_VISITS``, the ``<id>_mirror`` name, world-space ``move``/``turn``, merge
+    consumption). Net of the four pose-only ops that clay-12 took out of ``clay_op``'s enum
+    (an agent can never run them) and ``clay_checkpoint`` out of ``clay_batch``'s.
     """
     from realmspinner.mcp import rpc
     from realmspinner.studio import agent_host
 
-    CEILING = 52_900
+    CEILING = 53_600
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]

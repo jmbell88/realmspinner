@@ -205,7 +205,14 @@ def confirm_remove_pattern(ctx: Any, tab: SongTab, uid: int, used: int) -> None:
         from . import edit as sirens_edit
         from . import play as sirens_play
 
-        if tab.doc.remove_pattern(uid):
+        try:
+            removed = tab.doc.remove_pattern(uid)
+        except ValueError as exc:
+            # A sound effect's own pattern (the 2026-10-14 audit, finding
+            # sirens-engine-08): no pane offers it, but the door says why.
+            ctx.toast(f"That pattern was not removed: {exc}", "error")
+            return
+        if removed:
             sirens_play.request_rerender(ctx, tab)
             # A *song* pattern first (the 2026-10-03 audit, finding
             # sirens-17): ``patterns[0]`` can be a sound effect's private one,
@@ -567,10 +574,22 @@ def close_tab(ctx: Any, uid: str) -> None:
 # seconds and is the only answer that cannot be stale.
 
 
-def _journal_encode(tab: Any) -> bytes:
+def _journal_snapshot(tab: Any) -> Any:
+    """``Provider.encode``'s second spelling: the document is copied here, on
+    the frame thread, and the DEFLATE of every pattern and the encode of every
+    sample run on the write task (the 2026-10-14 audit, finding
+    sirens-playback-02: a song with minutes of sample stalled the window by
+    ~100 ms on each autosave tick). ``SongDoc.snapshot`` shares the sample
+    arrays, which an edit replaces and never writes into."""
     from .engine import rsng
 
-    return rsng.rsng_bytes(tab.doc)
+    frozen = tab.doc.snapshot()
+    return lambda: rsng.rsng_bytes(frozen)
+
+
+def _journal_encode(tab: Any) -> bytes:
+    """The bytes themselves, for a caller that wants them now."""
+    return _journal_snapshot(tab)()
 
 
 def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
@@ -590,7 +609,7 @@ def _journal_adopt(ctx: Any, path: Path, meta: dict[str, Any]) -> bool:
 
 
 JOURNAL = journal.tab_provider(
-    "sirens", ".rsng", "song", encode=_journal_encode, adopt=_journal_adopt
+    "sirens", ".rsng", "song", encode=_journal_snapshot, adopt=_journal_adopt
 )
 
 
@@ -619,6 +638,7 @@ _MOVED: dict[str, str] = {
     "PREVIEW_PREFIX": "play",
     "PREVIEW_ROWS": "play",
     "RENDER_PREFIX": "play",
+    "_KEYPAD_NAMES": "keys",
     "_MUTATING_CTRL": "keys",
     "_caret_kind": "play",
     # Added by the 2026-09-13 audit, finding sirens-02: both names were

@@ -310,7 +310,8 @@ def test_a_journal_copy_carries_the_slices():
     from realmspinner.studio.modes.inker.state import InkerDoc
 
     doc = _sliced()
-    raw = inker_mode._journal_encode(InkerDoc(doc=doc))
+    # The returned callable is the task's half (the 2026-10-14 audit, inker-mode-04, F31).
+    raw = inker_mode._journal_encode(InkerDoc(doc=doc))()
     with zipfile.ZipFile(BytesIO(raw)) as zf:
         payload = json.loads(zf.read(ora.REALMSPINNER_MEMBER))
     assert [entry["name"] for entry in payload["slices"]] == ["body", "plain"]

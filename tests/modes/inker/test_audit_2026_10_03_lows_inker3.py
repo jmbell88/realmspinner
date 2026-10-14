@@ -10,12 +10,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
 
-from realmspinner.kernels.pixel import animation as anim_mod
 from realmspinner.kernels.pixel.document import Document
-from realmspinner.kernels.pixel.sheetin import document_from_sheet
 from realmspinner.studio.modes.inker import state as inker_state
 from realmspinner.studio.modes.inker.ui.panes import canvas as inker_canvas
 from realmspinner.studio.modes.inker.ui.panes import context as inker_context
@@ -25,37 +22,9 @@ from realmspinner.studio.modes.inker.ui.panes import walk as inker_walk
 from realmspinner.studio.shell import paintview
 from realmspinner.studio.tokens import sp
 
-# --- inker-99 ----------------------------------------------------------------
-
-
-def _sheet(durations):
-    cell = 4
-    atlas = np.zeros((cell, cell * 3, 4), dtype=np.uint8)
-    atlas[..., 3] = 255
-    cells = [{"x": i * cell, "y": 0, "w": cell, "h": cell} for i in range(3)]
-    frames = [{"cell_index": i, "duration_ms": d} for i, d in enumerate(durations)]
-    anim = {"tags": [{"name": "walk_front", "start": 0, "end": 2, "loop": True}], "frames": frames}
-    return document_from_sheet(atlas, cells, anim)
-
-
-def test_document_from_sheet_clamps_a_sidecar_duration():
-    """A hand-edited or foreign sidecar's duration must not install a value past
-    the MIN/MAX range. Already held by ``Frame.__setattr__`` (which clamps every
-    write), so this pins the claim rather than failing against old code."""
-    doc = _sheet([10**9, 80, 3])
-    got = [frame.duration_ms for frame in doc.anim.frames]
-    assert got[0] == anim_mod.MAX_DURATION_MS
-    assert got[1] == 80
-    assert got[2] == 3
-    assert all(anim_mod.MIN_DURATION_MS <= d <= anim_mod.MAX_DURATION_MS for d in got)
-
-
-def test_document_from_sheet_keeps_the_default_for_a_missing_or_zero_duration():
-    doc = _sheet([0, None, 40])
-    # Zero and None were skipped before the fix and must still be; the clamp
-    # must not turn "no duration" into the one-millisecond floor.
-    assert doc.anim.frames[0].duration_ms == anim_mod.DEFAULT_DURATION_MS
-    assert doc.anim.frames[1].duration_ms == anim_mod.DEFAULT_DURATION_MS
+# inker-99's sidecar-duration tests went with ``document_from_sheet`` (the
+# 2026-10-14 audit, finding inker-80); ``Frame.__setattr__``'s clamp is pinned in
+# the animation tests.
 
 
 # --- inker-101: slices._nudged / _slice_grab ----------------------------------

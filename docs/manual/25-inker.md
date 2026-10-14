@@ -21,8 +21,9 @@ hidden and restored from **Window > Layout**.
 
 ## Starting a canvas
 
-**New**, **Open**, **Save**, **Save as** and **Export PNG** are in the **file** section at the top of
-the right-hand panel, where Plotter's and Packwright's have always been. There is one row above the
+**New**, **Open**, **Save** and **Save as** are in the **Drawing file** section at the top of the
+right-hand panel, where Plotter's and Packwright's have always been; **Export PNG** is in the **File**
+menu, and the panel's **Export** block below it holds the five other doors. There is one row above the
 canvas — the context bar — and it holds what the tool in your hand is set to, then **View** and
 **Sym** at its right-hand end; while a selection exists it gains a second row, the selection's
 combine mode (**Replace**, **Add**, **Subtract**, **Intersect**). What the editor is *telling* you
@@ -1184,7 +1185,8 @@ thing from feathering: feather *softens* an edge where these *move* it, so they 
 control. Border replaces the selection with the band that many pixels either side of its edge —
 fill it and you have stroked the outline.
 
-Cutting or copying a selection puts it on the clipboard; pasting brings it back as a **floating
+Cutting or copying a selection puts it on the clipboard, which is shared between tabs, so a copy in
+one document pastes into another; pasting brings it back as a **floating
 buffer** which you move with the Move tool and commit by doing anything else. `Esc` cancels a
 floating buffer, and `Delete` clears the selected pixels.
 
@@ -1361,10 +1363,9 @@ File row give the same sentence, because they read the same record.
 
 **Export sheet** packs an animated document into one PNG atlas plus a JSON sidecar, one cell per
 frame, wrapping into rows when a single row would be wider than an engine will accept as a texture.
-The sidecar names each cell, its duration and any tags, in the same format the 3D sprite sheets use.
+The sidecar names each cell, its duration and any tags, in the sprite-sheet sidecar format.
 A document with a directional layout skips the wrapping entirely and uses that sheet's own fixed
-grid, with each cell's direction and frame number in the fields a rendered sheet puts a pose and a
-frame in.
+grid, with each cell's direction and frame number in the sidecar's direction and frame fields.
 The Arrange combo beside the export scale picks how an ordinary clip packs instead of that default
 row-wrap — Grid, Horizontal strip, Vertical strip, or Rows.../Columns... with a count field for how
 many rows or columns to fix.
@@ -1464,20 +1465,15 @@ The list is read **once, at startup**, and does not refresh while you work. That
 not a limitation: the autosave directory is also where *this* session writes its copies, so a list
 that re-read it would start offering your own open documents back to you.
 
-**This is no longer only Inker's.** The same two minutes now cover a Clay model, a Plotter map, a
-Packwright atlas and a pose you are authoring —
-whatever was open, whichever modes they were in, each on its own row. Each copy is written in that
-mode's own format (`.ora`, `.rblk`, `.rmap`, `.rpack`, and small JSON files for a pose and a
-draft), so anything recovered can also just be opened by hand. A document of a kind this build has
-no editor for is listed as **unavailable** rather than hidden, and its files are left alone —
-**Discard all** removes only the copies this build can reopen, so an *unavailable* one stays for a
-build that can.
-
-A pose is the one that can decline to come back, and it says so when it does. A pose is a set of
-rotations for a skeleton rather than a document of its own, so putting one back needs that rig
-loaded — if the asset it was authored against is not open, or a different one is, Realmspinner keeps the
-copy and tells you to open the right one. It would otherwise apply somebody else's rotations to
-whatever bones happened to share a name.
+**This is no longer only Inker's.** The same two minutes now cover a Clay model, a Mason scene, a
+Plotter map, a Packwright atlas and a Sirens song — whatever was open, whichever modes they were
+in, each on its own row. Each copy is written in that mode's own format (`.ora`, `.rblk`, `.rscn`,
+`.rmap`, `.rpack` and `.rsng`), so anything recovered can also just be opened by hand. A document
+of a kind this build has no editor for is listed as **unavailable** rather than hidden, and its
+files are left alone — **Discard all** removes only the copies this build can reopen, so an
+*unavailable* one stays for a build that can. The one exception is a copy left by a feature that
+has since been removed (a pose, from the days of Poser): no build will ever reopen it, so it is
+cleared at startup rather than listed.
 
 Nothing is ever deleted on age. A copy sits there until you recover it and save, until you close
 what you recovered, or until you press **Discard all** (which skips *unavailable* ones); leaving
@@ -1488,7 +1484,8 @@ the list alone keeps everything exactly where it was.
 Inker is wired into the pipeline in both directions. The **Generation** panel, at the foot of the
 right-hand column, is where that shows. Above it, under **Drawing file**, sit the same **New**,
 **Open...**, **Save** and **Save As...** buttons every workspace has, over the file's path and one
-line saying whether it is saved. Then the four buttons — **Make 3D**, **Save as reference**, **Add to
+line saying whether it is saved. Under **Export** are the five exports, and then, under **Take it
+somewhere**, the four buttons — **Make 3D**, **Save as reference**, **Add to
 Packwright** and **Revert to original** — over one line saying what this document is attached to. A
 button you cannot press right now is greyed with the reason in its tooltip rather than hidden, which
 is the point of the panel: **Revert to original** is unavailable on a drawing that was never opened
@@ -1527,7 +1524,7 @@ own.
 `input.orig.png`, the first time you edit a reference — so revert always works — and reverting also
 discards the layered file, because it describes an edit that no longer exists.
 
-**Out of Inker.** Two buttons in the **pipeline** section:
+**Out of Inker.** Two of the four buttons under **Take it somewhere**:
 
 - **Save as reference** (on an unlinked document) adds what you painted to the library as a
   finished reference. It is measured on the way in, so the quality gate has real data, and it can

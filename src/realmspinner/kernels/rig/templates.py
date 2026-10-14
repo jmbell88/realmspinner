@@ -1,11 +1,11 @@
-"""The skeleton template registry, and the limb presets grafted onto one.
+"""The skeleton template registry.
 
 Split out of the former ``rigging.py`` (P4 of the 2026-09 restructure): this is
-the "read shipped JSON under ``templates/``" concern -- a skeleton template and
-a limb preset are the same file shape (named bones with head/tail landmarks,
-a parent graph, checked for one root and no cycle) read by the same capped
-JSON loader, so they stay one module rather than two that would each need the
-other's parser.
+the "read shipped JSON under ``templates/``" concern -- a skeleton template is
+named bones with head/tail landmarks and a parent graph, checked for one root
+and no cycle, read by the capped JSON loader. (The limb presets grafted onto
+one, and the five ``templates/limbs`` files, served the viewer's skeleton
+editor and were deleted with it: the 2026-10-14 audit, finding poser-rig-03.)
 
 Pure and Blender-free, like every other module this split produced: nothing
 here imports ``bpy``, a service, or the studio.
@@ -35,11 +35,12 @@ log = logging.getLogger(__name__)
 # below pins this to a directory that actually contains ``humanoid.json``.
 TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "templates"
 
-# A template's key is interpolated into filenames -- the Poser preview cache
-# (``poselib.preview_path``) and its digest both build ``<key>.glb`` /
-# ``<key>.json`` paths from it -- so the key must be a safe path component,
-# and it comes out of the JSON body, not the filename.
-TEMPLATE_KEY_RE = re.compile(r"^[a-z0-9_]+$")
+# A template's key is interpolated into filenames (``<key>.json`` under
+# ``TEMPLATE_DIR``, and any cache a caller names after it), so the key must be a
+# safe path component, and it comes out of the JSON body, not the filename.
+# ``\Z``, not ``$``, which also matches before a trailing newline (the 2026-10-14
+# audit, finding poser-rig-06).
+TEMPLATE_KEY_RE = re.compile(r"^[a-z0-9_]+\Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,8 +53,9 @@ class Template:
     #: True for a template that :func:`catalog` omits -- not a normal
     #: skeleton a user picks to auto-fit, but still a real, fully valid
     #: template that :func:`get_template`/``create_rig`` resolve exactly
-    #: like any other. 2026-09-16's ``blank`` (Poser's manual-rig bootstrap,
-    #: one root bone) is the first and, for now, the only one.
+    #: like any other. 2026-09-16's ``blank`` (the one-root-bone bootstrap that
+    #: Clay's rig route builds a hand-made skeleton on) is the first and, for
+    #: now, the only one.
     hidden: bool = False
 
 
@@ -104,13 +106,11 @@ def _read_json_capped(path: Path, ceiling: int) -> Any:
 def _check_acyclic(by_name: dict[str, dict[str, Any]], *, field: str) -> None:
     """Raise :class:`~.store.RigError` if any bone's parent chain loops.
 
-    Lives here rather than in :mod:`.skeleton` (whose own "skeleton editing"
-    section this walk was lifted from) because both this module's parsers --
-    :func:`_parse_template` and :func:`_parse_limb_preset` -- need it at load
-    time, and :mod:`.skeleton` already imports :class:`Template` and
-    :func:`get_limb_preset` from here; putting the acyclic check the other way
-    round would make the two modules import each other. :mod:`.skeleton`
-    imports it back from here for its own structural checks
+    Lives here rather than in :mod:`.skeleton` because this module's parser,
+    :func:`_parse_template`, needs it at load time, and :mod:`.skeleton`
+    already imports :class:`Template` from here; putting the acyclic check the
+    other way round would make the two modules import each other.
+    :mod:`.skeleton` imports it back from here for its own structural checks
     (``check_skeleton_structure``, ``validate_skeleton``).
 
     ``_build_armature`` (the Blender worker) parents every bone in one pass
@@ -137,10 +137,10 @@ def _load_templates() -> dict[str, Template]:
             raw = _read_json_capped(path, MAX_TEMPLATE_BYTES)
             template = _parse_template(raw)
             # The key <-> filename convention is enforced here rather than
-            # assumed downstream: ``poselib.template_digest`` reads
-            # ``TEMPLATE_DIR/<key>.json`` back, and a key that named a
-            # different file would make the preview cache hash the wrong
-            # bytes -- or nothing at all.
+            # assumed downstream: a caller that reads
+            # ``TEMPLATE_DIR/<key>.json`` back by key, and a key that named a
+            # different file would make it hash the wrong bytes -- or
+            # nothing at all.
             if template.key != path.stem:
                 raise ValueError(
                     f"template key {template.key!r} does not match filename {path.name}"
@@ -226,109 +226,8 @@ def catalog() -> list[dict[str, str]]:
     -- ``get_template``/``create_rig`` resolve it exactly like any other --
     but not one a user should be offered from a normal skeleton picker,
     since fitting it automatically produces one bare bone and nothing to
-    pose. It reaches a mesh only through Poser's own "Rig manually" door,
-    which names it by key directly rather than through this list.
+    pose. It reaches a mesh only through Clay's rig route
+    (``service.rig.rig_with_skeleton``), which names it by key directly rather
+    than through this list.
     """
     return [{"key": t.key, "label": t.label} for t in templates().values() if not t.hidden]
-
-
-# --- limb presets -------------------------------------------------------------
-
-LIMB_DIR = TEMPLATE_DIR / "limbs"
-
-_limb_presets: dict[str, dict[str, Any]] | None = None
-
-
-def _parse_limb_preset(raw: dict[str, Any]) -> dict[str, Any]:
-    key = str(raw["key"])
-    if not TEMPLATE_KEY_RE.match(key):
-        raise ValueError(f"limb preset key {key!r} is not a safe path component")
-    bones = raw["bones"]
-    if not bones:
-        raise ValueError("a limb preset needs at least one bone")
-    names = {b["name"] for b in bones}
-    if len(names) != len(bones):
-        raise ValueError("duplicate bone names")
-    for b in bones:
-        if b["parent"] is not None and b["parent"] not in names:
-            raise ValueError(f"bone {b['name']!r} has unknown parent {b['parent']!r}")
-        for end in ("head", "tail"):
-            if len(b[end]) != 3:
-                raise ValueError(f"bone {b['name']!r} {end} is not a 3-vector")
-    roots = [b for b in bones if b["parent"] is None]
-    if len(roots) != 1:
-        raise ValueError("a limb preset needs exactly one bone with parent None")
-    # The 2026-09-14 audit, finding poser-02: nothing above checked that the
-    # parent graph is actually a tree reachable from that one root, and
-    # ``attach_limb``'s ``_attach_one`` walks ``preset_data["bones"]`` in file
-    # order assuming each bone's parent was already grafted -- ``real_parent
-    # = ... name_map[b["parent"]]`` -- so a schema-valid preset listing a
-    # child before its parent throws an uncaught KeyError on the frame thread
-    # (Poser's ``_skeleton_call`` catches only RigError) instead of being
-    # skipped at load like every other malformed preset. Refusing
-    # out-of-order bones here is what guarantees ``_attach_one``'s name_map
-    # already holds a bone's parent by the time it is needed, and it also
-    # rules out any cycle: a bone in a cycle can never be preceded by its own
-    # parent. ``_check_acyclic`` is added too, for the same reachable-from-
-    # root guarantee ``_parse_template`` now gets, rather than relying on the
-    # order check alone to prove it by construction.
-    seen: set[str] = set()
-    for b in bones:
-        if b["parent"] is not None and b["parent"] not in seen:
-            raise ValueError(
-                f"bone {b['name']!r} is listed before its parent {b['parent']!r}; "
-                "a limb preset must list a parent before its children"
-            )
-        seen.add(b["name"])
-    try:
-        _check_acyclic({b["name"]: {"parent": b["parent"]} for b in bones}, field="bones")
-    except RigError as exc:
-        raise ValueError(str(exc)) from exc
-    return {
-        "key": key,
-        "label": str(raw["label"]),
-        "bones": [
-            {
-                "name": str(b["name"]),
-                "parent": None if b["parent"] is None else str(b["parent"]),
-                "head": [float(v) for v in b["head"]],
-                "tail": [float(v) for v in b["tail"]],
-            }
-            for b in bones
-        ],
-    }
-
-
-def _load_limb_presets() -> dict[str, dict[str, Any]]:
-    found: dict[str, dict[str, Any]] = {}
-    # Non-recursive, like ``_load_templates``'s own ``glob("*.json")`` on
-    # ``TEMPLATE_DIR`` -- ``LIMB_DIR`` is a subdirectory of it precisely so a
-    # preset never collides with, or is mistaken for, a skeleton template.
-    for path in sorted(LIMB_DIR.glob("*.json")):
-        try:
-            raw = _read_json_capped(path, MAX_TEMPLATE_BYTES)
-            preset = _parse_limb_preset(raw)
-            if preset["key"] != path.stem:
-                raise ValueError(
-                    f"limb preset key {preset['key']!r} does not match filename {path.name}"
-                )
-            found[preset["key"]] = preset
-        except Exception:
-            # A malformed preset must cost you that preset, not the app --
-            # ``_load_templates``'s rule, restated for the same reason.
-            log.exception("skipping unusable limb preset %s", path)
-    return found
-
-
-def limb_presets() -> dict[str, dict[str, Any]]:
-    global _limb_presets
-    if _limb_presets is None:
-        _limb_presets = _load_limb_presets()
-    return _limb_presets
-
-
-def get_limb_preset(key: str) -> dict[str, Any]:
-    try:
-        return limb_presets()[key]
-    except KeyError:
-        raise ValueError(f"unknown limb preset {key!r}") from None

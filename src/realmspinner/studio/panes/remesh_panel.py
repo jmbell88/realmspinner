@@ -11,7 +11,7 @@ every commercial generator sells as "game-ready".
 
 Two things it does not hide, on ``retarget_panel``'s model. It runs in Blender,
 so without the ``rig`` extra the panel says so and offers nothing. And it makes
-a rig, its poses and its sheets describe a mesh that no longer exists -- the
+a rig and its poses describe a mesh that no longer exists -- the
 service reports them rather than deleting them, and the warning is drawn
 *before* the button.
 """

@@ -195,9 +195,14 @@ def _record(tab: Any, link: InkerLink) -> None:
 
 def _flatten(ctx: Any, inker_doc: Any) -> tuple[int, int, bytes] | None:
     """The Inker document as a ``(w, h, rgba_bytes)`` texture, or ``None`` after
-    a toast when its size is not one a texture may have."""
-    pixels = np.asarray(inker_doc.flatten(matte=False), dtype=np.uint8)
-    height, width = int(pixels.shape[0]), int(pixels.shape[1])
+    a toast when its size is not one a texture may have.
+
+    The size is read from the document and refused *before* anything is flattened: the
+    2026-10-14 audit, finding clay-texturing-04, found the bound checked on the array
+    ``flatten`` had already built, so a drawing pixelguard admits at 8192 x 8192 allocated
+    about half a gigabyte on the frame thread only to be refused.
+    """
+    width, height = (int(side) for side in inker_doc.size)
     if width < 1 or height < 1 or max(width, height) > MAX_TEXTURE_SIDE:
         ctx.toast(
             f"That drawing is {width} x {height}; a texture can be at most "
@@ -205,6 +210,8 @@ def _flatten(ctx: Any, inker_doc: Any) -> tuple[int, int, bytes] | None:
             "error",
         )
         return None
+    pixels = np.asarray(inker_doc.flatten(matte=False), dtype=np.uint8)
+    height, width = int(pixels.shape[0]), int(pixels.shape[1])
     return width, height, np.ascontiguousarray(pixels).tobytes()
 
 
@@ -312,6 +319,20 @@ def take_back(ctx: Any, tab: Any, index: int, inker_tab: Any) -> None:
     """
     if not 0 <= index < len(tab.doc.materials):
         ctx.toast(f"There is no palette entry {index}.", "error")
+        return
+    # The 2026-10-14 audit, finding clay-texturing-05: this landed ``set_material`` on the
+    # live document with neither check the pull makes, so a popup opened before a save began
+    # wrote the material while the save task read it (the file-mixing race the 2026-10-07
+    # audit's clay-48 closed for the pull) or inside a G/R/S the gesture's commit would then
+    # undo (clay-15). The pull defers to a later frame because it has a link to retry from;
+    # this has none, so it says why and the person presses it again.
+    from . import mode as clay_mode
+
+    if getattr(tab, "saving", False):
+        ctx.toast("Wait for the save to finish, then take the texture back.", "error")
+        return
+    if clay_mode._gesture_live(ctx, tab):
+        ctx.toast("Finish or cancel the drag first.", "error")
         return
     head = inker_tab.doc.history.head
     image = _flatten(ctx, inker_tab.doc)

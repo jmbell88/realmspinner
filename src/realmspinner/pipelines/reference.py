@@ -74,6 +74,7 @@ MAX_ASPECT = 8.0
 # (dev/measurements/2026-08-17-reference-source-bench.md), which is why
 # ``rank.composition_score`` charged 0.15 apiece and floored at zero on
 # everything it was ever shown.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 MIN_MAJOR_COMPONENT = MIN_SECOND_COMPONENT
 
 # The same four refusals as ``Report.reasons``, spelled for a machine.
@@ -620,10 +621,26 @@ def normalise(
     extra = dict(out_report.extra)
     extra["source_occupancy"] = report.occupancy
     extra["source_size"] = list(report.size)
+
+    # The one refusal the recentring would otherwise launder. The 2026-10-14
+    # audit, finding pipelines-image-02: the verdict was the *canvas's*, and a
+    # canvas has a margin by construction, so a subject the source frame cut off
+    # on three sides re-measured clean and went to TRELLIS (and
+    # ``params["reference_report"]``, which feeds the refusal corpus, recorded a
+    # pass). ``edge`` is a fact about the picture that was handed in -- the missing
+    # part is not on any canvas -- so it is carried over from the source
+    # measurement. ``occupancy`` is deliberately *not*: enlarging a small subject is
+    # what this option is for, and ``multi_object`` survives the recentring and
+    # re-measures by itself.
+    reasons, codes = list(out_report.reasons), list(out_report.codes)
+    if "edge" in report.codes and "edge" not in codes:
+        codes.append("edge")
+        reasons.append(report.reasons[report.codes.index("edge")])
+        extra["source_touches"] = list(report.touches)
     return canvas, Report(
-        ok=out_report.ok,
-        reasons=out_report.reasons,
-        codes=out_report.codes,
+        ok=not reasons,
+        reasons=tuple(reasons),
+        codes=tuple(codes),
         warnings=out_report.warnings,
         occupancy=out_report.occupancy,
         bbox=out_report.bbox,

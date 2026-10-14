@@ -360,12 +360,11 @@ def rotsprite(pixels: np.ndarray, degrees: float, *, expand: bool = False) -> np
 
     Takes ``native.rotsprite_u8`` when it is loaded -- the numpy path below
     was measured at 294 ms per move at 256^2 against a 16 ms gate
-    (dev/measurements/2026-09-13-native-batch-10-candidates.md S5) and is
-    superlinear, so it is the one drag on the frame thread this module cannot
-    otherwise make cheap. Angles that are a multiple of 90 are Pillow's own
-    fast path (a plain transpose, already exact and already cheap) and are
-    deliberately routed around the kernel rather than through it -- see the
-    comment beside ``realmspinnerc_rotsprite_u8`` in ``native/realmspinnerc.h``.
+    (dev/measurements/2026-09-13-native-batch-10-candidates.md [lost; re-measure to change] S5) and
+    is superlinear, so it is the one drag on the frame thread this module cannot otherwise make
+    cheap. Angles that are a multiple of 90 are Pillow's own fast path (a plain transpose, already
+    exact and already cheap) and are deliberately routed around the kernel rather than through it --
+    see the comment beside ``realmspinnerc_rotsprite_u8`` in ``native/realmspinnerc.h``.
     """
     small = None
     if native.available() and degrees % 360.0 not in (0.0, 90.0, 180.0, 270.0):
@@ -876,6 +875,7 @@ GRID_SCALES: tuple[int, ...] = (4, 5, 6, 8, 10, 12, 16)
 #: Normalized within-cell gradient ratio below which the lattice is real.
 #: **Provisional** in the sibling too, and governed by the same document:
 #: ``dev/measurements/2026-08-06-pixel-art-xl.md`` (procedure pre-registered).
+#: (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 #: Copying it to a second surface moves nothing -- one document governs both.
 GRID_RESIDUAL_MAX = 0.05
 

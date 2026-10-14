@@ -73,7 +73,11 @@ def _reason_for(message: str) -> str:
         return "backoff"
     if "not found at" in message or "failed manifest verification" in message:
         return "missing"
-    if "did not become healthy in time" in message:
+    if "did not become healthy in time" in message or "could not be started:" in message:
+        # The second sentence is ``ensure_started`` when ``Popen`` itself
+        # refuses (the 2026-10-14 audit, finding familiar-host-08): the child
+        # never ran, which is the same "not healthy" story, and without a
+        # clause it fell to the default "http" bucket.
         return "unhealthy"
     if "was stopped during startup" in message:
         # The 2026-09-23 audit (familiar-02): ``ensure_started``'s health
@@ -127,6 +131,21 @@ def _reason_for(message: str) -> str:
 #: Matching only the chat timeout let the door give up on a cold start with an
 #: unmapped ``TimeoutError`` while the request ran on regardless.
 LOOP_TIMEOUT = llama.STARTUP_TIMEOUT + llama_client.CHAT_TIMEOUT + 30.0
+
+
+def _transport_refusal(svc: Any) -> FamiliarRefusal:
+    """The refusal for a request whose transport died under it.
+
+    While ``stop_for_gpu_job`` has the server leased, a chat in flight is killed
+    with a connection error, and that used to read "did not answer in time" --
+    after which a retry hit the lease refusal (the 2026-10-14 audit, finding
+    familiar-host-11). The manual promises Familiar "says so plainly" when a job
+    stopped it, so a transport failure during a lease *is* the lease.
+    """
+    familiar = getattr(getattr(svc, "worker", None), "familiar", None)
+    if getattr(familiar, "leased", False) is True:
+        return FamiliarRefusal(llama.LEASE_MESSAGE, reason="lease")
+    return FamiliarRefusal("Familiar did not answer in time -- try again.", reason="unhealthy")
 
 
 def _call(
@@ -195,9 +214,7 @@ def _call(
         # could (LOOP_TIMEOUT = STARTUP_TIMEOUT + CHAT_TIMEOUT + 30), so a
         # slow or hung llama-server reply raised a raw httpx exception instead
         # of the "did not answer in time" sentence this bucket exists for.
-        error = FamiliarRefusal(
-            "Familiar did not answer in time -- try again.", reason="unhealthy"
-        )
+        error = _transport_refusal(svc)
         raise error from exc
     except RuntimeError as exc:
         error = FamiliarRefusal(str(exc), reason=_reason_for(str(exc)))
@@ -211,9 +228,7 @@ def _call(
         # ValueError, httpx.HTTPError or RuntimeError, so it used to escape
         # this door unclassified. The stopped server is simply not
         # answering anymore, the same story as an unhealthy llama-server.
-        error = FamiliarRefusal(
-            "Familiar did not answer in time -- try again.", reason="unhealthy"
-        )
+        error = _transport_refusal(svc)
         raise error from exc
     finally:
         # dev-only (REALMSPINNER_FAMILIAR_LOG, familiar_log.py's own docstring):
@@ -270,6 +285,21 @@ def _with_image(messages: list[dict[str, str]], image: bytes | None) -> list[dic
     return out
 
 
+def _check_chat_prompt(prompt: str) -> None:
+    """Refuse a message past :data:`~.contract.MAX_CHAT_PROMPT_CHARS` before
+    any request is built. The 2026-10-14 audit, finding familiar-core-03: no
+    door bounded a prompt, so a long paste overflowed the 8192-token slot, and
+    since a failed send keeps its turn in the thread it then rode in the next
+    requests' history as well. ``too_large``, the bucket for "this request
+    does not fit"."""
+    if len(prompt) > contract.MAX_CHAT_PROMPT_CHARS:
+        raise FamiliarRefusal(
+            f"That message is {len(prompt)} characters; Familiar reads at most "
+            f"{contract.MAX_CHAT_PROMPT_CHARS} at a time -- shorten it or send it in parts.",
+            reason="too_large",
+        )
+
+
 def chat_reply(
     svc: Any, prompt: str, history: tuple[Any, ...] = (), image: bytes | None = None
 ) -> str:
@@ -286,6 +316,7 @@ def chat_reply(
     alone. ``None`` (every pre-vision caller) sends the same request as
     always.
     """
+    _check_chat_prompt(prompt)
     messages = _with_image(contract.build_chat_messages(prompt, history), image)
     return _call(
         svc, messages, skill=None, sampling=contract.SAMPLING["chat"], expected_card_sha=None
@@ -362,7 +393,10 @@ def _gate_reply(skill: str, reply: str) -> tuple[list[dict] | None, str | None]:
     allowed = contract.allowed_calls(skill)
     for call in calls:
         name = call.get("name") if isinstance(call, dict) else None
-        if name not in allowed:
+        # isinstance first: ``in`` on a frozenset hashes its operand, so a
+        # list or dict name raised TypeError out of the gate (the 2026-10-14
+        # audit, finding familiar-core-08).
+        if not isinstance(name, str) or name not in allowed:
             return None, (
                 f"Familiar's reply named a tool ({name!r}) outside Clay's "
                 "trained vocabulary."
@@ -457,8 +491,9 @@ def clay_build(
     Run A's own measurement on the previous (Gemma 4 E2B) pin is why this
     matters: base Gemma scored 0% door acceptance on Clay builds against its
     own fine-tune's 74% (``dev/measurements/2026-09-12-clay-assistant-run-A.md``).
+    (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     The untuned base model is not trusted with Clay builds on the current
-    (Qwen3-VL-4B-Instruct) pin either -- no eval corpus has scored it yet --
+    (Gemma 4 12B QAT) pin either -- no eval corpus has scored it yet --
     so a fine-tune's card sha is required before this door opens, and serving
     a Clay request on the testing pin alone would not fail loudly -- it would
     just fail, every time, with no tool call in the reply for
@@ -619,7 +654,7 @@ def manual_semantic_available(svc: Any) -> bool:
     return familiar_manual.installed(svc)
 
 
-def _ask_manual(svc: Any, prompt: str) -> Answer:
+def _ask_manual(svc: Any, prompt: str, image: bytes | None = None) -> Answer:
     """A Manual question: retrieve, then either answer with citations or --
     with nothing retrieved -- say so with no model call at all.
 
@@ -628,6 +663,10 @@ def _ask_manual(svc: Any, prompt: str) -> Answer:
     the base model happens to know about Realmspinner (nothing reliable -- it was
     never given the Manual), which is a worse answer than the honest "the
     Manual doesn't cover that" and costs a full round trip to produce.
+
+    *image* rides on the question's own turn when there is something to answer
+    from the Manual (the 2026-10-14 audit, finding familiar-host-07: the attach
+    "rides along with your next Send", and a Manual route silently dropped it).
     """
     index = _manual_index()
     # The fused (BM25 + meaning) ranking when the retrieval row is installed and
@@ -639,7 +678,7 @@ def _ask_manual(svc: Any, prompt: str) -> Answer:
     citations = index.search(prompt) if fused is None else index.citations(fused)
     if not citations:
         return Answer(skill="manual", text="The Manual doesn't cover that.", citations=())
-    messages = contract.build_manual_messages(prompt, citations)
+    messages = _with_image(contract.build_manual_messages(prompt, citations), image)
     reply = _call(
         svc,
         messages,
@@ -655,7 +694,11 @@ def _ask_manual(svc: Any, prompt: str) -> Answer:
 
 
 def _ask_navigate(
-    svc: Any, prompt: str, history: tuple[Any, ...], destinations: tuple[doors.Destination, ...]
+    svc: Any,
+    prompt: str,
+    history: tuple[Any, ...],
+    destinations: tuple[doors.Destination, ...],
+    image: bytes | None = None,
 ) -> Answer:
     """A ``navigate`` route: ask which of *destinations* the message means,
     then hand back an :attr:`Answer.action` for the caller to act out --
@@ -683,12 +726,16 @@ def _ask_navigate(
     )
     target = doors.parse_target(reply, keys)
     if target is None:
-        return Answer(skill="navigate", text=chat_reply(svc, prompt, history))
+        return Answer(skill="navigate", text=chat_reply(svc, prompt, history, image=image))
     return Answer(skill="navigate", text=None, action={"kind": "navigate", "target": target})
 
 
 def _ask_create(
-    svc: Any, prompt: str, history: tuple[Any, ...], asset_types: tuple[tuple[str, str], ...]
+    svc: Any,
+    prompt: str,
+    history: tuple[Any, ...],
+    asset_types: tuple[tuple[str, str], ...],
+    image: bytes | None = None,
 ) -> Answer:
     """A ``create`` route: ask for an asset type and a short prompt among
     *asset_types* (``create_assets.ASSET_TYPE_OPTIONS``, handed in by the
@@ -712,7 +759,7 @@ def _ask_create(
     )
     draft = doors.parse_draft(reply, asset_types)
     if draft is None:
-        return Answer(skill="create", text=chat_reply(svc, prompt, history))
+        return Answer(skill="create", text=chat_reply(svc, prompt, history, image=image))
     asset_type, drafted_prompt = draft
     return Answer(
         skill="create",
@@ -722,7 +769,11 @@ def _ask_create(
 
 
 def _ask_character(
-    svc: Any, prompt: str, history: tuple[Any, ...], character_options: dict[str, Any]
+    svc: Any,
+    prompt: str,
+    history: tuple[Any, ...],
+    character_options: dict[str, Any],
+    image: bytes | None = None,
 ) -> Answer:
     """A ``character`` route: propose a plan among *character_options*
     (``{"families", "movements", "directions", "size_range"}`` -- see
@@ -762,7 +813,7 @@ def _ask_character(
     )
     plan, dropped = character_plan.parse_plan(reply, character_options)
     if plan is None:
-        return Answer(skill="character", text=chat_reply(svc, prompt, history))
+        return Answer(skill="character", text=chat_reply(svc, prompt, history, image=image))
 
     overrides = character_plan.plan_overrides(plan)
     try:
@@ -779,7 +830,6 @@ def _ask_character(
         "theme": plan.get("theme"),
         "movements": plan.get("movements", []),
         "directions": plan.get("directions"),
-        "cells": built["cells"],
         "estimate_minutes": built["estimate_minutes"],
         # The 2026-09-18 audit (familiar-02): docs/manual/20-overview.md
         # promises that a word the plan itself could not act on is "named
@@ -851,8 +901,10 @@ def ask(
     """Route *prompt* to a skill, then answer it.
 
     *image* (2026-09-24, vision) -- optional PNG bytes, forwarded to
-    whichever door actually answers (:func:`chat_reply` for every fallback,
-    :func:`clay_build` for a routed build) -- never to the router request
+    whichever door actually answers (:func:`chat_reply` for every fallback --
+    including the one a navigate/create/character route takes when its own door
+    reply is unusable -- :func:`clay_build` for a routed build, and the Manual's
+    cited answer) -- never to the router request
     itself, which only ever needs *prompt*'s own text to pick a skill.
 
     A refusal raised while routing (a lease, a missing worker, a timeout, ...)
@@ -889,6 +941,7 @@ def ask(
     own form (``modes/create/engine/character.options``); this module still never
     reads a registry to build it fresh.
     """
+    _check_chat_prompt(prompt)
     route_reply = _call(
         svc,
         contract.build_router_messages(prompt, mode),
@@ -901,12 +954,12 @@ def ask(
     skill = router.parse_route(route_reply)
 
     if skill == "manual":
-        return _ask_manual(svc, prompt)
+        return _ask_manual(svc, prompt, image=image)
 
     if skill in ("clay_build", "clay_edit") and mode == "clay" and scene is not None:
         # clay_edit shares clay_build's own frozen card and card gate: the
         # Clay card's own behaviour paragraph already covers "change what's
-        # there" as well as "add something new" (``cards/clay-1.txt``), and
+        # there" as well as "add something new" (``cards/clay-2.txt``), and
         # nothing about the card gate is build-specific -- a model untrained
         # on Clay tool calls at all is exactly as unable to edit them.
         build_result = clay_build(svc, prompt, scene, image=image)
@@ -920,12 +973,12 @@ def ask(
         )
 
     if skill == "navigate" and destinations:
-        return _ask_navigate(svc, prompt, history, destinations)
+        return _ask_navigate(svc, prompt, history, destinations, image=image)
 
     if skill == "create" and asset_types:
-        return _ask_create(svc, prompt, history, asset_types)
+        return _ask_create(svc, prompt, history, asset_types, image=image)
 
     if skill == "character" and character_options:
-        return _ask_character(svc, prompt, history, character_options)
+        return _ask_character(svc, prompt, history, character_options, image=image)
 
     return Answer(skill=skill, text=chat_reply(svc, prompt, history, image=image))

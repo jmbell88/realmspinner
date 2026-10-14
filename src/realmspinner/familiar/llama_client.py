@@ -169,6 +169,12 @@ def _headers(server: Any) -> dict[str, str]:
     return {"Authorization": f"Bearer {key}"}
 
 
+#: Appended to a free-text reply the server stopped at ``max_tokens``
+#: (``finish_reason == "length"``), so a cut answer is not read as a complete
+#: one. Carries no ``[n]`` marker, so ``contract.cited`` ignores it.
+TRUNCATED_NOTE = "\n\n[The reply was cut off at its length limit.]"
+
+
 async def _post_capped(
     client: httpx.AsyncClient, path: str, headers: dict[str, str], payload: dict[str, Any]
 ) -> dict[str, Any]:
@@ -203,7 +209,14 @@ async def _post_capped(
                     f"{MAX_RESPONSE_BYTES}-byte ceiling, before it finished "
                     "arriving -- refusing to use it"
                 )
-    text = bytes(received).decode("utf-8")
+    try:
+        text = bytes(received).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        # The 2026-10-14 audit, finding familiar-core-05: the familiar-07 fix
+        # below wrapped only the JSON error, but ``UnicodeDecodeError`` is a
+        # ``ValueError`` too, so ``service.familiar._call`` filed a body that
+        # was not UTF-8 as ``too_large`` -- "this request does not fit".
+        raise RuntimeError("llama-server sent a body that is not valid UTF-8") from exc
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
@@ -344,6 +357,24 @@ async def chat(
         body = await _post_capped(client, "/v1/chat/completions", headers, payload)
         server.touch()
         try:
-            return body["choices"][0]["message"]["content"]
+            choice = body["choices"][0]
+            content = choice["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(f"llama-server reply had no message content: {body!r}") from exc
+        if not isinstance(content, str):
+            # The 2026-10-14 audit, finding familiar-core-06: a null content
+            # came back as None from a function typed -> str, and
+            # ``contract.cited``/``router.parse_route`` then raised
+            # TypeError/AttributeError inside the task.
+            raise RuntimeError(f"llama-server reply had no message content: {body!r}")
+        if (
+            response_format is None
+            and not (skill is not None and skill in contract.SIZED_SKILLS)
+            and choice.get("finish_reason") == "length"
+        ):
+            # A free-text answer cut at its token ceiling used to be shown as a
+            # finished one (same finding). Structured replies are parsed, not
+            # shown, so a note appended to them would only change how a
+            # parse fails.
+            content += TRUNCATED_NOTE
+        return content

@@ -22,6 +22,14 @@ MAX_TEXTURES = 120
 # detail the card cannot show.
 MAX_SIDE = 256
 
+#: The ceiling for a *pixel-art* preview. ``MAX_SIDE`` runs ``Image.thumbnail``
+#: and so resamples a 48 or 64 px sprite-draft atlas (192x384, 256x512) down and
+#: smooths it, which is the blur ``nearest`` exists to prevent: the 2026-10-14
+#: audit, finding create-panes-04, found candidates A and B being chosen between
+#: on a picture that was not the pixel art in the file. Create's own previews
+#: use the same figure.
+PIXEL_MAX_SIDE = 4096
+
 #: A second bound, in bytes, because the count is not one on its own.
 #: ``max_side`` is a *per-call* argument and the manual passes
 #: ``render.IMAGE_MAX_SIDE`` -- 1600 -- so the same "limit of 120" is 31 MiB of

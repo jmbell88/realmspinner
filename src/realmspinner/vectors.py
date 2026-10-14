@@ -62,6 +62,7 @@ from .pipelines.reference import REFUSAL_CODES
 # re-key and evidence accumulation restarts per configuration, the accepted
 # cost that document records. A stale key in old stored params is skipped by
 # config_vector's membership test, never an error.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 VECTOR_PARAMS = (
     "platform",
     "base_model",
@@ -120,6 +121,7 @@ VECTOR_PARAMS = (
 # all the same row. See ``dev/measurements/2026-08-09-grade-scale.md``, which is
 # where every number here is argued -- the repo rule is that a constant the stored
 # corpus is keyed on gets its document before it changes.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 #
 # Model (mesh) stage only. Image labels stay binary and keep ``grade`` NULL: they
 # feed binary logistic probes, so a grade would be thresholded straight back to a

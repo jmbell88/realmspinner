@@ -100,7 +100,10 @@ def test_the_retrieval_row_is_a_familiar_row_that_lands_in_the_models_directory(
     config = _config(tmp_path)
     (one,) = entry.spec.fetch
     assert fetch.destination(config, entry, one) == config.familiar_models_dir
-    assert fetch.claims(config, entry) == (config.familiar_models_dir,)
+    # Its own file, never the shared directory: the weights rows share
+    # ``models/familiar`` and a directory claim made none of them removable (the
+    # 2026-10-14 audit, findings pipelines-install-02 and service-gates-04).
+    assert fetch.claims(config, entry) == (config.familiar_models_dir / _FILE,)
     assert fetch.present(config, "familiar", entry.spec) is False
     config.familiar_models_dir.mkdir(parents=True)
     (config.familiar_models_dir / _FILE).write_bytes(b"x")

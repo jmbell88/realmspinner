@@ -50,7 +50,7 @@ class Camera:
         # ``FrameOps._frame_unchanged`` saw an unmoved camera and kept the old
         # texture on screen until an unrelated input forced a redraw. A
         # counter compared there fixes every viewport this mixin serves --
-        # Clay, Mason and Poser -- in one place instead of each mode.py caller
+        # Clay, Mason and the asset viewer -- in one place instead of each mode.py caller
         # having to remember to set ``_render_dirty`` by hand.
         self.revision = 0
         # Orthographic rather than perspective. Off everywhere except where a
@@ -197,8 +197,9 @@ class Camera:
         # The target is the box's own centre. It was ``(0, height/2, 0)``, which
         # is the centre of a box standing on the ground at the origin and of
         # nothing else: the 2026-10-10 audit's create-32 found a caller-supplied
-        # box (Poser's skeleton preview, via ``Viewer.frame_bounds``, which is
-        # not placed the way a loaded model is) framed around the wrong point,
+        # box (a meshless armature's, which is
+        # not placed the way a loaded model is -- Poser's skeleton preview, since
+        # removed) framed around the wrong point,
         # the hidden blank template's centre landing off-screen. For a grounded,
         # centred model the two are the same point, so nothing that was right
         # moves.

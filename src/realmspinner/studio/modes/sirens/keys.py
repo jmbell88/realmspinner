@@ -60,6 +60,17 @@ PIANO_KEYS: dict[str, int] = {
     "6": 20, "y": 21, "7": 22, "u": 23,
 }
 
+#: The numeric keypad's pygame names -> the character they type. **The 2026-10-14
+#: audit, finding sirens-playback-07:** ``pygame.key.name(K_KP1)`` is ``"[1]"``
+#: and ``K_KP_PLUS`` is ``"[+]"``, so a dispatch on the bare name never matched
+#: any of them and the instrument, volume and parameter columns and the octave
+#: keys could not be reached from the pad -- the usual tracker habit.
+_KEYPAD_NAMES: dict[str, str] = {
+    **{f"[{digit}]": str(digit) for digit in range(10)},
+    "[+]": "+",
+    "[-]": "-",
+}
+
 # The Ctrl chords a busy tab refuses. Copy is not among them: it reads the
 # document and pushes nothing, so a tab mid-save can still be copied from.
 _MUTATING_CTRL = docmodes.WRITE_CHORDS | frozenset({"x", "v", "g"})
@@ -83,6 +94,13 @@ def handle_key(ctx: Any, event: Any) -> bool:
     ctrl = bool(mods & pygame.KMOD_CTRL)
     shift = bool(mods & pygame.KMOD_SHIFT)
     name = pygame.key.name(event.key).lower()
+    # Spelled as the main row spells it, but only for the keys that mean the same
+    # thing there: the pad's digits are hex digits in the numeric columns and the
+    # pad's signs are the octave keys. The piano row is the *letters* and the
+    # upper number row, so a pad digit in the note column stays unmapped by being
+    # looked up after this -- ``"2"`` is a note, ``"[2]"`` was never one.
+    pad = _KEYPAD_NAMES.get(name)
+    digit = pad if pad is not None and pad.isdigit() else name
 
     if event.key == pygame.K_ESCAPE and shift:
         # The panic key. Plain Escape is already the selection's own drop (see
@@ -153,10 +171,10 @@ def handle_key(ctx: Any, event: Any) -> bool:
             return False
         state.anchor = None
         return True
-    if name in ("=", "+", "-"):
+    if name in ("=", "+", "-") or pad in ("+", "-"):
         state.octave = max(
             sirens_state.MIN_OCTAVE,
-            min(sirens_state.MAX_OCTAVE, state.octave + (-1 if name == "-" else 1)),
+            min(sirens_state.MAX_OCTAVE, state.octave + (-1 if "-" in (name, pad) else 1)),
         )
         return True
     if event.key == pygame.K_1 and shift:
@@ -203,9 +221,9 @@ def handle_key(ctx: Any, event: Any) -> bool:
         # piano keys (``b``, ``c``, ``d``), and a check in front of this would
         # hijack the three of them to say they are not notes here -- which is
         # true and would replace the effect they do write.
-        return sirens_mode.write_effect(ctx, name) or _piano_elsewhere(ctx, state, name)
-    if len(name) == 1 and name in "0123456789abcdef":
-        return sirens_mode.write_hex(ctx, int(name, 16))
+        return sirens_mode.write_effect(ctx, digit) or _piano_elsewhere(ctx, state, name)
+    if len(digit) == 1 and digit in "0123456789abcdef":
+        return sirens_mode.write_hex(ctx, int(digit, 16))
     return _piano_elsewhere(ctx, state, name)
 
 

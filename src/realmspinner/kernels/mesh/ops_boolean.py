@@ -9,11 +9,17 @@ changed is that the classifier is no longer ours to get wrong. ``manifold3d``
 is a published, tested CSG kernel; ``trimesh.boolean`` dispatches to it; so the
 op that could not be written by hand is one call.
 
-**Clay no longer offers this** (the picoCAD cut removed Union, Difference and
-Intersection from the editor, and with them the manual section that told them
-apart from Merge Objects); the module stays because the character generators
-call :func:`union` and the format-3 migration reads :data:`KINDS`. The
-distinction it was written for still holds for those callers. Two shapes that
+**Clay offers this again.** The picoCAD cut removed Union, Difference and
+Intersection from the editor, and the Clay rig plan's Tranche 1 landing 5
+(2026-10-13) restored them as ``studio/modes/clay/ops.py``'s ``_boolean`` (the
+Union/Difference/Intersect Objects rows of the Join group). It has two callers
+besides: the character generators under ``characters/`` call :func:`union`, and
+the format-3 migration in ``legacy.py`` reads :data:`KINDS` and runs the stored
+boolean modifiers through :func:`boolean`. (The 2026-10-14 audit, finding
+clay-mesh-ops-05: this paragraph said Clay no longer offered the booleans and
+that the module stayed only for those two, which the shipped op contradicts --
+and would have invited deleting the module from under a live Clay op.) The
+distinction it was written for holds for every caller. Two shapes that
 *touch* and should read as one surface is a join. Two shapes that
 *interpenetrate* and should read as one solid is a union: the walls buried
 inside the other body are exactly what has to go, and a join leaves them there

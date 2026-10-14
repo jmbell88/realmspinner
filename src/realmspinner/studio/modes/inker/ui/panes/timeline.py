@@ -64,6 +64,7 @@ from ..... import anchors, controls, icons, theme, tokens, toolbar, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
 from ... import mode as inker_mode
+from . import colors as inker_colors
 from . import flourish as inker_flourish_pane
 
 #: The strip's height in design pixels, reserved out of the centre column.
@@ -434,6 +435,33 @@ def forget_folds(tab: Any, doc: Any) -> None:
 #: the real signature -- a key added to either side now fails a test rather
 #: than a gesture.
 CELL_GEOM_KEYS = ("x0", "tops", "cell", "gutter", "frames")
+
+
+def visible_columns(
+    *, x0: float, pitch: float, lo: float, hi: float, count: int
+) -> tuple[int, int]:
+    """``(first, last)``, inclusive: the frame columns worth submitting.
+
+    The window's screen span ``lo``..``hi`` against column 0 at ``x0`` and a
+    column every ``pitch``, plus one column of slack each side so a cell
+    half in view still draws. Never outside ``0..count-1`` and never empty
+    while there is a column at all; ``(0, -1)`` for none.
+
+    The 2026-10-14 audit, finding inker-panes-06: ``_grid`` submitted a button
+    for every cell of every row on every frame, so the cost followed the clip's
+    length and not the window's -- about 2 ms for 24 x 4 cells, 26 ms for
+    200 x 8 and 76 ms for 400 x 12 with the control census off. ``canvas._grid``
+    and ``_tile_numbers`` clip their lattices to the view the same way.
+    """
+    if count <= 0:
+        return (0, -1)
+    if pitch <= 0.0:
+        return (0, count - 1)
+    first = max(0, int((lo - x0) // pitch) - 1)
+    last = min(count - 1, int((hi - x0) // pitch) + 1)
+    if first > last:
+        first = last
+    return (first, last)
 
 
 def hit_cell(geom: dict[str, Any], point: tuple[float, float]) -> tuple[int, int] | None:
@@ -888,13 +916,12 @@ def _onion_more(state: Any) -> None:
                 imgui.ColorEditFlags_.no_alpha.value,
             )
             if changed:
-                setattr(
-                    state,
-                    attr,
-                    (round(value.x * 255) << 16)
-                    | (round(value.y * 255) << 8)
-                    | round(value.z * 255),
-                )
+                # The 2026-10-14 audit, finding inker-panes-01: the pinned
+                # imgui-bundle hands back a plain list, and ``value.x`` raised
+                # inside the draw so no onion tint edit ever applied. The
+                # colours pane's reader takes a list or an ImVec4 and clamps.
+                red, green, blue, _alpha = inker_colors._to_rgba(value)
+                setattr(state, attr, (red << 16) | (green << 8) | blue)
             widgets.help_marker(hint)
         changed, falloff = widgets.labeled_slider_float(
             "Falloff",
@@ -972,7 +999,25 @@ def _grid(ctx: Any, tab: Any) -> None:
         "frames": len(columns),
         "columns": columns,
         "order": doc.member_uids(),
+        # Every linked slot, counted once: ``Animation.is_linked`` scans the
+        # whole grid per call and ``_cell`` used to make one call per cell, so a
+        # long multi-layer clip crawled while nothing moved (the 2026-10-14
+        # audit, finding inker-paint-03). Not in ``CELL_GEOM_KEYS``: hit-testing
+        # does not read it.
+        "linked": doc.anim.linked_slots() if doc.anim is not None else frozenset(),
     }
+    # Which columns are on screen, so a row submits those and stands in a
+    # spacer for the rest. Measured from the child's own screen span against the
+    # header's x0, which already accounts for the scroll. Not in
+    # ``CELL_GEOM_KEYS`` for the same reason ``linked`` is not.
+    window_x = float(imgui.get_window_pos().x)
+    geom["view"] = visible_columns(
+        x0=header_x0,
+        pitch=cell + gutter,
+        lo=window_x,
+        hi=window_x + float(imgui.get_window_size().x),
+        count=len(columns),
+    )
     # **Bottom-up**: index 0 is the background and it draws last, at the foot.
     # This is the one thing about the grid that reversed when the panel merged
     # in -- the panel drew top-down because Photoshop's does, and the grid has
@@ -1184,11 +1229,20 @@ def _toggle_all(ctx: Any, tab: Any) -> None:
     # walks ``doc.stack`` twice on the task thread -- once for ``stack.xml``
     # and again for the PNG members -- so a visibility flip landing between the
     # two passes writes an archive whose parts disagree with each other.
-    imgui.begin_disabled(tab.busy)
+    #
+    # ``enabled``/``reason`` rather than a bare ``begin_disabled(tab.busy)``:
+    # the 2026-10-14 audit, finding inker-panes-07, found these buttons inert
+    # during playback and a save while the hover still said "Hide every layer"
+    # and the census recorded them enabled with no reason -- the shape the
+    # 2026-09-26 audit's inker-panes-09 fixed for the menus; ``_busy_gate`` is
+    # that fix's own door.
+    enabled, why = _busy_gate(tab)
     if widgets.icon_button(
         f"{icons.EYE if not hidden else icons.EYE_OFF}##alleyes",
         "Show every layer" if hidden else "Hide every layer",
         borderless=True,
+        enabled=enabled,
+        reason=why,
     ):
         doc.set_all_layer_props(visible=hidden)
     imgui.same_line()
@@ -1196,9 +1250,10 @@ def _toggle_all(ctx: Any, tab: Any) -> None:
         f"{icons.LOCK if locked else icons.LOCK_OPEN}##alllocks",
         "Unlock every layer" if locked else "Lock every layer",
         borderless=True,
+        enabled=enabled,
+        reason=why,
     ):
         doc.set_all_layer_props(locked=not locked)
-    imgui.end_disabled()
 
 
 def _busy_gate(tab: Any, ok: bool = True, reason: str = "") -> tuple[bool, str]:
@@ -1439,14 +1494,15 @@ def _track_row(
     # ignored so the row *says* it is not accepting edits, and the guards
     # inside ``_drag_toggle``/``_reorder`` are belt to this braces: a
     # drag-and-drop source is not something ``begin_disabled`` reliably stops.
-    imgui.begin_disabled(tab.busy)
+    enabled, why = _busy_gate(tab)
     if widgets.icon_button(
         f"{icons.EYE if layer.visible else icons.EYE_OFF}##visible",
         "Hide this layer" if layer.visible else "Show this layer",
         borderless=True,
+        enabled=enabled,
+        reason=why,
     ):
         _set_visible(ctx, tab, track_index, not layer.visible)
-    imgui.end_disabled()
     _drag_toggle(ctx, tab, track_index)
     imgui.same_line()
     label = layer.name[:12]
@@ -1507,12 +1563,23 @@ def _track_row(
     imgui.same_line(sp(TRACK_LABEL_W))
 
     columns = frame_uids(doc) if geom is None else geom["columns"]
-    for frame_index, frame in enumerate(columns):
+    first, last = (geom or {}).get("view") or (0, len(columns) - 1)
+    pitch = cell + gutter
+    if first > 0:
+        # One spacer the width of the columns scrolled off to the left, so the
+        # first drawn cell lands where it would have and the scroll range is
+        # the clip's, not the window's.
+        imgui.dummy((first * pitch - gutter, cell))
+    for frame_index in range(first, last + 1):
+        frame = columns[frame_index]
         if frame_index:
             imgui.same_line(0.0, gutter)
         imgui.push_id(frame_index if frame is None else frame.uid)
         _cell(ctx, tab, track_index, frame, track_index, frame_index, cell, geom)
         imgui.pop_id()
+    if last < len(columns) - 1:
+        imgui.same_line(0.0, gutter)
+        imgui.dummy(((len(columns) - 1 - last) * pitch - gutter, cell))
     imgui.pop_id()
 
 
@@ -1546,14 +1613,15 @@ def _group_row(ctx: Any, tab: Any, doc: Any, entry: RowEntry) -> None:
     ):
         toggle_fold(tab, entry.uid)
     imgui.same_line()
-    imgui.begin_disabled(tab.busy)
+    enabled, why = _busy_gate(tab)
     if widgets.icon_button(
         f"{icons.EYE if node.visible else icons.EYE_OFF}##gvisible",
         "Hide this group" if node.visible else "Show this group",
         borderless=True,
+        enabled=enabled,
+        reason=why,
     ):
         doc.set_group_props(entry.uid, visible=not node.visible)
-    imgui.end_disabled()
     imgui.same_line()
     label = f"{icons.FOLDER_OPEN} {node.name[:11]}"
     if node.locked:
@@ -1973,7 +2041,12 @@ def _cell(
     else:
         track_obj = anim.tracks[ti]
         layer = anim.cel(track_obj.uid, frame.uid)
-        linked = layer is not None and anim.is_linked(track_obj.uid, frame.uid)
+        if layer is None:
+            linked = False
+        elif geom is not None and "linked" in geom:
+            linked = (track_obj.uid, frame.uid) in geom["linked"]
+        else:
+            linked = anim.is_linked(track_obj.uid, frame.uid)
     # Three states, three glyphs, and colour on top rather than instead: a grid
     # that only differs by hue is unreadable to a chunk of people, which is the
     # argument STATUS_GLYPHS already makes elsewhere in this app.

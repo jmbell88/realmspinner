@@ -50,13 +50,22 @@ FLAGS = (
 
 
 def _to_rgba(value: Any) -> tuple[int, int, int, int]:
-    """imgui's float colour -> the 8-bit tuple the engine writes with."""
-    return (
-        int(round(value.x * 255)),
-        int(round(value.y * 255)),
-        int(round(value.z * 255)),
-        int(round(value.w * 255)),
-    )
+    """imgui's float colour -> the 8-bit tuple the engine writes with.
+
+    The 2026-10-14 audit, finding inker-panes-01: with the pinned imgui-bundle
+    (1.92.801) ``controls.color_edit4`` hands back a plain list ``[r, g, b, a]``
+    and this read ``value.x`` -- so every edit of the Foreground, Background, a
+    palette slot, the Replace-colour filter's From and To, and the onion tints
+    raised AttributeError inside the pane draw, on each frame the colour changed,
+    and the pane guard swallowed it with nothing applied. Read as a sequence
+    (``tools._rgba``'s, ``flourish.py``'s and Plotter's shape) and, for a build
+    that still returns an ``ImVec4``, by its fields. Clamped: a drag can leave
+    0..1 mid-gesture and an unclamped round hands the engine a channel outside
+    uint8.
+    """
+    channels = (value.x, value.y, value.z, value.w) if hasattr(value, "x") else tuple(value)
+    r, g, b, a = (max(0, min(255, int(round(float(c) * 255)))) for c in channels)
+    return (r, g, b, a)
 
 
 def _vec(colour: tuple[int, int, int, int]) -> Any:

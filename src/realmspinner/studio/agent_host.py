@@ -135,6 +135,7 @@ import contextlib
 import itertools
 import json
 import logging
+import math
 import os
 import queue
 import threading
@@ -327,6 +328,21 @@ def _record_completed_call(name: str, arguments: dict, result: dict) -> None:
         log.exception("agent transcript: could not append to %s", path)
 
 
+def _stringify_non_finite(value: Any) -> Any:
+    """*value* with every non-finite float replaced by its string, recursively.
+
+    ``protocol._finite``'s rule for an error frame, written out here because the
+    studio speaks only RPC v1 to ``realmspinner.mcp`` and may not import its
+    ``protocol`` module (``tests/mcp/test_mcp_imports.py`` pins that)."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _stringify_non_finite(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_stringify_non_finite(v) for v in value]
+    return value
+
+
 def _result_body(result: Any) -> bytes:
     """*result* as the compact JSON body of a ``call`` reply.
 
@@ -338,12 +354,22 @@ def _result_body(result: Any) -> bytes:
     retry was not replayed because the op was closed (the 2026-10-03 audit's
     agents-38). The fallback stringifies the odd value instead of dropping the
     reply: the call ran, so its answer must still reach the agent.
+
+    The 2026-10-14 audit (finding agents-05): the first attempt omitted
+    ``allow_nan=False``, so a NaN or infinity in a result went out as a bare
+    ``NaN``/``Infinity`` token, which is not JSON and which a JS client's
+    ``JSON.parse`` refuses -- after the tool had already mutated the document.
+    Strict now takes the same fallback as any other odd value, and the
+    fallback stringifies a non-finite float the way ``protocol._finite`` does
+    for an error frame (see :func:`_stringify_non_finite`).
     """
     try:
-        text = json.dumps(result, separators=(",", ":"))
+        text = json.dumps(result, separators=(",", ":"), allow_nan=False)
     except (TypeError, ValueError):
         log.exception("agent tool result is not strictly JSON-serialisable; stringifying")
-        text = json.dumps(result, separators=(",", ":"), default=str)
+        text = json.dumps(
+            _stringify_non_finite(result), separators=(",", ":"), default=str, allow_nan=False
+        )
     return text.encode("utf-8")
 
 
@@ -645,6 +671,7 @@ REPLAY_EXEMPT_READS = frozenset(
         "clay_scene",
         "clay_measure",
         "clay_elements",
+        "clay_reference_list",
     }
 )
 """Tools that only read the document, so :meth:`AgentHost._replay` re-runs them
@@ -1190,7 +1217,15 @@ class AgentHost:
         # See the module docstring's tab-on-connect claim. The result is not
         # inspected: ``create=True`` cannot fail, and every tool call after
         # this resolves the tab fresh through ``agent_clay._tab`` regardless.
-        self._run_on_frame(lambda: agent_clay._tab(self.ctx, session, create=True))
+        # Queued, not waited on (the 2026-10-14 audit, finding agents-18): the
+        # wait used to run before the first read, up to ``CALL_TIMEOUT`` (30 s)
+        # on a frame thread that had not pumped yet -- the usual case for a
+        # bridge dialling in while Studio is still starting -- while the
+        # bridge gives ``hello`` only ``SETUP_TIMEOUT`` (10 s). The bridge
+        # gave up and its retries got ``busy`` from a session already dead.
+        # The queue is FIFO, so the tab is still made before any call that
+        # follows it.
+        self._queue_job_nowait(lambda: agent_clay._tab(self.ctx, session, create=True))
         checked_first_frame = False
         self._served_catalogue_hash = None
         try:

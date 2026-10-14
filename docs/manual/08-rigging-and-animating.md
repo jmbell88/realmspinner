@@ -10,8 +10,9 @@ It needs no GPU and no weights. Only the last, optional step needs Blender.
 
 Start a document (`Ctrl+N`) and block out a figure from boxes: a torso, a head, two arms and two legs. Use the
 rail's **+** to place boxes and `G`, `R` and `S` to move, turn and size them, as in [Modelling](07-modelling.md).
-Give each part a name in the outliner, because the names are what an imported animation is matched on later:
-`Torso`, `Head`, `UpperArm.L`, `UpperArm.R`, `Leg.L`, `Leg.R`.
+Give each part a name in the outliner: `Torso`, `Head`, `ArmBox.L`, `ArmBox.R`, `LegBox.L`, `LegBox.R`. The boxes
+are only shapes. The names an imported animation is matched on later belong to the *bones*, which you add and name
+in the next step, so a box keeps a name of its own (here with `Box` in it) rather than the bone's.
 
 Nothing is a bone yet. A bone is an ordinary shape that you have *marked*, and the choice is yours, which is why
 you can rig a model of any shape.
@@ -23,14 +24,15 @@ Select a shape and choose **Mark as Bone** in the right-click menu's **Rig** gro
 joint that is only a joint, with no shape of its own, is **Add Bone**: with one bone selected it adds the next
 one a step above it, so a chain grows upward like a spine.
 
-For the figure, mark the torso as the root and add a bone for each limb at the point it bends: a shoulder, a hip.
-Move each into place with `G`; the pivot is the joint, so a shoulder bone belongs at the shoulder and not in the
-middle of the arm.
+For the figure, mark the torso as the root (it is a bone named `Torso`) and add a bone for each limb at the point it
+bends: a shoulder, a hip. Name the new bones `UpperArm.L`, `UpperArm.R`, `Leg.L` and `Leg.R`: a bone's name is what an
+imported animation is matched on, and Clay reads `.L`, `_L` and `Left` alike. Move each into place with `G`; the
+pivot is the joint, so a shoulder bone belongs at the shoulder and not in the middle of the arm.
 
 Then make the hierarchy. Drag a row in the outliner onto another to make it a child, or select shapes and use
-**Parent to Last**. Put the arm and leg bones under the torso, and the shapes under their bones: the arm box under
-`UpperArm.L`, the leg box under `Leg.L`. A shape that sits under a bone moves with it, however many groups down,
-and nothing else needs doing. That is the whole of the binding for a model built from boxes.
+**Parent to Last**. Put the arm and leg bones under the torso, and the shapes under their bones: `ArmBox.L` under
+the `UpperArm.L` bone, `LegBox.L` under the `Leg.L` bone. A shape that sits under a bone moves with it, however
+many groups down, and nothing else needs doing. That is the whole of the binding for a model built from boxes.
 
 ## Pose it
 

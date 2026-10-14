@@ -1,19 +1,19 @@
-"""Editing a template's clip library: the door Poser's clip editor calls.
+"""Editing a template's clip library: a service door with no pane of its own.
 
 A *clip* is an ordered list of key poses plus how many frames each step holds,
-and the shipped library under ``templates/clips/`` is what Troupe renders every
-character sheet from. Until now it was editable only as raw JSON in the package
-tree, which the Troupe programme named as the open half of its clip work -- and
-which is the
-wrong place twice over: an installed build replaces that tree wholesale on
-upgrade, and it may not even be writable.
+and the shipped library under ``templates/clips/`` is what a rigged character's
+animations are baked from (``animated.glb``). Poser's clip editor was the pane
+that called this door and left with Poser; what calls it now is the Import clip
+door (``clip_import``) and the API. The library was once editable only as raw
+JSON in the package tree, which is the wrong place twice over: an installed
+build replaces that tree wholesale on upgrade, and it may not even be writable.
 
 **So an edit goes to the user's own copy and the shipped one becomes a factory
 default.** ``cliplib.clip_library`` prefers ``data_dir/poser/clips/<template>.json``
 when it exists and falls back to the shipped file otherwise, so:
 
-* a user who has never opened the editor renders exactly what the build ships;
-* a user who has renders their own, and an upgrade does not silently overwrite it;
+* a user who has never edited a library bakes exactly what the build ships;
+* a user who has bakes their own, and an upgrade does not silently overwrite it;
 * :func:`revert` is "delete my copy", which is why it needs no stored default.
 
 **The whole file is the unit of change**, not a clip and not a key. A clip
@@ -94,6 +94,18 @@ def _lock(svc: RealmspinnerService) -> Any:
     return svc.convert_lock("clips", "store")
 
 
+def _arm(svc: RealmspinnerService) -> None:
+    """Point the shared loader at this service's editable clip directory.
+
+    Done by the doors that read or write the user's copy, not at service start
+    (the 2026-10-14 audit, finding poser-poses-02): arming it for every process
+    let a library saved under the old Poser override the shipped clips in every
+    bake with no door left to show or revert it. Idempotent, and it drops the
+    clip caches only when the directory actually moves.
+    """
+    cliplib.set_user_clip_dir(poselib.clip_dir(svc.config))
+
+
 def has_clips(template: str) -> bool:
     """Whether a skeleton has a clip library to import animations from.
 
@@ -147,6 +159,7 @@ def library(svc: RealmspinnerService, template: str) -> dict[str, Any]:
     next Save would have silently overwritten the file this refusal names.
     """
     key = _template_or_invalid(template)
+    _arm(svc)
     error = cliplib.user_clip_error(key)
     if error is not None:
         raise Invalid(
@@ -245,8 +258,8 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
         if raw_translation:
             # The 2026-09-07 audit: poser-05 found this was a bare
             # ``float(v)`` with no finite or magnitude check -- shared here
-            # with ``poselib.validate_record``'s, which already refuses the
-            # identical field on a library pose -- and poser-06 found the
+            # with ``poselib.validate_root_translation``, which refuses the
+            # identical field everywhere else it is read -- and poser-06 found the
             # bare ``ValueError`` that let through surfaced as the generic
             # "Something went wrong" instead of a field-addressed refusal
             # like every other check in this loop.
@@ -419,15 +432,23 @@ def _check_shape(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _check_renders(template: str) -> None:
-    """Refuse a library the character sheet could not be laid out from.
+    """Refuse a library that does not expand to the default animation set.
 
-    For every template that has a clip library to animate a sheet from --
-    ``has_clips``, because the character sheet could be requested against any
-    of them. The 2026-09-23 audit, finding poser-02: this used to check only
-    the humanoid, so a quadruped, bird or blob library saved without a clip
-    its own default sheet layout needs. A
-    template with no clips at all (an empty user override, or one nobody has
-    authored yet) is skipped rather than refused: ``has_clips`` is exactly
+    The default layout (``charsheet.resolve_layout(None)``) names five clips and
+    a frame count for each, and ``expand_clips`` raises when a library lacks one
+    or its segments do not add up to that count. This was written to keep the
+    character sheet renderable; **the sheet is gone** (``retired.py``), and what
+    reads a library now -- the ``animated.glb`` bake -- uses a clip's own segment
+    lengths and has no required set. So this is a check the library still passes
+    for a reason that no longer has a reader, kept because narrowing it is a
+    decision about which libraries may be saved, not a rewording (the 2026-10-14
+    audit, finding poser-poses-05). The message no longer names the sheet.
+
+    For every template that has a clip library -- ``has_clips``. The 2026-09-23
+    audit, finding poser-02: this used to check only the humanoid, so a
+    quadruped, bird or blob library saved without a clip its own default layout
+    needs. A template with no clips at all (an empty user override, or one nobody
+    has authored yet) is skipped rather than refused: ``has_clips`` is exactly
     "nothing to check against" here, not "broken".
 
     Called *after* the file has been written and the caches dropped, because
@@ -443,11 +464,11 @@ def _check_renders(template: str) -> None:
         expand_clips(template)
     except KeyError as exc:
         raise Invalid(
-            f"a character sheet needs a clip called {exc}; this library has none",
+            f"the default animation set needs a clip called {exc}; this library has none",
             field="clips",
         ) from exc
     except ValueError as exc:
-        raise invalid_from(exc, "These clips cannot fill a character sheet") from exc
+        raise invalid_from(exc, "These clips cannot fill the default animation set") from exc
 
 
 def _commit_locked(svc: RealmspinnerService, key: str, document: dict[str, Any]) -> None:
@@ -459,6 +480,7 @@ def _commit_locked(svc: RealmspinnerService, key: str, document: dict[str, Any])
     across its own read-modify-write instead of acquiring it a second time,
     which is exactly the gap that would let another save land in between.
     """
+    _arm(svc)
     path = poselib.clip_path(svc.config, key)
     previous = path.read_bytes() if path.is_file() else None
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -494,14 +516,14 @@ def save(svc: RealmspinnerService, template: str, payload: dict[str, Any]) -> di
 
     The write is staged and the previous bytes are restored if the render check
     fails -- a save that leaves a library the renderer refuses is worse than a
-    refused save, because the next character sheet is where the user finds out.
+    refused save, because the next animated export is where the user finds out.
     """
     key = _template_or_invalid(template)
     document = _check_shape({**payload, "template": key})
     # A library's rotation space is a property of its stored *values*. Changing
     # it without rewriting every quaternion leaves a file whose poses mean
     # something other than what it says they mean, and the only place that shows
-    # up is a mangled character sheet -- so it is refused by name here.
+    # up is a mangled animation -- so it is refused by name here.
     current = library(svc, key).get("space") or "node"
     if document["space"] != current:
         raise Invalid(
@@ -541,6 +563,7 @@ def revert(svc: RealmspinnerService, template: str) -> dict[str, Any]:
     automatically.
     """
     key = _template_or_invalid(template)
+    _arm(svc)
     path = poselib.clip_path(svc.config, key)
     with _lock(svc):
         if not path.is_file():
@@ -571,22 +594,22 @@ def preview_frames(svc: RealmspinnerService, template: str, clip: str) -> dict[s
 
     The **stored** clip, expanded. It goes through ``sheet.interpolate_clip``
     -- the renderer's own interpolator -- rather than a preview-shaped
-    reimplementation of it, so what this returns is what the sheet will draw,
+    reimplementation of it, so what this returns is what the bake will play,
     including the easing and the closed-loop wrap. A preview with its own
     interpolation would be a second opinion about what a walk is, which is the
     whole thing the single clip library exists to avoid.
 
-    **The pane deliberately does not call this**, which is worth stating
-    because it looks like a service door with no reader. ``poser_mode.
-    rebuild_frames`` expands the clip *being edited* -- keys inserted and not
-    yet saved, a segment count mid-typing -- and a scrubber that showed the
-    file instead would be a scrubber that ignores the edit in front of it. The
-    two share the one thing that must not differ, the interpolator; where the
-    record comes from is exactly what they are for. This is the answer for
-    anything asking about a clip it has not got open: the API, and the tests
-    that pin the stored path end to end.
+    **No pane calls this any more**, which is worth stating because it looks
+    like a service door with no reader. Poser's clip editor expanded the clip
+    *being edited* itself -- keys inserted and not yet saved, a segment count
+    mid-typing -- since a scrubber that showed the file would ignore the edit in
+    front of it; both shared the one thing that must not differ, the
+    interpolator. That editor left with Poser, so this is now the answer for
+    anything asking about a stored clip: the API, and the tests that pin the
+    stored path end to end.
     """
     key = _template_or_invalid(template)
+    _arm(svc)
     found = cliplib.clip_library(key)
     record = next((c for c in found.get("clips", ()) if c["name"] == clip), None)
     if record is None:

@@ -15,6 +15,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from ..core.safeio import atomic
+
 CRITERIA = {
     "image": ("prompt_fidelity", "composition", "visual_defects", "reference_consistency"),
     "3d_model": ("multi_view_shape", "thin_parts", "openings", "pbr_appearance", "triangle_budget"),
@@ -215,7 +217,7 @@ def report(run_dir: Path, grades_path: Path | None = None) -> dict[str, Any]:
     # what it was, and an old run does not grow a block of Nones.
     if any(r.get("attempt") is not None for r in records):
         doc["attempts"] = attempt_metrics(records, grades)
-    (run_dir / "quality.json").write_text(json.dumps(doc, indent=2), "utf-8")
+    atomic.write_text(run_dir / "quality.json", json.dumps(doc, indent=2))
     return doc
 
 
@@ -293,8 +295,8 @@ def blind_review(left: Path, right: Path, out: Path, seed: int = 42) -> Path:
                     **({"rubric": rubric, "repair_minutes": None} if rubric else {}),
                 }
             )
-    (out / "review.json").write_text(json.dumps(review, indent=2), "utf-8")
-    (out / "mapping.private.json").write_text(json.dumps(mapping, indent=2), "utf-8")
+    atomic.write_text(out / "review.json", json.dumps(review, indent=2))
+    atomic.write_text(out / "mapping.private.json", json.dumps(mapping, indent=2))
     return out
 
 
@@ -326,7 +328,11 @@ def import_review(review_dir: Path) -> None:
         path = Path(directory) / "human-grades.json"
         if path.is_file():
             grades = {**json.loads(path.read_text("utf-8")), **grades}
-        path.write_text(json.dumps(grades, indent=2), "utf-8")
+        # The merge above exists to keep the accumulated hand verdicts, so the
+        # write that stores them must not be able to destroy them: the 2026-10-14
+        # audit, finding pipelines-24, found a plain write_text here truncating
+        # human-grades.json first.
+        atomic.write_text(path, json.dumps(grades, indent=2))
         report(Path(directory), path)
 
 
@@ -427,7 +433,8 @@ def import_external(
         for p in glb_dir.rglob("*.glb")
         if p.relative_to(glb_dir).as_posix() not in used
     )
-    (out / "manifest.json").write_text(
+    atomic.write_text(
+        out / "manifest.json",
         json.dumps(
             {
                 "version": 1,
@@ -437,7 +444,6 @@ def import_external(
             },
             indent=2,
         ),
-        "utf-8",
     )
     return {"imported": imported, "missing": missing, "unmatched": extra}
 

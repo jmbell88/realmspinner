@@ -183,7 +183,8 @@ def test_a_take_round_trips_through_every_format(tmp_path):
 
 def test_the_separation_model_is_labelled_non_commercial():
     """Meta states the trained weights are for scientific purposes only, and
-    htdemucs was trained the same way with no new grant. This app's purpose is
+    the checkpoint shipped here (hdemucs_high_trained) was trained the same way
+    with no new grant. This app's purpose is
     making assets people sell, so the flag is what puts the red marker and the
     warning in front of the download."""
     spec = models.SEPARATION_MODELS[models.DEFAULT_SEPARATION]

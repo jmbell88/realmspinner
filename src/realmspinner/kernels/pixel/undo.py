@@ -608,6 +608,20 @@ class ReplayEdit(Edit):
     #: that quietly kept a tree describing layers it had just replaced is a much
     #: harder bug than a dictionary copy is a cost.
     groups: Any = None
+    #: Whether ``snapshot`` holds the **live objects themselves** rather than
+    #: copies of them. Only an op that *replaces* every layer (``flatten``) sets
+    #: it, because only there is the object the step took out the very one an
+    #: older step still holds: ``LayerAddEdit``, ``TrackAddEdit``, ``CelSetEdit``
+    #: and ``FrameAddEdit`` all keep the object they put in, and an undo that
+    #: installed a *copy* in its place left that object in whatever state the
+    #: older whole-canvas steps had last written it -- so redoing back past the
+    #: flatten put a stale layer on the stack (a flip un-flipped, or a layer the
+    #: wrong size, which raised) -- the 2026-10-14 audit, finding
+    #: inker-document-04. Safe because the op only reads what it replaces and
+    #: nothing writes to an object that is off the stack; by the time this step
+    #: is undone again every later edit has been undone, so the objects are back
+    #: in the state they were in when it was taken.
+    keep: bool = False
 
     def __post_init__(self) -> None:
         self.selection = _pack(self.selection)
@@ -621,7 +635,12 @@ class ReplayEdit(Edit):
         # the app, but there is in the tests -- from needing the hook at all.
         if self.groups is not None:
             doc.restore_groups(self.groups)
-        doc.restore_snapshot(self.snapshot, self.size, self.active, self.grid, self.slices)
+        # ``keep`` is passed only when set, so a document double that predates it
+        # (the tests' ``FakeDoc``) still takes the five arguments it always did.
+        extra = {"keep": True} if self.keep else {}
+        doc.restore_snapshot(
+            self.snapshot, self.size, self.active, self.grid, self.slices, **extra
+        )
         doc.set_selection_mask(_unpack(self.selection))
 
     def redo(self, doc: Any) -> None:

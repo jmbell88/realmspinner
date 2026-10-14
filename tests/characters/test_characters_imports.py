@@ -90,18 +90,6 @@ OUTWARD_IMPORTS: dict[str, set[str]] = {
         "realmspinner.kernels.geom3d.glbwrite",
         "realmspinner.kernels.geom3d.gltf",
     },
-    # **The one outward edge that leaves the app's own back end.** A theme
-    # declares ``effects=("embers",)`` and Flourish is the thing in this repo
-    # that can draw a flame; the alternative was a second flame renderer inside
-    # ``characters``, which is how two flames come to look different. Both
-    # imports are **function scope** --
-    # ``test_flourish_is_only_ever_imported_inside_a_function`` is the pin --
-    # because ``characters`` is what the door imports to answer "what can we
-    # make" and Flourish drags numpy and ten primitive modules in behind it.
-    "effects.py": {
-        "realmspinner.kernels.pixel.flourish.recipe",
-        "realmspinner.kernels.pixel.flourish.render",
-    },
     "__init__.py": set(),
     "humanoid/__init__.py": set(),
     # The rig kernel's template registry and skeleton fitter for the template
@@ -234,31 +222,15 @@ def test_clay_is_only_ever_imported_inside_a_function():
                 assert not module_scope, f"{rel} imports {name} at module scope"
 
 
-def test_flourish_is_only_ever_imported_inside_a_function():
-    """Clay's rule, second instance, for the same cost in a different package.
-
-    ``effects`` is the only module here that reaches Flourish, and Flourish is
-    numpy plus ten primitive modules. A module-scope import would put all of it
-    on the cold start of a door whose entire job is to answer a registry lookup
-    -- and ``characters`` is imported by the door, by the recipe validator and
-    by the resolver, none of which will ever draw a flame.
-    """
+def test_the_characters_package_reaches_no_flourish():
+    """``characters/effects.py`` was the one module that drew a flame through Flourish, onto
+    a character sheet's cells. It left with the sheet (the 2026-10-14 audit, finding
+    poser-characters-05), so nothing here has a reason to import Flourish at all -- and a
+    module-scope one would put numpy and ten primitive modules on the cold start of a door
+    whose job is a registry lookup."""
     for rel in OUTWARD_IMPORTS:
-        for name, module_scope in _imports(rel):
-            if name.startswith("realmspinner.kernels.pixel.flourish"):
-                assert not module_scope, f"{rel} imports {name} at module scope"
-
-
-def test_the_effects_module_is_importable_with_no_studio_behind_it():
-    """The pin above says the import is lazy; this says the laziness is worth
-    something. ``import realmspinner.characters.effects`` on a machine with no
-    window library must succeed, because that is what a queue worker's parent
-    process does when it reads the registry to build a spec."""
-    proc = _run(
-        ("imgui", "imgui_bundle", "moderngl", "pygame", "bpy", "torch", "realmspinner.service"),
-        "realmspinner.characters.effects",
-    )
-    assert proc.returncode == 0, proc.stderr
+        for name, _module_scope in _imports(rel):
+            assert not name.startswith("realmspinner.kernels.pixel.flourish"), (rel, name)
 
 
 def _run(stubs: tuple[str, ...], imports: str) -> subprocess.CompletedProcess:

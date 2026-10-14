@@ -177,6 +177,14 @@ def parse_draft(
         return None
     asset_type = parsed.get("asset_type")
     prompt = parsed.get("prompt")
-    if asset_type not in keys or not isinstance(prompt, str) or not prompt.strip():
+    # isinstance first: ``in`` on a set hashes its operand, so a list or dict
+    # asset_type raised TypeError out of a function that promises never to (the
+    # 2026-10-14 audit, finding familiar-core-08).
+    if (
+        not isinstance(asset_type, str)
+        or asset_type not in keys
+        or not isinstance(prompt, str)
+        or not prompt.strip()
+    ):
         return None
     return asset_type, prompt.strip()

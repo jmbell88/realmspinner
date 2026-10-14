@@ -319,7 +319,14 @@ class Settings:
             with atomic.staged(self.path) as tmp:
                 tmp.write_text(payload, encoding="utf-8")
         except (OSError, TypeError, ValueError) as exc:
-            log.exception("could not save settings")
+            # One traceback per streak: ``tick`` retries every second while
+            # ``_dirty`` stays set, and a traceback a second turned the 5 MiB x 4 log
+            # ring over in about five hours, pushing out the lines that explain what
+            # else went wrong (the 2026-10-14 audit, finding shell-widgets-04).
+            if self._save_failed:
+                log.debug("could not save settings (still failing): %s", exc)
+            else:
+                log.exception("could not save settings")
             # Latched separately from ``notice``, which ``take_notice``
             # clears: a read-only data directory fails on every debounced tick,
             # and guarding on the notice alone would re-raise it the moment the

@@ -420,14 +420,24 @@ class OverlayOps:
             if selected is None or obj.uid in previewing:
                 continue
             key = (id(obj.mesh), selected)
+            # The 2026-10-14 audit, finding clay-view-02: a weighted mesh in Pose mode is drawn
+            # skinned, so its outline is laid on the same positions (``None`` is the rest mesh).
+            skinned = self._skinned_positions(doc, obj, index)
+            drawn = None if skinned is None else skinned.positions
             overlay = self._obj_overlays.get(obj.uid)
             if overlay is None or overlay.key != key:
                 if overlay is not None:
                     overlay.release()
-                overlay = _SelOverlay(self.ctx, program, key, obj.mesh.positions)
+                overlay = _SelOverlay(
+                    self.ctx, program, key, obj.mesh.positions if drawn is None else drawn
+                )
                 # Pinned so the id in the key stays sound; see ``_element_overlays``.
-                overlay.pins = obj.mesh
+                overlay.pins = (obj.mesh, drawn)
                 self._obj_overlays[obj.uid] = overlay
+            elif overlay.pins[1] is not drawn:
+                # Same mesh, a new pose (or Pose mode just left): one buffer write, no VAO rebuilt.
+                overlay.write_positions(obj.mesh.positions if drawn is None else drawn)
+                overlay.pins = (obj.mesh, drawn)
             if overlay.specs is None:
                 from .....kernels.mesh.adjacency import adjacency
 

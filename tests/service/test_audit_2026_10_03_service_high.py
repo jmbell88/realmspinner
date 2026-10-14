@@ -79,7 +79,6 @@ def _animated_job(svc):
 
 def test_an_export_never_replaces_a_folder_it_did_not_write(svc, tmp_path):
     from realmspinner.service import characters as svc_characters
-    from realmspinner.service.errors import Conflict
 
     job_id = _animated_job(svc)
     out = tmp_path / "out"
@@ -89,9 +88,8 @@ def test_an_export_never_replaces_a_folder_it_did_not_write(svc, tmp_path):
     # By default the folder is simply left alone and the export takes a new name.
     fresh = svc_characters.export_godot(svc, job_id, dest_dir=out)
     assert fresh != mine and (mine / "hand_attached.gd").exists()
-    # Even an explicit overwrite refuses a folder this app did not write.
-    with pytest.raises(Conflict):
-        svc_characters.export_godot(svc, job_id, dest_dir=out, overwrite=True)
+    # (An explicit ``overwrite`` and the foreign-folder refusal that guarded it left with
+    # the character agent surface: the 2026-10-14 audit, finding poser-characters-07.)
     assert (mine / "hand_attached.gd").exists()
 
 

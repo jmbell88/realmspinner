@@ -36,13 +36,14 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import replace
 
 import numpy as np
 
 from ..geom3d import math3d as m3
 from . import mesh as bm
+from . import rig
 from .document import Obj
 from .elements import OpError
 
@@ -511,6 +512,29 @@ def duplicate(obj: Obj, uid: int, *, taken: Iterable[str] = ()) -> Obj:
         uid=uid,
         name=next_name(obj.name, taken),
         params=dict(obj.params),
+    )
+
+
+def rebind_skin(copy: Obj, old_to_new: Mapping[int, int]) -> Obj:
+    """*copy* with its skin moved onto the bones that were copied alongside it.
+
+    :func:`duplicate` copies ``skin`` verbatim, and a skin names its bones by **uid**, so a
+    weighted mesh duplicated together with the bones it is weighted to kept naming the
+    originals while the copied bones drove nothing (the 2026-10-14 audit, findings
+    clay-mesh-core-02 and clay-mesh-ops-02). *old_to_new* is the caller's ``original uid -> copy
+    uid`` map for the whole press -- the one it already re-points ``parent`` through.
+
+    **All or nothing:** a skin whose every joint was copied moves to the copies (the vertex
+    ``joints`` indices count positions in the skin, so they stay valid); a skin that names any
+    bone outside the press stays exactly as it was, because a mesh half on one skeleton and
+    half on another is bound to neither. Returns *copy* itself when nothing moves.
+    """
+    skin = copy.skin
+    if skin is None or not all(joint in old_to_new for joint in skin.joints):
+        return copy
+    return replace(
+        copy,
+        skin=rig.Skin(tuple(old_to_new[joint] for joint in skin.joints), skin.inverse_bind),
     )
 
 

@@ -102,12 +102,11 @@ def test_rerunning_a_sprite_synthesis_draft_at_the_cap_is_refused(svc, assets, m
         svc_jobs.rerun_job(svc, job_id, mode="reroll")
 
 
-# --- service-assets-03: adjust_joints/edit_skeleton share create_rig's lock --
+# --- service-assets-03: adjust_joints shares create_rig's lock ---------------
 
 
 def _rigged_job(svc, assets) -> tuple[str, list[dict]]:
-    """A rig.json with everything either ``adjust_joints`` or
-    ``edit_skeleton`` reads -- ``tests/service/test_rig_api.py``'s
+    """A rig.json with everything ``adjust_joints`` reads -- ``tests/service/test_rig_api.py``'s
     ``_rigged_job_full`` shape, duplicated locally per this brief's own rule
     (each fixer's file list is its own)."""
     from realmspinner.kernels.rig import skeleton, templates
@@ -133,12 +132,12 @@ def _rigged_job(svc, assets) -> tuple[str, list[dict]]:
     return job_id, fitted
 
 
-def test_adjust_joints_and_edit_skeleton_share_the_rig_lock_with_create_rig(
+def test_adjust_joints_shares_the_rig_lock_with_create_rig(
     svc, assets, monkeypatch
 ):
     """``create_rig`` checks ``rig_in_flight`` and inserts under
     ``svc.convert_lock(job_id, "rig")``; ``adjust_joints`` (and
-    ``edit_skeleton`` the same way) did the identical check-then-insert as two
+    the since-deleted ``edit_skeleton`` the same way) did the identical check-then-insert as two
     separate, unlocked operations -- so two joint-move requests for one mesh
     landing on AgentHost's two service workers (the same shape of race
     agents-03 found for ``create_rig`` itself) could both read "no rig in
@@ -174,38 +173,6 @@ def test_adjust_joints_and_edit_skeleton_share_the_rig_lock_with_create_rig(
         thread.join(timeout=0.5)
         assert thread.is_alive(), (
             "adjust_joints returned while this test still held "
-            'svc.convert_lock(job_id, "rig") -- it never took the same lock '
-            "create_rig does"
-        )
-    finally:
-        lock.release()
-    thread.join(5)
-    assert not thread.is_alive()
-    assert "out" in result and result["out"]["id"]
-
-
-def test_edit_skeleton_shares_the_rig_lock_with_create_rig(svc, assets, monkeypatch):
-    """``edit_skeleton``'s half of the same finding."""
-    from types import SimpleNamespace
-
-    monkeypatch.setattr(
-        "realmspinner.doctor.blender_check", lambda *a, **k: SimpleNamespace(ok=True, detail="")
-    )
-    job_id, fitted = _rigged_job(svc, assets)
-
-    lock = svc.convert_lock(job_id, "rig")
-    result: dict = {}
-    lock.acquire()
-    try:
-        thread = threading.Thread(
-            target=lambda: result.__setitem__(
-                "out", svc_rig.edit_skeleton(svc, job_id, {"bones": fitted})
-            )
-        )
-        thread.start()
-        thread.join(timeout=0.5)
-        assert thread.is_alive(), (
-            "edit_skeleton returned while this test still held "
             'svc.convert_lock(job_id, "rig") -- it never took the same lock '
             "create_rig does"
         )

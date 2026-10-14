@@ -1,7 +1,7 @@
 """The ground grid, as a line list.
 
 three's GridHelper in ten lines: a square of ``divisions`` cells, the two
-centre lines in the brighter colour. Most callers (Mason, Poser, the asset
+centre lines in the brighter colour. Most callers (Mason and the asset
 viewer) still let the span follow the model -- a power-of-ten that comfortably
 contains its footprint, through :func:`span_for` and
 :meth:`~.render.Renderer.fit_grid` -- because a fixed 4 m grid frames a 1 m
@@ -33,7 +33,7 @@ GRID_COLOR = 0x232530
 #: still dimmer than the two centre lines.
 MAJOR_COLOR = 0x282B37
 #: Metres between major lines. Only ever checked when the cell size is
-#: exactly 1 m; a Mason/Poser/asset-viewer grid (a power-of-ten span over
+#: exactly 1 m; a Mason/asset-viewer grid (a power-of-ten span over
 #: ``DIVISIONS`` cells) never has a 1 m cell and never draws one.
 MAJOR_STEP = 10.0
 
@@ -140,7 +140,7 @@ class Grid:
     def set_axes(self, on: bool) -> None:
         """Draw the X (red) and Z (blue) axis lines and an origin marker over the grid.
 
-        Off by default so Mason, Poser and the asset viewer keep exactly the
+        Off by default so Mason and the asset viewer keep exactly the
         grid they always had; Clay turns it on, because a modeller placing
         things on a metre grid needs to know which way is which and where the
         origin is. A *second* pair of vertex arrays rather than recolouring
@@ -176,7 +176,7 @@ class Grid:
     def set_span(self, span: float, divisions: int | None = None) -> None:
         """Rebuild for a new (span, divisions) pair, skipping an unchanged one.
 
-        ``divisions=None`` keeps ``DIVISIONS`` -- Mason's, Poser's and the
+        ``divisions=None`` keeps ``DIVISIONS`` -- Mason's and the
         asset viewer's own calls (through :func:`~.render.Renderer.fit_grid`)
         pass one argument and must see exactly the grid they always have.
         Clay is the only caller that passes an explicit count, derived from

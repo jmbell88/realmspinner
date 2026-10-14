@@ -64,14 +64,14 @@ makes worth having.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from .....kernels.geom3d import gltf
 from . import scene as sc
 from . import terrain as tr
-from .gltfout import DEFAULT_NAMES, TakenNames, kind_of, unique_name
+from .gltfout import DEFAULT_NAMES, UNEXPANDED_REASONS, TakenNames, kind_of, unique_name
 from .refs import GeometrySource
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -102,7 +102,8 @@ TEXTURE_DIR = "textures"
 #: here: "the refusal happens instead of the bytes, not alongside them",
 #: because the whole point of the ceiling is the allocation it prevents.
 #:
-#: Measured 2026-09-11 (``dev/measurements/2026-09-11-mason-obj-ceiling.md``):
+#: Measured 2026-09-11 (``dev/measurements/2026-09-11-mason-obj-ceiling.md`` [lost; re-measure to
+#: change]):
 #: at the ceiling, formatting a merged OBJ costs about 6.4 seconds and
 #: produces roughly 211 MB of text, and turning that text into the ``bytes``
 #: this module hands back peaks at roughly three times that figure -- the
@@ -279,7 +280,20 @@ def _collect(
     skipped: list[str] = []
     jobs: list[tuple[sc.Placed, str, list[gltf.Primitive]]] = []
     total_vertices = 0
-    for item in sc.resolve(doc, include_hidden=include_hidden):
+    unexpanded: list[tuple[str, int, str, str]] = []
+
+    def note_unexpanded(node: Any, _path: Any, _owner: int, reason: str) -> None:
+        unexpanded.append(
+            (
+                node.name.strip() or DEFAULT_NAMES["prefab"],
+                int(node.uid),
+                str(node.template),
+                reason,
+            )
+        )
+
+    resolved = sc.resolve(doc, include_hidden=include_hidden, unexpanded=note_unexpanded)
+    for item in resolved:
         kind = kind_of(item.node)
         name = unique_name(item.node.name.strip() or DEFAULT_NAMES[kind], taken)
         if kind == "mesh":
@@ -311,6 +325,16 @@ def _collect(
         # already leaves both out, the same way gltfout.scene_model's own
         # "mesh"/"terrain"/"light"/"camera" branches are the only ones that
         # produce anything.
+    # The 2026-10-14 audit's mason-engine-10: an instance whose template was
+    # removed expands to nothing and used to be dropped with no sentence at
+    # all, although a dangling library ref and a light each get one. Named
+    # after the placed items so it claims no slot from ``taken`` (it has no
+    # ``o`` group to be unique against).
+    for name, uid, template, reason in unexpanded:
+        skipped.append(
+            f"prefab instance {name!r} (uid {uid}) was left out of the OBJ: "
+            f"{UNEXPANDED_REASONS.get(reason, reason)} (template {template!r})"
+        )
     return jobs, skipped, total_vertices
 
 

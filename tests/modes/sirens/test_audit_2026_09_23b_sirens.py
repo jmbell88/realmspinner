@@ -66,12 +66,19 @@ def test_read_rsng_blanks_an_out_of_range_instrument_cell_even_when_the_instrume
     assert back.patterns[0].cells[0, 0, D.INSTRUMENT] == -1
 
 
-def test_read_rsng_blanks_a_legal_range_id_naming_no_instrument_in_a_legal_file():
+def test_read_rsng_keeps_a_legal_range_id_naming_no_instrument_in_a_legal_file():
     """The sharper case the finding names by number: 127 is not "out of
     range" at all -- it is the top of the legal ``0..MAX_INSTRUMENTS-1``
     span, exactly the value ``np.clip``'s upper bound folded 4242 onto above.
     A file with one instrument (uid 0) and a cell naming 127 must still play
     nothing for that cell, not slot 127's would-be resident.
+
+    **Kept, not blanked, since the 2026-10-14 audit (finding sirens-engine-01).**
+    The renderer plays an id that names no instrument as a clear, whereas a
+    blanked cell (-1) leaves the voice on its previous instrument, so blanking
+    made every play, export and save of a song with a removed instrument sound
+    its notes with another one. Still silent: no instrument 127 exists. (The
+    4242 case beside it is out of range and is still blanked.)
     """
     doc = _song()
 
@@ -79,7 +86,7 @@ def test_read_rsng_blanks_a_legal_range_id_naming_no_instrument_in_a_legal_file(
         arrays["patterns/0.npy"][0, 0, D.INSTRUMENT] = D.MAX_INSTRUMENTS - 1
 
     back = rsng.read_rsng(_repack_all(doc, edit))
-    assert back.patterns[0].cells[0, 0, D.INSTRUMENT] == -1
+    assert back.patterns[0].cells[0, 0, D.INSTRUMENT] == D.MAX_INSTRUMENTS - 1
 
 
 # --- sirens-02: envelope.py ---------------------------------------------------

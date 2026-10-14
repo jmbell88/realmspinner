@@ -103,8 +103,20 @@ def _bake_model(model: gltf.Model) -> list[gltf.Primitive]:
         basis = node.world[:3, :3]
         translation = node.world[:3, 3]
         normal_matrix = _normal_matrix(basis)
+        # The 2026-10-14 audit, finding mason-mode-07: glTF 2.0 defines a node
+        # whose world matrix has a negative determinant (a part mirrored with
+        # scale -1 on one axis) as having its triangle winding reversed, which
+        # ``viewer/render.py`` honours at draw time (create-04). Baking the
+        # mirror into the positions without flipping the index order left the
+        # triangle facing opposite its own transformed normal, so the mirrored
+        # parts of an imported asset were culled or lit inside-out and the
+        # exported GLB carried the wrong winding.
+        mirrored = float(np.linalg.det(basis)) < 0.0
         for prim in model.meshes[node.mesh]:
             positions = np.asarray(prim.positions, dtype="f8") @ basis.T + translation
+            indices = prim.indices
+            if mirrored:
+                indices = np.asarray(indices).reshape(-1, 3)[:, ::-1].reshape(-1).copy()
             normals = None
             if prim.normals is not None and normal_matrix is not None:
                 transformed = np.asarray(prim.normals, dtype="f8") @ normal_matrix.T
@@ -114,7 +126,7 @@ def _bake_model(model: gltf.Model) -> list[gltf.Primitive]:
             baked.append(
                 gltf.Primitive(
                     positions=positions.astype("f4"),
-                    indices=prim.indices,
+                    indices=indices,
                     normals=normals,
                     uvs=prim.uvs,
                     joints=prim.joints,
@@ -214,6 +226,9 @@ class AssetSource:
         # Keys :meth:`revalidate` dropped, for the viewport to drop its GPU
         # upload of too (it holds the geometry by key, not through this cache).
         self._invalidated: set[tuple[Any, ...]] = set()
+        # Callbacks to run on the frame a still-parsing ref's geometry lands --
+        # :meth:`when_resolved`. Dropped, never run, when the parse fails.
+        self._after: dict[tuple[Any, ...], list[Any]] = {}
 
     @property
     def rev(self) -> int:
@@ -241,6 +256,23 @@ class AssetSource:
     def box(self, ref: mason_refs.Ref) -> tuple[np.ndarray, np.ndarray] | None:
         entry = self._cache.get(mason_refs.ref_key(ref))
         return None if entry is None else entry.box
+
+    def when_resolved(self, ref: mason_refs.Ref, callback: Any) -> bool:
+        """Run ``callback()`` on the frame ``ref``'s geometry lands, if it is
+        still being parsed. -> whether it was queued.
+
+        The 2026-10-14 audit, finding mason-mode-11: a placement that needed the
+        asset's box (Drop to ground) had no way to ask again once the parse
+        finished, so the first instance of each library asset sat half sunk.
+        Called from :meth:`on_task`, on the frame thread. A ref that is already
+        resolved, permanently missing or not being parsed is not queued: there
+        is nothing coming to wait for.
+        """
+        key = mason_refs.ref_key(ref)
+        if key not in self._pending:
+            return False
+        self._after.setdefault(key, []).append(callback)
+        return True
 
     # -- primitives: synchronous ----------------------------------------
 
@@ -342,6 +374,7 @@ class AssetSource:
         if not key.startswith(TASK_PREFIX):
             return False
         self._pending.discard(tag)
+        waiting = self._after.pop(tag, [])
         if error is not None or result is None:
             self.missing.add(tag)
             # The picture changed even though nothing resolved: a ref that was
@@ -356,6 +389,11 @@ class AssetSource:
         # adopt it.
         self._store(tag, result)
         self._rev += 1
+        for callback in waiting:
+            try:
+                callback()
+            except Exception:
+                log.exception("mason: an after-parse callback raised")
         return True
 
     # -- staleness ---------------------------------------------------------
@@ -479,6 +517,7 @@ class AssetSource:
         self._cache.clear()
         self._order.clear()
         self._pending.clear()
+        self._after.clear()
         self._pinned.clear()
         self._pin_for = None
         self._total_bytes = 0

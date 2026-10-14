@@ -1,15 +1,13 @@
 """Two ways to build a tileset out of *seamless materials*, and the words for both.
 
-``dev/measurements/2026-08-18-tile-sheet-grid.md`` took one 1024px generation,
-imposed an 8x8 grid on it with a canny guide, and asked SDXL for sixty-four
-different tiles. The guide was obeyed and the tiles were not different: every
-cell of the guide is identical, so there is no per-cell signal for variety, and
-the model resolves that ambiguity either by painting one continuous scene
-through the grid or by painting one tile sixty-four times. That document names
-three candidates and ranks *N materials, one grid* first, for the reason the
-retired ground path had already demonstrated: **variety is a property of the
-request, not of the model's composition.** This module is that candidate, plus
-the terrain case it makes reachable.
+``dev/measurements/2026-08-18-tile-sheet-grid.md`` [lost; re-measure to change] took one 1024px
+generation, imposed an 8x8 grid on it with a canny guide, and asked SDXL for sixty-four different
+tiles. The guide was obeyed and the tiles were not different: every cell of the guide is identical,
+so there is no per-cell signal for variety, and the model resolves that ambiguity either by painting
+one continuous scene through the grid or by painting one tile sixty-four times. That document names
+three candidates and ranks *N materials, one grid* first, for the reason the retired ground path had
+already demonstrated: **variety is a property of the request, not of the model's composition.** This
+module is that candidate, plus the terrain case it makes reachable.
 
 Two modes, one vocabulary:
 
@@ -494,6 +492,7 @@ def reduce_material(pixels: Any, out_w: int, out_h: int) -> Any:
     :func:`tilesheet.reduce_cell` does the work -- the two-stage reducer
     measured in ``dev/measurements/2026-08-17-ground-reduction.md``, a box mean
     down to the art resolution and then a centre sample of each remaining group.
+    (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     What this adds is a refusal, and the refusal is the reason this function
     exists at all rather than the call being made directly.
 

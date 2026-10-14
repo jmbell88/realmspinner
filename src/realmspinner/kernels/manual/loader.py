@@ -2,7 +2,7 @@
 
 The canonical files live at docs/manual/ -- readable on GitHub -- and hatchling
 force-includes them into the wheel as realmspinner/manual, the same
-single-source-two-locations bargain the skeleton templates make. Pure: no
+single-source-two-locations bargain CHANGELOG.md makes. Pure: no
 imgui anywhere, so tests run headless.
 """
 
@@ -16,77 +16,22 @@ from pathlib import Path
 
 from . import parser
 
-# Chapter numbers decide both the order and the part, so a new chapter means
-# renumbering rather than an appended one -- which is what happened when Home,
-# Profiles and app-Settings were written (G60-G62). The alternative was three
-# chapters at 17-19 wearing a part label they do not belong to, or a second
-# "Using Realmspinner" heading further down the contents; every cross-link,
-# every HELP_TARGETS entry and the index are asserted in both directions by
-# ``tests/manual/test_docs.py``, so the rename is mechanical and checked.
+# A chapter's number decides both its order and its part, so a new chapter is
+# a renumbering rather than an append, and every cross-link, every HELP_TARGETS
+# entry and the index are asserted in both directions by
+# ``tests/manual/test_docs.py`` (``test_index_sections_match_the_loaders_parts``
+# pins the grouping against ``docs/manual/00-index.md``). The ranges below are
+# the one place a chapter number is load-bearing: Part I is the tutorials, Part
+# II "Using Realmspinner" (the screens, in the rail's order), Part III setup and
+# operations, Part IV architecture. 01-19 are reserved for the tutorial series
+# as a block, so the next tutorial is a new file and an ``EXPECTED_KEYS`` line,
+# not another round of renames across the cross-links; the gap is legal because
+# ``chapters()`` globs and sorts and needs the numbers ordered, not dense.
 #
-# Review moved with them, out of Architecture and into the user chapters, where
-# it always belonged: it is a mode with a keyboard loop, not a note about how
-# the app is built.
-#
-# The Keyboard shortcuts chapter is a *user* chapter and belongs to Part I,
-# which is where ``docs/manual/00-index.md`` has always listed it; the ranges
-# here used to start "Setup & operations" at it, so the in-app contents and
-# the index disagreed about one chapter's part for as long as both existed.
-# (Its number is not written here on purpose -- it has already moved once,
-# and the ranges below are the one place a number is load-bearing.)
-# Nothing failed, because ``tests/manual/test_docs.py`` asserted only that the
-# index *links* every chapter -- so grouping is now asserted too, in
-# ``test_index_sections_match_the_loaders_parts``, and the two cannot drift
-# apart again without a failure.
-#
-# The 3D viewport joined Part I as chapter 05 on 2026-08-19, moving everything
-# from the old 05 onward by one. It was the ~5k-LOC subsystem in the middle of
-# the window with no chapter and no (?) -- the camera, the toolbar over it and
-# the skeleton drawn through the mesh were described in passing by four
-# chapters and owned by none.
-#
-# Two chapters joined Part I on 2026-08-17 and both were insertions rather than
-# appends, so everything from the old 06 onward moved by two: Poser (06) was a
-# section inside Rigging and posing, and it is the one *workspace* mode -- the
-# rail's second group, ``modes.WORKSPACE_MODES`` -- that had no chapter of its
-# own while Inker, Clay, Plotter, Packwright and Review each had one; Inker's
-# animation (09) came out of a chapter that had reached 1110 lines, two and a
-# half times the next largest, of which the timeline was the one self-contained
-# subsystem.
-# Troupe joined Part I as chapter 14 on 2026-08-20, moving everything from the
-# old 14 onward by one. It is the Troupe programme's own mode and it belongs
-# beside the workspaces it sits among rather than after the library: the
-# grouping in Part I is the *rail's*, and Troupe is in the rail's second group.
-#
-# The tutorials took 01-19 on 2026-08-22, moving all twenty-five existing
-# chapters up by nineteen. A *block* rather than an exact fit, and that is the
-# whole point of the change: every renumbering above was forced by an insertion,
-# and a tutorial series grows a chapter at a time. Reserving more numbers than
-# the first wave uses means the next one is a new file and an ``EXPECTED_KEYS``
-# line, not another twenty-five renames across a hundred and sixty cross-links.
-# The gap is legal because ``chapters()`` globs and sorts -- nothing here
-# requires the numbers to be dense, only ordered.
-#
-# Sirens joined Part I as chapter 34 on 2026-08-27, moving everything from the
-# old 34 onward by one -- eleven renames, for the same reason Troupe's was one:
-# the grouping in Part I is the *rail's*, and the tracker is in the rail's
-# second group, so it belongs after Troupe rather than after the library. The
-# tutorial series was untouched by it, which is what reserving 01-19 as a block
-# bought: its own new chapter that day was a file and an ``EXPECTED_KEYS`` line.
-#
-# They go first because they are written for the reader who has just installed
-# the app and has never seen it. Appended, they would have sat behind
-# Architecture, which is written for the reader changing its code.
-#
-# Mason joined Part II as chapter 31 on 2026-09-11, moving everything from the
-# old 31 onward by one -- fifteen renames, the fifth time this cascade has been
-# taken and for the same reason as Troupe's and Sirens': the order in Part II is
-# the *rail's*, and Mason sits immediately after Clay in the workspaces group,
-# so it belongs there rather than appended at 39 behind the keyboard-shortcuts
-# chapter. Appending would have been seven renames instead of fifteen and would
-# have told every reader the mode was an afterthought. Its tutorial
-# (16-dressing-a-scene) cost zero renames, which is what reserving 01-19 as a
-# block bought -- the second time that reservation has paid for itself.
+# The 2026-10-14 audit, finding docs-A-B-14, found this comment narrating five
+# renumberings in a vocabulary the index no longer uses (it filed the shortcuts
+# chapter under "Part I" and cited chapters and gotcha ids that are gone). The
+# dated history is CHANGELOG's.
 PARTS: tuple[tuple[str, range], ...] = (
     ("Tutorials", range(1, 20)),
     ("Using Realmspinner", range(20, 40)),

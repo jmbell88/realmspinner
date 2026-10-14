@@ -1,7 +1,7 @@
 """Manages a resident llama-server.exe subprocess for Familiar, Realmspinner's in-app assistant.
 
 Familiar is one pinned model (models.FAMILIAR_MODELS["familiar_gguf"] --
-Qwen's own Q8_0 GGUF of the base Qwen3-VL-4B-Instruct model, a testing pin;
+Google's Gemma 4 12B instruct model, the QAT Q4_0 GGUF, a testing pin;
 a Clay-assistant fine-tune of it replaces this as the shipped pin once one
 is published) served
 by llama.cpp's own HTTP server, on loopback, with no webui and offline mode
@@ -56,6 +56,15 @@ from ..progress import pump
 from .trellis import _pid_alive, _port_in_use
 
 log = logging.getLogger(__name__)
+
+#: The one sentence every lease refusal carries. ``service.familiar._reason_for``
+#: classifies on it, and ``service.familiar._call`` raises it for a request the
+#: lease killed mid-flight (the 2026-10-14 audit, finding familiar-host-11), so
+#: the three sites share one spelling rather than three copies of it.
+LEASE_MESSAGE = (
+    "Familiar cannot start while a GPU job holds the card -- "
+    "it will restart on your next message."
+)
 
 STARTUP_TIMEOUT = 120.0
 LOG_MAX_BYTES = 5 * 1024 * 1024
@@ -258,6 +267,13 @@ class LlamaServer:
         self._reader: threading.Thread | None = None
         self._logfh = None
         self._spawned_at: float | None = None
+        # True only once ``/health`` has answered 200 for the current child.
+        # ``running`` is true from the moment the child exists, which is not
+        # the same claim: a start cancelled mid-poll (the caller's 20 s or 45 s
+        # timeout against a 120 s load) leaves a running child nobody has seen
+        # healthy, and ``ensure_started`` used to return at once for it (the
+        # 2026-10-14 audit, finding familiar-host-09). Cleared by ``stop``.
+        self._healthy = False
         self._start_failures = 0
         self._backoff_until = 0.0
         self._api_key: str | None = None
@@ -620,11 +636,51 @@ class LlamaServer:
                 self._verify_manifest_cached(dest) if only is None
                 else self._verify_manifest_cached(dest, only)
             )
+            if (
+                verification.status == fetch.VERIFY_BAD
+                and dest == weights.parent
+                and only is None
+                and self._only_unloaded_files_are_bad(dest, verification)
+            ):
+                # The 2026-10-14 audit, finding familiar-host-12: the chat
+                # child shares ``models/familiar/`` with the optional vision
+                # and retrieval rows, and a deleted or damaged one of those
+                # refused chat although ``_argv`` is written to run without the
+                # mmproj. What the child does not load cannot corrupt it.
+                log.warning(
+                    "%s: ignoring %s, which this child does not load",
+                    dest, verification.detail,
+                )
+                continue
             if verification.status == fetch.VERIFY_BAD:
                 raise RuntimeError(
                     f"{dest} failed manifest verification ({verification.detail}); "
                     f"remove and reinstall before starting {self._profile.feature}."
                 )
+
+    def _only_unloaded_files_are_bad(self, dest: Path, verification: fetch.Verification) -> bool:
+        """Whether every file a failed verification names is one this child never loads.
+
+        The files the child loads are its weights and, when ``_argv`` passes
+        one, the projector. A bad or missing name counts as *unloaded* only
+        when the manifest records it (so it is a real sibling row's file) and
+        it is not one of those; a name the manifest does not record, or an
+        empty list, is not trusted to be harmless.
+        """
+        culprits = set(verification.bad) | set(verification.missing)
+        if not culprits:
+            return False
+        loaded = {self._resolve_weights().name}
+        mmproj = self._resolve_mmproj()
+        if mmproj is not None and mmproj.is_file() and mmproj.parent == dest:
+            loaded.add(mmproj.name)
+        recorded: set[str] = set()
+        repos = (fetch.read_manifest(dest) or {}).get("repos")
+        for record in (repos.values() if isinstance(repos, dict) else ()):
+            digests = record.get("digests") if isinstance(record, dict) else None
+            if isinstance(digests, dict):
+                recorded.update(str(name) for name in digests)
+        return culprits <= (recorded - loaded)
 
     def _check_vram(self) -> None:
         """Refuse to spawn ``-ngl 999`` without VRAM headroom.
@@ -656,48 +712,59 @@ class LlamaServer:
             # method's own docstring) -- this call was missed then because it
             # sat one line above, still directly on the loop thread.
             await asyncio.to_thread(self._reap_if_dead)
-            if self.running:
+            if self.running and self._healthy:
                 return
+            if not self.running:
+                await self._spawn(expected_card_sha)
+            # Reaching here with a child already running means a previous call
+            # spawned it and left before ``/health`` answered -- cancelled by
+            # its caller's own timeout (20 s for the library index, 45 s for
+            # the Manual, against a 120 s cold load). ``running`` is not
+            # "healthy", and returning on it handed the next embedding request
+            # a server still loading, which then fell back to text search; a
+            # child that never became healthy was never restarted either,
+            # because it stayed ``running`` and ``touch()`` kept its idle clock
+            # fresh (the 2026-10-14 audit, finding familiar-host-09). So the
+            # poll runs for it too, against the deadline its own spawn set.
+            await self._await_healthy()
+
+    async def _spawn(self, expected_card_sha: str | None) -> None:
+        """Run every refusal, then start the child. Raises ``RuntimeError``."""
+        if self._leased:
+            raise RuntimeError(LEASE_MESSAGE)
+        self._check_backoff()
+        self._check_card_sha(expected_card_sha)
+        # Off the loop thread -- see _check_manifest's own docstring
+        # (the 2026-09-18 audit, familiar-01).
+        await asyncio.to_thread(self._check_manifest)
+        exe = self._resolve_exe()
+        if not exe.is_file():
+            raise RuntimeError(f"llama-server not found at {exe}")
+        weights = self._resolve_weights()
+        if not weights.is_file():
+            raise RuntimeError(f"{self._profile.weights_label} not found at {weights}")
+        # Not a GPU tenant, not priced: the embedder runs ``--device none``
+        # (+17 MiB measured), and refusing it for want of headroom the card
+        # would never be asked for is a refusal with no cause.
+        if self._profile.gpu_tenant:
+            self._check_vram()
+        if _port_in_use(self._port):
+            await self._reclaim_port()
+        with self._spawn_lock:
+            # Rechecked here, not just at the top of this method: the
+            # 2026-09-17 audit (familiar-02) found a lease taken on
+            # another thread, after the early check above but before
+            # this spawn, went unnoticed because nothing reread
+            # ``_leased``. ``stop_for_gpu_job`` takes this same lock
+            # around setting the lease and reading ``running``, so
+            # whichever of the two gets here first decides the outcome:
+            # a lease landing here refuses the spawn outright (this
+            # branch); a lease landing after ``_proc`` is assigned finds
+            # a ``running`` child and stops it instead (unchanged).
             if self._leased:
-                raise RuntimeError(
-                    "Familiar cannot start while a GPU job holds the card -- "
-                    "it will restart on your next message."
-                )
-            self._check_backoff()
-            self._check_card_sha(expected_card_sha)
-            # Off the loop thread -- see _check_manifest's own docstring
-            # (the 2026-09-18 audit, familiar-01).
-            await asyncio.to_thread(self._check_manifest)
-            exe = self._resolve_exe()
-            if not exe.is_file():
-                raise RuntimeError(f"llama-server not found at {exe}")
-            weights = self._resolve_weights()
-            if not weights.is_file():
-                raise RuntimeError(f"{self._profile.weights_label} not found at {weights}")
-            # Not a GPU tenant, not priced: the embedder runs ``--device none``
-            # (+17 MiB measured), and refusing it for want of headroom the card
-            # would never be asked for is a refusal with no cause.
-            if self._profile.gpu_tenant:
-                self._check_vram()
-            if _port_in_use(self._port):
-                await self._reclaim_port()
-            with self._spawn_lock:
-                # Rechecked here, not just at the top of this method: the
-                # 2026-09-17 audit (familiar-02) found a lease taken on
-                # another thread, after the early check above but before
-                # this spawn, went unnoticed because nothing reread
-                # ``_leased``. ``stop_for_gpu_job`` takes this same lock
-                # around setting the lease and reading ``running``, so
-                # whichever of the two gets here first decides the outcome:
-                # a lease landing here refuses the spawn outright (this
-                # branch); a lease landing after ``_proc`` is assigned finds
-                # a ``running`` child and stops it instead (unchanged).
-                if self._leased:
-                    raise RuntimeError(
-                        "Familiar cannot start while a GPU job holds the card -- "
-                        "it will restart on your next message."
-                    )
-                log.info("starting %s on port %d", self._profile.label, self._port)
+                raise RuntimeError(LEASE_MESSAGE)
+            log.info("starting %s on port %d", self._profile.label, self._port)
+            try:
                 self._open_log()
                 key_path = self._write_key_file()
                 self._proc = subprocess.Popen(
@@ -707,66 +774,97 @@ class LlamaServer:
                     bufsize=0,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
-                winjob.assign(self._proc.pid)
-                winjob.track(self._proc.pid, self._profile.track_name)
-                self._claim_port(self._proc.pid)
-                self._spawned_at = time.monotonic()
-            # Stamped at spawn, not only once /health answers 200. ``running``
-            # is true from the moment the child exists, and
-            # ``queue.Worker._maybe_evict_idle`` compares ``last_used`` against
-            # ``idle_timeout`` -- so with the 0.0 the constructor leaves, a
-            # cold start still loading its weights (503s on /health) read as
-            # idle since boot and was stopped mid-load. That happened on the
-            # first real run in the app, 2026-09-14: spawned 21:18:10.652,
-            # evicted 21:18:13.399.
-            self.last_used = self._spawned_at
-            log.info("%s spawned as pid %d", self._profile.label, self._proc.pid)
-            self._reader = threading.Thread(
-                target=self._pump, name=f"{self._profile.track_name}-stdout", daemon=True
-            )
-            self._reader.start()
-            deadline = time.monotonic() + STARTUP_TIMEOUT
-            # trust_env=False: the health poll is loopback; a system proxy would be asked
-            # to reach 127.0.0.1 and the server would never read as healthy.
-            async with httpx.AsyncClient(trust_env=False) as client:
-                while time.monotonic() < deadline:
-                    # The 2026-09-23 audit (familiar-02): ``last_used`` was
-                    # only stamped at spawn (above) and on a healthy 200, so a
-                    # cold start slow enough to run several poll ticks still
-                    # read as idle "since boot" to
-                    # ``Worker._maybe_evict_idle`` -- which then stopped this
-                    # same server it was still starting, and the "was stopped
-                    # during startup" sentence that produced got misread by
-                    # ``service.familiar._reason_for`` as a GPU lease (the
-                    # only *other* caller that clears ``_proc`` mid-poll).
-                    # Touching it every tick keeps a poll in progress from
-                    # ever looking idle.
-                    self.last_used = time.monotonic()
-                    proc = self._proc
-                    if proc is None:
-                        raise RuntimeError("llama-server was stopped during startup")
-                    if proc.poll() is not None:
-                        self._note_start_failure()
-                        raise RuntimeError(
-                            f"llama-server exited during startup (code {proc.returncode})"
-                        )
-                    with contextlib.suppress(httpx.TransportError):
-                        r = await client.get(
-                            f"{self.base_url}/health",
-                            timeout=2.0,
-                            headers={"Authorization": f"Bearer {self._api_key}"},
-                        )
-                        if r.status_code == 200:
-                            log.info("llama-server ready")
-                            self._start_failures = 0
-                            self._backoff_until = 0.0
-                            self.last_used = time.monotonic()
-                            return
-                    await asyncio.sleep(0.1)
-            with contextlib.suppress(RuntimeError):
-                await asyncio.to_thread(self.stop)
-            self._note_start_failure()
-            raise RuntimeError("llama-server did not become healthy in time")
+            except OSError as exc:
+                # ``Popen`` itself refusing (a Defender block, a bad image,
+                # WinError 216/225) used to leave the log handle open and the
+                # key file on disk, count no failure -- so every message
+                # re-spawned at once, leaking a handle each time -- and reach
+                # the user as the raw ``OSError``, which ``service.familiar``
+                # words as "did not answer in time -- try again": a retry of a
+                # spawn that cannot succeed (the 2026-10-14 audit, finding
+                # familiar-host-08). It is a failed start like an exited
+                # child, so it is counted and backs off the same way.
+                if self._logfh is not None:
+                    with contextlib.suppress(OSError):
+                        self._logfh.close()
+                    self._logfh = None
+                self._release_key_file()
+                self._note_start_failure()
+                raise RuntimeError(
+                    f"{self._profile.label} could not be started: {exe} would not "
+                    f"run ({exc}). Security software blocking it is the usual cause; "
+                    f"see {self._profile.log_name}."
+                ) from exc
+            winjob.assign(self._proc.pid)
+            winjob.track(self._proc.pid, self._profile.track_name)
+            self._claim_port(self._proc.pid)
+            self._spawned_at = time.monotonic()
+        # Stamped at spawn, not only once /health answers 200. ``running``
+        # is true from the moment the child exists, and
+        # ``queue.Worker._maybe_evict_idle`` compares ``last_used`` against
+        # ``idle_timeout`` -- so with the 0.0 the constructor leaves, a
+        # cold start still loading its weights (503s on /health) read as
+        # idle since boot and was stopped mid-load. That happened on the
+        # first real run in the app, 2026-09-14: spawned 21:18:10.652,
+        # evicted 21:18:13.399.
+        self.last_used = self._spawned_at
+        log.info("%s spawned as pid %d", self._profile.label, self._proc.pid)
+        self._reader = threading.Thread(
+            target=self._pump, name=f"{self._profile.track_name}-stdout", daemon=True
+        )
+        self._reader.start()
+
+    async def _await_healthy(self) -> None:
+        """Poll ``/health`` until the current child answers 200. Raises ``RuntimeError``.
+
+        The deadline is the child's own spawn time plus ``STARTUP_TIMEOUT``,
+        not "now" plus it, so a poll resumed after a cancelled one does not
+        grant a never-healthy child a fresh two minutes each time.
+        """
+        started = self._spawned_at if self._spawned_at is not None else time.monotonic()
+        deadline = started + STARTUP_TIMEOUT
+        # trust_env=False: the health poll is loopback; a system proxy would be asked
+        # to reach 127.0.0.1 and the server would never read as healthy.
+        async with httpx.AsyncClient(trust_env=False) as client:
+            while time.monotonic() < deadline:
+                # The 2026-09-23 audit (familiar-02): ``last_used`` was
+                # only stamped at spawn (above) and on a healthy 200, so a
+                # cold start slow enough to run several poll ticks still
+                # read as idle "since boot" to
+                # ``Worker._maybe_evict_idle`` -- which then stopped this
+                # same server it was still starting, and the "was stopped
+                # during startup" sentence that produced got misread by
+                # ``service.familiar._reason_for`` as a GPU lease (the
+                # only *other* caller that clears ``_proc`` mid-poll).
+                # Touching it every tick keeps a poll in progress from
+                # ever looking idle.
+                self.last_used = time.monotonic()
+                proc = self._proc
+                if proc is None:
+                    raise RuntimeError("llama-server was stopped during startup")
+                if proc.poll() is not None:
+                    self._note_start_failure()
+                    raise RuntimeError(
+                        f"llama-server exited during startup (code {proc.returncode})"
+                    )
+                with contextlib.suppress(httpx.TransportError):
+                    r = await client.get(
+                        f"{self.base_url}/health",
+                        timeout=2.0,
+                        headers={"Authorization": f"Bearer {self._api_key}"},
+                    )
+                    if r.status_code == 200:
+                        log.info("llama-server ready")
+                        self._healthy = True
+                        self._start_failures = 0
+                        self._backoff_until = 0.0
+                        self.last_used = time.monotonic()
+                        return
+                await asyncio.sleep(0.1)
+        with contextlib.suppress(RuntimeError):
+            await asyncio.to_thread(self.stop)
+        self._note_start_failure()
+        raise RuntimeError("llama-server did not become healthy in time")
 
     def _reap_if_dead(self) -> None:
         proc = self._proc
@@ -852,6 +950,7 @@ class LlamaServer:
                 winjob.untrack(proc.pid)
             self._proc = None
             self._spawned_at = None
+            self._healthy = False
             self._release_port_claim()
             self._release_key_file()
 

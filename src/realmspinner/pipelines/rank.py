@@ -43,6 +43,7 @@ UNMEASURED = 0.5
 # calibrate this against real picks; until it runs, the weight is the
 # literature's "best single human-preference predictor" claim applied
 # conservatively.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 PREFERENCE_WEIGHT = 0.25
 
 # The affine window that maps PickScore's raw logit (logit_scale * cosine)
@@ -79,12 +80,11 @@ def _subjects(report: dict[str, Any]) -> int:
 
     ``components_major`` or nothing. The raw ``components`` count is speckle at
     this image class -- median 15-18 per image
-    (dev/measurements/2026-08-17-reference-source-bench.md) -- so charging
-    ``COMPONENT_COST`` against it took 2.25 to 2.55 off a base of 1.0 and every
-    reference this function was ever shown clamped to zero. A 0.6-weighted term
-    that is a constant on all inputs is not a weight; it meant candidate order
-    was decided by the DINOv2 anchor alone where there was one, and was
-    arbitrary where there was not.
+    (dev/measurements/2026-08-17-reference-source-bench.md [lost; re-measure to change]) -- so
+    charging ``COMPONENT_COST`` against it took 2.25 to 2.55 off a base of 1.0 and every reference
+    this function was ever shown clamped to zero. A 0.6-weighted term that is a constant on all
+    inputs is not a weight; it meant candidate order was decided by the DINOv2 anchor alone where
+    there was one, and was arbitrary where there was not.
 
     A report written before ``components_major`` existed has no way to recover
     the filtered count, so it reads 1 -- unmeasured rather than floored, which

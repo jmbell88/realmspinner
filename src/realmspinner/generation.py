@@ -18,7 +18,6 @@ import logging
 import math
 import re
 import shutil
-import tempfile
 import threading
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, field
@@ -1446,7 +1445,7 @@ def _optional_int(value: Any) -> int | None:
         return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -1469,7 +1468,11 @@ def _optional_int_kept(value: Any) -> Any:
         return value
     try:
         return int(value)
-    except (TypeError, ValueError):
+    # ``OverflowError`` as well (the 2026-10-14 audit, finding
+    # create-workspace-06): ``json.loads`` accepts ``Infinity`` and
+    # ``int(inf)`` raises it, which escaped ``from_dict`` as a raw exception
+    # rather than a value ``validate_request`` can refuse by type.
+    except (TypeError, ValueError, OverflowError):
         return value
 
 
@@ -1495,7 +1498,7 @@ def _required_int(value: Any, default: int) -> Any:
         return value
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # see _optional_int_kept
         return value
 
 
@@ -1887,17 +1890,26 @@ def _write_manifests(config: Any, root: Path, manifests: list[LoraManifest]) -> 
         indent=2,
         sort_keys=True,
     )
-    with tempfile.NamedTemporaryFile(
-        "w", encoding="utf-8", dir=root, delete=False, prefix=".manifests-", suffix=".tmp"
-    ) as fh:
-        fh.write(payload)
-        temp = Path(fh.name)
-    temp.replace(lora_manifest_path(config))
+    # ``atomic.write_text`` and not a hand-rolled ``NamedTemporaryFile`` (the
+    # 2026-10-14 audit, finding create-workspace-10): the hand-rolled staging
+    # had no cleanup, so a replace that failed on Windows (a reader or an
+    # antivirus holding ``manifests.json``) left a stray ``.manifests-*.tmp``
+    # in the user's styles folder that nothing sweeps. ``import_lora`` carried
+    # a second copy of the same sequence; both now come through here.
+    root.mkdir(parents=True, exist_ok=True)
+    atomic.write_text(lora_manifest_path(config), payload)
     _forget_manifests(lora_manifest_path(config))
 
 
 def lora_catalog(config: Any | None = None) -> list[dict[str, Any]]:
     register_imported_loras(config)
+    manifests = load_lora_manifests(config) if config is not None else []
+    # The 2026-10-14 audit, finding create-workspace-03: ``register_imported_loras``
+    # writes every imported adapter into ``STYLE_LORAS``, so listing that whole
+    # table as "built-in" (commercial, no licence) and then appending the
+    # manifests listed each import twice and the first row misstated the licence
+    # of a non-commercial one. A key that has a manifest row is listed from it.
+    imported_keys = {x.key for x in manifests}
     out = [
         {
             "key": x.key,
@@ -1911,9 +1923,9 @@ def lora_catalog(config: Any | None = None) -> list[dict[str, Any]]:
             "checksum": "",
         }
         for x in models.style_loras_snapshot().values()
+        if x.key not in imported_keys
     ]
-    if config is not None:
-        out.extend(asdict(x) for x in load_lora_manifests(config))
+    out.extend(asdict(x) for x in manifests)
     return out
 
 
@@ -1963,23 +1975,13 @@ def import_lora(
         digest,
         filename,
     )
-    path = lora_manifest_path(config)
     with _MANIFEST_LOCK:
         previous = next(
             (x for x in load_lora_manifests(config) if x.key == key), None
         )
         manifests = [x for x in load_lora_manifests(config) if x.key != key]
         manifests.append(manifest)
-        payload = json.dumps(
-            {"version": 1, "manifests": [asdict(x) for x in manifests]}, indent=2, sort_keys=True
-        )
-        with tempfile.NamedTemporaryFile(
-            "w", encoding="utf-8", dir=root, delete=False, prefix=".manifests-", suffix=".tmp"
-        ) as fh:
-            fh.write(payload)
-            temp = Path(fh.name)
-        temp.replace(path)
-        _forget_manifests(path)
+        _write_manifests(config, root, manifests)
         # The 2026-09-26 audit, finding create-workspace-03: ``filename`` bakes
         # in the label (``safe_label`` above), so re-importing the same source
         # file under a new label keeps the same digest-derived ``key`` but

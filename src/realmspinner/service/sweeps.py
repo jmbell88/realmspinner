@@ -558,7 +558,18 @@ def _validate(svc: RealmspinnerService, plan: SweepPlan, units: list[UnitPlan]) 
             where = ""
             if exc.field and exc.field not in str(exc):
                 where = f" (from {exc.field})"
-            raise Invalid(f"{unit_label(unit)}{where}: {exc}", field=exc.field) from exc
+            # ``rows`` and ``packs`` ride along (the 2026-10-14 audit, finding
+            # shell-review-settings-10): a missing base model, LoRA or pack is
+            # refused by ``check_weights``/``check_pack`` with exactly those, and
+            # this re-raise used to keep only the message and the field, so the
+            # form that launched the sweep could say what was missing and never
+            # offer the way to install it.
+            raise Invalid(
+                f"{unit_label(unit)}{where}: {exc}",
+                field=exc.field,
+                rows=exc.rows,
+                packs=exc.packs,
+            ) from exc
         first = seen.get(key)
         if first is not None:
             raise Invalid(
@@ -658,6 +669,7 @@ def on_job_failed(svc: RealmspinnerService, job: dict[str, Any]) -> None:
     subjects were still queued to repeat exactly those three configurations,
     and nothing noticed. ``JobStore.next_queued`` is FIFO and sweep-blind by
     construction, so it never was going to.
+    (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 
     Injected onto ``Worker.on_job_failed`` (``studio.runtime``, since
     queue.py may not import this module or learn what a sweep is) rather than

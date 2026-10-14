@@ -12,7 +12,6 @@ import pytest
 from realmspinner.kernels.geom3d import gltf
 from realmspinner.kernels.geom3d import math3d as m3
 from realmspinner.kernels.geom3d.glbio import rebuild_glb
-from realmspinner.studio.viewer import capture
 from realmspinner.studio.viewer import scene as scenelib
 from realmspinner.studio.viewer.camera import Camera
 
@@ -109,45 +108,6 @@ def test_a_flat_render_of_an_opaque_material_ignores_its_base_colour_texture_alp
         f"translucent (alpha={pixel[3]}) instead of forcing it to fully opaque"
     )
     gpu.release()
-
-
-# --- create-viewer-04: transparent-background alpha needs unpremultiplying -
-
-
-def test_unpremultiply_undoes_the_msaa_resolves_own_coverage_darkening():
-    """A partially covered silhouette-edge texel out of the MSAA resolve is
-    ``colour * coverage`` against a transparent clear -- e.g. a pure-white
-    edge at 25% coverage resolves to rgba (64, 64, 64, 64), not
-    (255, 255, 255, 64). Treating that as straight alpha and compositing it
-    again (an ordinary PNG viewer) darkens the fringe a second time; the
-    fix must recover the original colour.
-    """
-    premultiplied = np.array(
-        [[[64, 64, 64, 64], [10, 10, 10, 0], [200, 100, 50, 255]]], dtype=np.uint8
-    )
-
-    straight = capture.unpremultiply(premultiplied)
-
-    assert straight[0, 0].tolist() == [255, 255, 255, 64]
-    # Fully opaque pixels are already straight alpha -- a no-op.
-    assert straight[0, 2].tolist() == [200, 100, 50, 255]
-
-
-def test_sheet_step_unpremultiplies_its_transparent_readback():
-    """``sheet.py``'s direction-strip cell renders straight into a
-    transparent clear and pastes ``viewport.read_rgba()`` verbatim -- it
-    must route that readback through ``capture.unpremultiply`` like every
-    other alpha-carrying capture site, or its own silhouette edges keep the
-    dark fringe."""
-    import inspect
-
-    from realmspinner.studio.viewer import sheet as sheet_mod
-
-    source = inspect.getsource(sheet_mod.StripRender.step)
-    assert "unpremultiply" in source, (
-        "Strip.step must unpremultiply its transparent-background readback "
-        "before pasting it into the direction strip"
-    )
 
 
 # --- create-viewer-02 (+clay-io-03): primitive() attribute validation ------

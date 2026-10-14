@@ -32,7 +32,7 @@ different capability:
 | --- | --- | --- |
 | `studio` | moderngl, pygame-ce, imgui-bundle, zstandard | The window itself. Without it only `realmspinner doctor` and `realmspinner sweep` run. |
 | `text2image` | torch cu128, torchvision, diffusers, transformers, accelerate, peft, sentencepiece, protobuf, and BiRefNet's own einops/kornia/timm | Text-to-3D. Image-to-3D from an upload still works. |
-| `rig` | bpy | Rigging, posing and sprite sheets. |
+| `rig` | bpy | Rigging: skeleton fitting and skinning for Create's rig stage, and the Blender weights behind Clay's **Weight with Blender**. |
 | `music` | ACE-Step's own stack, pinned separately from `text2image`: torch cu128, torchaudio (pinned `<2.9`), diffusers, transformers, accelerate, peft, librosa, loguru, spacy, and the lyric-language stack (py3langid, pypinyin, num2words, hangul-romanize, cutlet, fugashi). `pyproject.toml`'s `[project.optional-dependencies].music` is the list that decides, and it carries a comment for every pin. | Muse's text-to-music generation and its Hybrid Demucs stem separation. |
 
 `text2image`'s tail is longer than it looks because two of the things it pulls in are not declared

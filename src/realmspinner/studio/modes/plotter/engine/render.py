@@ -221,6 +221,10 @@ def _blit_over(
     )
 
 
+#: How far a layer may be shifted before it is clamped; see :func:`_pixel_shift`.
+_MAX_SHIFT = 1 << 30
+
+
 def _pixel_shift(value: float) -> int:
     """One axis of a pixel shift, refused rather than raised past a bad float.
 
@@ -235,7 +239,14 @@ def _pixel_shift(value: float) -> int:
     """
     if not math.isfinite(value):
         raise ValueError(f"a layer's placement is not a finite number: {value!r}")
-    return int(round(value))
+    # Clamped, because a *finite* offset can still be ``1e30``: ``round`` turns it
+    # into an int the native blit's ``int64`` conversion cannot hold, and the
+    # export task died with a bare ``OverflowError`` (the 2026-10-14 audit,
+    # finding plotter-map-13). ``MAX_RENDER_PIXELS`` caps the whole canvas at 2**28
+    # pixels, so no layer's content reaches past 2**30 in either direction: a
+    # shift beyond that is wholly off the canvas whatever its exact size, and
+    # both blit paths clip it to nothing.
+    return max(-_MAX_SHIFT, min(_MAX_SHIFT, int(round(value))))
 
 
 def render_layer(

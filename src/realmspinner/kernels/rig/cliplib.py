@@ -1,15 +1,15 @@
 """The shipped/user clip *library* -- an ordered list of key poses that plays
-back as one of Troupe's walk cycles -- loaded, validated and merged.
+back as a walk cycle -- loaded, validated and merged.
 
 Split out of the former ``rigging.py`` (P4 of the 2026-09 restructure).
 Deliberately named ``cliplib``, not ``clips``: ``realmspinner/clips.py`` is a
-different module already (the shipped library joined to Troupe's frame
+different module already (the shipped library joined to the sprite frame
 table), and a later restructure wave folds it into this same package
 (the 2026-09 restructure's own table lists ``clips`` among ``rig/``'s
 eventual members) -- so this file claims the name that will not collide with
 it, rather than costing that wave a second rename to get out of this one's way.
 
-The Troupe clip library is the same argument :mod:`.poses`' shipped pose
+The clip library is the same argument :mod:`.poses`' shipped pose
 libraries make, one level higher: a *clip* is an ordered list of those poses
 plus how many frames each step holds -- so the thing that is portable across
 rigs is now a whole walk cycle rather than a single silhouette, and authoring
@@ -26,7 +26,7 @@ from typing import Any
 from .. import charsheet
 from ..sheet import EASINGS, MAX_CLIP_FRAMES, POSE_SPACES
 from .poses import validate_bones
-from .templates import TEMPLATE_DIR, _read_json_capped, catalog, get_template
+from .templates import TEMPLATE_DIR, _read_json_capped, get_template
 
 log = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ _user_clips: dict[str, dict[str, Any]] | None = None
 #: ``clip_library()`` still falls back to the shipped library for it. But
 #: without this, ``service.clips.library()`` had no way to tell "no edits"
 #: from "edits this build can no longer read" and presented the fallback as
-#: the user's own, ``edited: True`` -- so the next Poser Save would silently
+#: the user's own, ``edited: True`` -- so the next save would silently
 #: overwrite the very file that failed to parse. :func:`user_clip_error` is
 #: the honest answer that door needs; nothing else reads this dict.
 _user_clip_errors: dict[str, str] | None = None
@@ -142,15 +142,16 @@ LEGACY_CLIP_DURATION_MS: dict[str, int] = {
     name: duration_ms for name, _frames, _loop, duration_ms in charsheet.ANIMATIONS
 }
 
-#: A clip named for one of Troupe's 16 facing directions -- or, worse, ending
-#: in ``_<direction>`` -- collides with the tag Inker's importer already reads
-#: off a filename: ``fall_back.png`` is read as clip ``fall`` facing ``back``.
-#: Once any clip name can exist (not just the shipped five), authoring one
-#: that *looks* like ``<clip>_<direction>`` is a trap the parser refuses
-#: instead of leaving for Inker to silently mis-tag. The names are Troupe's
-#: sixteen-direction preset, derived for the reason ``LEGACY_CLIP_DURATION_MS``
-#: above is.
-TROUPE_DIRECTION_KEYS: tuple[str, ...] = tuple(
+#: A clip named for one of the 16 sprite-sheet facing directions -- or, worse,
+#: ending in ``_<direction>`` -- collides with the tag Inker's importer already
+#: reads off a filename: ``fall_back.png`` is read as clip ``fall`` facing
+#: ``back``. Once any clip name can exist (not just the shipped five), authoring
+#: one that *looks* like ``<clip>_<direction>`` is a trap the parser refuses
+#: instead of leaving for Inker to silently mis-tag. The names are the
+#: sixteen-direction preset's, derived for the reason ``LEGACY_CLIP_DURATION_MS``
+#: above is. (Named for a mode that is gone until the 2026-10-14 audit, finding
+#: poser-rig-07.)
+DIRECTION_TAG_KEYS: tuple[str, ...] = tuple(
     name for name, _yaw in charsheet.DIRECTION_PRESETS[16]
 )
 
@@ -185,16 +186,16 @@ def validate_clip_duration_ms(value: Any, label: str) -> int:
 
 
 def reject_direction_named_clip(name: str) -> None:
-    """Raise if *name* ends in ``_<direction>`` for one of Troupe's 16 facings.
+    """Raise if *name* ends in ``_<direction>`` for one of the 16 sprite-sheet facings.
 
-    See :data:`TROUPE_DIRECTION_KEYS`. Suffix only -- a clip named exactly
+    See :data:`DIRECTION_TAG_KEYS`. Suffix only -- a clip named exactly
     ``back`` is not read as anything facing anywhere, because there is no clip
     name before it for the tag parser to split off.
     """
-    for direction in TROUPE_DIRECTION_KEYS:
+    for direction in DIRECTION_TAG_KEYS:
         if name.endswith(f"_{direction}"):
             raise ValueError(
-                f'clip {name!r} ends in "_{direction}"; Troupe reads a name '
+                f'clip {name!r} ends in "_{direction}"; Inker\'s importer reads a name '
                 f'like that as clip {name[: -len(direction) - 1]!r} facing {direction!r}'
             )
 
@@ -470,9 +471,11 @@ def _load_clip_library(
 #: ``tests/modes/poser/test_poser_imports.py`` pins ``kernels/rig``'s whole outward
 #: ``realmspinner`` import set, and reaching for ``config`` here (even inside a
 #: function body) would be a real architectural change dressed up as a
-#: convenience. So the layer that *has* a config sets this:
-#: ``service.core.RealmspinnerService`` does it on construction, which is the one
-#: object every app process builds before anything asks for a clip.
+#: convenience. So the layer that *has* a config sets this: the
+#: ``service.clips`` doors do it (``clips._arm``) when something reads or writes
+#: the user's copy. Not at service construction -- the 2026-10-14 audit, finding
+#: poser-poses-02: that armed a library saved under the old pose editor for every bake
+#: with no door left that could show or revert it.
 #:
 #: None means "the shipped library and nothing else", which is the correct
 #: answer for a bare import, a test that never built a service, and the worker.
@@ -524,14 +527,14 @@ def clip_library(template_key: str) -> dict[str, Any]:
 
     Empty is a normal answer for the same reason ``deform_battery``'s is: a
     walk cycle authored for a humanoid means nothing to a fish, and a template
-    without one should cost the character sheet, never the rig.
+    without one should cost the clips, never the rig.
     """
     global _clips, _user_clips, _user_clip_errors
     get_template(template_key)
     # Bound to locals once and read only through them below -- the 2026-09-26
     # audit, finding poser-rig-06, is :func:`shipped_clip_library`'s own fixed
     # race (see that function's comment) reached from here instead: a
-    # concurrent ``invalidate_clips()`` (Poser's save door, on another thread)
+    # concurrent ``invalidate_clips()`` (the save door, on another thread)
     # landing between either ``is None`` check above and the ``.get`` calls
     # below used to be able to reset the module globals back to ``None`` in
     # the gap, and the read then raised ``AttributeError: 'NoneType' object
@@ -573,7 +576,7 @@ def user_clip_error(template_key: str) -> str | None:
     uses. This is the answer for the other half: a file that exists but this
     build can no longer read, which used to make ``clip_library`` fall back to
     the shipped clips *silently* -- so the editor's ``edited`` flag lied,
-    showing the shipped library marked as the user's own, and the next Poser
+    showing the shipped library marked as the user's own, and the next
     Save would overwrite the very file that failed to parse.
 
     Populated by the same read :func:`clip_library` already does, so this
@@ -601,7 +604,7 @@ def shipped_clip_library(template_key: str) -> dict[str, Any]:
     global _clips
     get_template(template_key)
     # Bound to a local once and read only through it below: a concurrent
-    # ``invalidate_clips()`` (Poser's save door, on another thread) between
+    # ``invalidate_clips()`` (the save door, on another thread) between
     # the None check and the read used to be able to set the module global
     # back to None in the gap, and the second read raised
     # ``AttributeError: 'NoneType' object has no attribute 'get'`` instead of
@@ -612,14 +615,6 @@ def shipped_clip_library(template_key: str) -> dict[str, Any]:
         _clips = clips
     library = clips.get(template_key)
     return library or {"poses": {}, "clips": [], "space": "node"}
-
-
-def shipped_clip_templates() -> tuple[str, ...]:
-    """Every template with at least one shipped clip, in ``templates.catalog``
-    order."""
-    return tuple(
-        row["key"] for row in catalog() if shipped_clip_library(row["key"])["clips"]
-    )
 
 
 def shipped_clip_names(template_key: str) -> tuple[str, ...]:

@@ -20,8 +20,11 @@ from __future__ import annotations
 import io
 import struct
 import wave
+from pathlib import Path
 
 import numpy as np
+
+from ...core.safeio import atomic
 
 #: Loop type 0 in the ``smpl`` chunk: forward. The other two (alternating and
 #: backward) are sampler behaviours no game engine implements, and writing one
@@ -44,6 +47,18 @@ LOOP_FORWARD = 0
 #: -- ``undo.py`` states that contract as "one step, or under the ceiling,
 #: never both."
 MAX_SAMPLE_FRAMES = 48_000 * 600
+
+#: The most channel-samples (``frames * channels``) one decode may hold before it
+#: averages down to mono, twice :data:`MAX_SAMPLE_FRAMES`: a ten-minute stereo
+#: take, the widest thing Muse or a sample picker hands this. The 2026-10-14
+#: audit, finding sirens-engine-02: the only door counted *frames*, but the
+#: decoded array scales with channels and width -- a WAV of 8-bit 255-channel
+#: audio decodes to ~9x its own bytes, and a deflated 1 GiB member ended as a
+#: ``MemoryError`` instead of the named ``ValueError`` every caller frames. At
+#: this ceiling the float32 intermediate is ~230 MB, which is what a ten-minute
+#: stereo sample already cost. Read from the module at call time so a test lowers
+#: it rather than building the WAV.
+MAX_DECODED_VALUES = 2 * MAX_SAMPLE_FRAMES
 
 
 class SampleTooLong(ValueError):
@@ -134,15 +149,17 @@ def wav_bytes(
 
 
 def write(path, samples: np.ndarray, rate: int, *, loop: tuple[int, int] | None = None) -> None:
-    """Straight to a file. **Not staged** -- the caller stages it.
+    """The WAV file at *path*, staged to a temp sibling and renamed onto it.
 
-    Deliberately not doing the temp-and-replace here: the mode above writes
-    every artefact through ``core/safeio/atomic.py``, and a second staging rule
-    inside the encoder would be a second answer to where a partial file can
-    appear.
+    The 2026-10-14 audit, finding sirens-engine-11: this used to be an in-place
+    ``open(path, "wb")`` whose only guard was a docstring asking the caller to
+    stage, so the next caller to forget left a half-written WAV beside a served
+    name. It goes through ``core/safeio/atomic.py`` now -- the same primitive
+    the mode writes every other artefact through, so there is still one answer
+    to where a partial file can appear -- and the bytes are encoded *before*
+    anything is touched, so an encode that raises leaves the old file alone.
     """
-    with open(path, "wb") as handle:
-        handle.write(wav_bytes(samples, rate, loop=loop))
+    atomic.write_bytes(Path(path), wav_bytes(samples, rate, loop=loop))
 
 
 def read_wav(data: bytes, rate: int, *, max_frames: int = MAX_SAMPLE_FRAMES) -> np.ndarray:
@@ -185,6 +202,11 @@ def read_wav(data: bytes, rate: int, *, max_frames: int = MAX_SAMPLE_FRAMES) -> 
             # intact song failed to open with no field to point at.
             if source_rate <= 0:
                 raise ValueError(f"this WAV declares a {source_rate} Hz rate")
+            if frames * channels > MAX_DECODED_VALUES:
+                raise ValueError(
+                    f"this WAV is {frames} frames of {channels} channels, past the"
+                    f" {MAX_DECODED_VALUES} channel-samples this build will decode"
+                )
             raw = handle.readframes(frames)
             # The 2026-09-26 audit, finding sirens-engine-03: a data chunk
             # shorter than the header's own frame count is not an error to

@@ -1,15 +1,16 @@
 """The "this feature needs models you haven't got" line, and its button.
 
-Two features -- sprite synthesis and the pixel-sheet restyle -- are locked
-behind weights that are not part of the core download. Before this, the only
-way to find that out was to press the button and read the refusal, which named
-one missing thing at a time and offered a terminal command.
+Several features -- sprite synthesis, re-texturing and music generation -- are
+locked behind weights that are not part of the core download. Before this, the
+only way to find that out was to press the button and read the refusal, which
+named one missing thing at a time and offered a terminal command.
 
 The service layer owns *what* each feature needs
-(``sprites.SPRITE_ROWS``/``sheets.PIXEL_SHEET_ROWS``, derived from the same
-constants the refusals check). This module owns only the drawing and the
-navigation, and it answers "is it here" from ``ctx.model_rows`` -- the presence
-snapshot the app already refreshes when a download finishes -- rather than
+(``sprites.SPRITE_ROWS``, ``jobs.MUSIC_ROWS`` and the re-texture panel's own
+``required_rows``, derived from the same constants the refusals check). This
+module owns only the drawing and the navigation, and it answers "is it here"
+from ``ctx.model_rows`` -- the presence snapshot the app already refreshes when
+a download finishes -- rather than
 touching the disk, because this runs on the frame thread sixty times a second.
 
 The pane stays honest about being a pane: the refusal at the door is still the

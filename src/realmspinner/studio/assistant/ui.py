@@ -245,20 +245,17 @@ def _pending_ghost(ctx: Any, tab_uid: str) -> Any:
 
 #: The longest side any image handed to Familiar may have, after
 #: :func:`normalize_attachment_image` -- the resolution
-#: ``familiar.llama_client.IMAGE_TOKEN_COST`` was actually measured at
-#: (``dev/measurements/2026-09-24-familiar-mmproj-vram.md``: a 512x512 PNG
-#: cost 258 tokens). Qwen3-VL's own vision encoder tiles a larger image into
-#: more tokens -- roughly linearly in pixel count, so a 2048px image (16x the
-#: pixels of 512px) costs on that order more -- and ``IMAGE_TOKEN_COST`` is a
-#: flat ceiling over the 512px measurement, not a formula that scales with
-#: whatever a caller hands it. **The orchestrator's 2026-09-24 review, second
-#: finding:** without a cap here, an attached photo straight off a phone
-#: (2048px+ on its long side) would be undercounted by roughly the same
-#: factor it exceeds 512px by -- exactly what INVARIANTS' "a token count that
-#: feeds a budget must err high" forbids, silently, only visible once a Clay
-#: reply overran the 8,192-token trained window. Capping every image at this
-#: module's one door, before it ever reaches ``llama_client``, is what makes
-#: the flat constant true rather than merely convenient.
+#: ``familiar.llama_client.IMAGE_TOKEN_COST`` was actually measured at, on
+#: Gemma 4 12B: a 512x512 PNG costs 123 prompt tokens and the constant is a
+#: flat ceiling of 150 over that, not a formula that scales with whatever a
+#: caller hands it. Measured, the cap is load-bearing: an uncapped 1024x1024
+#: image cost 443 tokens, so a 2048px photo straight off a phone would be
+#: undercounted by a wide margin -- exactly what INVARIANTS' "a token count
+#: that feeds a budget must err high" forbids, silently, only visible once a
+#: Clay reply overran the trained window. **The orchestrator's 2026-09-24
+#: review, second finding:** capping every image at this module's one door,
+#: before it ever reaches ``llama_client``, is what makes the flat constant
+#: true rather than merely convenient.
 VISION_MAX_SIDE = 512
 
 
@@ -283,10 +280,13 @@ def normalize_attachment_image(data: bytes) -> bytes:
 
     from PIL import Image, UnidentifiedImageError
 
+    # ``DecompressionBombError`` is a bare ``Exception`` in PIL (not an OSError or
+    # ValueError), so the three-type clause alone let an over-limit image escape as a raw
+    # traceback: the 2026-10-14 audit, finding familiar-host-05.
     try:
         img = Image.open(BytesIO(data))
         img.load()
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as exc:
         raise ValueError(f"not a readable image: {exc}") from exc
     img = img.convert("RGB")
     longer = max(img.size)
@@ -297,6 +297,13 @@ def normalize_attachment_image(data: bytes) -> bytes:
     out = BytesIO()
     img.save(out, format="PNG")
     return out.getvalue()
+
+
+#: The largest file :func:`load_attachment` will read. A phone photo is a few MB and a
+#: 48 MP one tens of; past this it is not a reference image. Checked on the ``stat`` before
+#: ``read_bytes()`` so an enormous file is refused without being pulled into memory (the
+#: 2026-10-14 audit, finding familiar-host-05).
+MAX_ATTACH_BYTES = 64 * 1024 * 1024
 
 
 def load_attachment(path: str) -> bytes:
@@ -318,6 +325,12 @@ def load_attachment(path: str) -> bytes:
     if not p.is_file():
         raise ValueError(f"{path!r} is not a file")
     try:
+        size = p.stat().st_size
+        if size > MAX_ATTACH_BYTES:
+            raise ValueError(
+                f"{path!r} is too large to attach ({size // (1024 * 1024)} MB; "
+                f"the limit is {MAX_ATTACH_BYTES // (1024 * 1024)} MB)"
+            )
         raw = p.read_bytes()
     except OSError as exc:
         raise ValueError(f"could not read {path!r}: {exc}") from exc
@@ -356,33 +369,72 @@ def _ghost_critique_image(ctx: Any, ghost: Any) -> bytes | None:
     return normalize_attachment_image(raw)
 
 
-def _resolve_attach_image(ctx: Any, ui: FamiliarUIState, refine: Any) -> tuple[bytes | None, bool]:
-    """What image (if any) this submit should attach. -> ``(image, ok)`` --
+def _resolve_attach_image(
+    ctx: Any, ui: FamiliarUIState, refine: Any
+) -> tuple[str, bytes | None, bool]:
+    """What this submit should attach. -> ``(path, image, ok)``.
+
     ``ok`` is ``False`` only when the user explicitly typed a path
-    (``ui.attach_path``) that failed to load, in which case *this* submit
-    must be refused rather than silently sent with no image at all
+    (``ui.attach_path``) that is not a file, in which case *this* submit must
+    be refused rather than silently sent with no image at all
     (``ui.attach_error`` is set for the dock to show beside the control).
+
+    A typed path is **not decoded here**: the read, the PIL decode, the RGB
+    convert and the LANCZOS resize of a 48 MP photo held the frame loop for
+    1.2 s (the 2026-10-14 audit, finding familiar-host-06). Only the cheap
+    ``is_file`` check stays on the frame, because it is what lets a refusal
+    happen before the user's turn is appended (finding familiar-host-01); the
+    path comes back as text for :func:`_attached_image` to decode inside the
+    submitted task.
 
     An explicit attach always wins over the ghost critique: a user who typed
     a path meant that picture, not the ghost's own render. With nothing
     explicit and *refine* not ``None`` (a revision of a pending ghost --
     the follow-up shape :func:`_pending_ghost` already recognises), Clay's
-    own ghost render is attached automatically (:func:`_ghost_critique_image`)
-    so the model can see what it is being asked to revise, not just read the
-    compacted scene JSON.
+    own ghost render is attached automatically (:func:`_ghost_critique_image`;
+    it needs the GL context, so it stays on the frame, and it is already
+    512 px) so the model can see what it is being asked to revise, not just
+    read the compacted scene JSON.
     """
+    from pathlib import Path
+
     path = ui.attach_path.strip()
     if path:
-        try:
-            image = load_attachment(path)
-        except ValueError as exc:
-            ui.attach_error = str(exc)
-            return None, False
+        if not Path(path).is_file():
+            ui.attach_error = f"{path!r} is not a file"
+            return path, None, False
         ui.attach_error = None
-        return image, True
+        return path, None, True
     if refine is not None:
-        return _ghost_critique_image(ctx, refine), True
-    return None, True
+        return "", _ghost_critique_image(ctx, refine), True
+    return "", None, True
+
+
+def _attached_image(path: str, ghost_image: bytes | None) -> bytes | None:
+    """The image a submitted task sends: the typed *path* decoded (on the
+    task's worker thread -- see :func:`_resolve_attach_image`), else the ghost
+    render already made. A refusal is raised as ``service.errors.Invalid`` so
+    the task runner shows its own sentence rather than "something went wrong"
+    and :func:`on_task_done` can put it beside the attach control."""
+    if not path:
+        return ghost_image
+    from ...service.errors import Invalid
+
+    try:
+        return load_attachment(path)
+    except ValueError as exc:
+        raise Invalid(str(exc), field="attach_path") from exc
+
+
+def _attach_refused(ui: FamiliarUIState, done: Any, tag: dict) -> None:
+    """A task that failed on the attach itself: show its sentence beside the
+    attach control and give the typed path back, since the submit cleared it
+    and the user's next move is to fix or replace it."""
+    if getattr(done.error, "field", None) != "attach_path":
+        return
+    ui.attach_error = done.message
+    if not ui.attach_path:
+        ui.attach_path = str(tag.get("attach_path") or "")
 
 
 def _capture_scene(ctx: Any, tab_uid: str) -> dict[str, Any] | None:
@@ -483,11 +535,21 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
     from ...familiar import threads
 
     key = thread_key(ctx)
-    ctx.familiar_threads.append(key, threads.Turn("user", prompt))
-    history = ctx.familiar_threads.get(key)[:-1]
-
     mode = str(getattr(ctx.state, "mode", ""))
     tab_uid = _active_tab_uid(ctx)
+    ui = ensure(ctx)
+    # Resolved before the user's turn is appended: the 2026-10-14 audit (finding
+    # familiar-host-01) found a refused attach leaving "You: ..." in the transcript
+    # on every retry press, for a message that was never sent.
+    refine = _pending_ghost(ctx, tab_uid)
+    attach_path, ghost_image, image_ok = _resolve_attach_image(
+        ctx, ui, refine if mode == "clay" else None
+    )
+    if not image_ok:
+        return False
+
+    ctx.familiar_threads.append(key, threads.Turn("user", prompt))
+    history = ctx.familiar_threads.get(key)[:-1]
     scene = _capture_scene(ctx, tab_uid) if mode == "clay" else None
 
     # T8: computed here, on the frame thread, for ``_capture_scene``'s own
@@ -513,14 +575,9 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
     # request/outcome pair produces on the worker thread groups back to the
     # same round trip this submit accepted.
     exchange_id = familiar_log.new_exchange_id()
-    refine = _pending_ghost(ctx, tab_uid)
-
-    ui = ensure(ctx)
-    image, image_ok = _resolve_attach_image(ctx, ui, refine if mode == "clay" else None)
-    if not image_ok:
-        return False
 
     def run() -> Any:
+        image = _attached_image(attach_path, ghost_image)
         with familiar_log.exchange(exchange_id):
             return svc_familiar.ask(
                 ctx.svc,
@@ -549,6 +606,7 @@ def submit_chat(ctx: Any, prompt: str) -> bool:
         # landed build ever needed them again.
         "prompt": prompt,
         "scene": scene,
+        "attach_path": attach_path,
     }
     if not ctx.submit(CHAT_KEY, run, tag=tag):
         return False
@@ -589,20 +647,21 @@ def submit_build(ctx: Any, prompt: str) -> bool:
     from ...familiar import threads
 
     key = thread_key(ctx)
+    ui = ensure(ctx)
+    refine = _pending_ghost(ctx, tab_uid)
+    # Before the user's turn is appended -- see :func:`submit_chat`.
+    attach_path, ghost_image, image_ok = _resolve_attach_image(ctx, ui, refine)
+    if not image_ok:
+        return False
     ctx.familiar_threads.append(key, threads.Turn("user", prompt))
 
     from ...service import familiar as svc_familiar
     from ...service import familiar_log
 
     exchange_id = familiar_log.new_exchange_id()
-    refine = _pending_ghost(ctx, tab_uid)
-
-    ui = ensure(ctx)
-    image, image_ok = _resolve_attach_image(ctx, ui, refine)
-    if not image_ok:
-        return False
 
     def run() -> list[dict]:
+        image = _attached_image(attach_path, ghost_image)
         with familiar_log.exchange(exchange_id):
             return svc_familiar.clay_build(ctx.svc, prompt, scene, image=image)
 
@@ -614,6 +673,7 @@ def submit_build(ctx: Any, prompt: str) -> bool:
         # Self-repair: see the identical comment on ``submit_chat``'s own tag.
         "prompt": prompt,
         "scene": scene,
+        "attach_path": attach_path,
     }
     if not ctx.submit(BUILD_KEY, run, tag=tag):
         return False
@@ -789,6 +849,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
             # that tells the two apart.
             ui.reason, ui.message = _reason_and_message(done)
             _say(ctx, tag.get("thread_key"), ui.message)
+            _attach_refused(ui, done, tag)
         return
 
     if done.key == BUILD_KEY:
@@ -796,6 +857,7 @@ def on_task_done(ctx: Any, done: Any) -> None:
         if not done.ok:
             ui.reason, ui.message = _reason_and_message(done)
             _say(ctx, tag.get("thread_key"), ui.message)
+            _attach_refused(ui, done, tag)
             if tag.get("refine") is None:
                 _clear_preview(ui)
             return

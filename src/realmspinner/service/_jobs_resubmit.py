@@ -60,6 +60,23 @@ from .validation import (
 log = logging.getLogger(__name__)
 
 
+#: The job kinds whose worker runs Blender, each with the sentence the dedicated
+#: door for it uses when Blender is absent (``rig.create_rig``'s, and
+#: ``_jobs_rework.remesh_job``'s). A re-texture's door has no such sentence of its
+#: own, so its wording is this one's and follows the remesh's shape.
+_BLENDER_RUN_KINDS = {
+    "rig": "Rigging needs Blender, which is not installed.",
+    "remesh": (
+        "a remesh runs in Blender, which is not installed "
+        "(`uv sync --extra rig` on Python 3.13)"
+    ),
+    "retexture": (
+        "a re-texture runs in Blender, which is not installed "
+        "(`uv sync --extra rig` on Python 3.13)"
+    ),
+}
+
+
 def rerollable(job: dict[str, Any]) -> bool:
     """Whether "give me another" means anything for this row. **Pure.**
 
@@ -249,6 +266,20 @@ def rerun_job(
             "this reference was made by hand, so there is nothing to reroll; "
             "remesh it to build a mesh from it"
         )
+
+    if kind in _BLENDER_RUN_KINDS:
+        # The 2026-10-14 audit, finding service-kinds-06. ``create_rig``,
+        # ``adjust_joints``, ``rig_with_skeleton`` and
+        # ``remesh_job`` each refuse at the door without Blender, and
+        # ``rerollable`` answers True for these rows -- but this door minted one
+        # with no such check, so on a host without bpy Library > Reroll and the
+        # palette queued a job that died in the worker (exit code 3) instead of
+        # being refused here. The siblings' own sentences, so the app has one
+        # wording for "this needs Blender" wherever it is met.
+        from .. import doctor
+
+        if not doctor.blender_check().ok:
+            raise Invalid(_BLENDER_RUN_KINDS[kind])
 
     # Derived values describe the *source* run, not this one: keeping them
     # would make the new job claim a composed prompt it never used and a
@@ -464,7 +495,11 @@ def rerun_job(
         _check_sheet_weights(
             svc,
             mode=sheet_mode if sheet_mode in TILE_MODES else MODE_GRID,
-            with_reference=(svc.job_dir(job_id) / "ref.png").exists(),
+            # ``is_file``: a directory named ``ref.png`` is not a reference, and
+            # asking for the adapter on its account refused a reroll for weights
+            # the worker would never load (the 2026-10-14 audit, finding
+            # plotter-tiles-09).
+            with_reference=(svc.job_dir(job_id) / "ref.png").is_file(),
             style_lock=style_locked,
         )
     if kind == "sprite_synthesis":
@@ -521,7 +556,7 @@ def rerun_job(
     # -- the first time a *text* rerun needs a directory before the row, which
     # is why the except below now covers a case it never did.
     src_ref = svc.job_dir(job_id) / "ref.png"
-    carry_ref = mode == "reroll" and src_ref.exists()
+    carry_ref = mode == "reroll" and src_ref.is_file()
     # The other files a reroll's params go on to name: the inpaint mask beside
     # an img2img start image (service-05: without it "same prompt, new seed"
     # silently repainted the protected region) and every FLUX.2 native

@@ -60,8 +60,10 @@ carries:
 
 - **The grid**, which is what makes the asset's scale legible at all — a mesh
   floating in an empty view has no size.
-- **The skeleton**, once an asset is rigged: bone lines through the mesh, and a marker at each joint
-  you can click. See [Rigging and posing](23-generating-meshes.md#rigging-and-posing).
+- **The skeleton**, while you edit a pose on a rigged asset: press **Edit pose** on the Pose stage and the
+  viewport swaps from the mesh to the rig, with bone lines through the mesh and a marker at each joint you can
+  click. Outside the pose editor a rigged asset shows its mesh alone. See
+  [Rigging and posing](23-generating-meshes.md#rigging-and-posing).
 - **The comparison split**, when two assets are being compared from the library.
 
 The lighting is a generated sky/horizon/ground gradient rather than an imported HDRI, because

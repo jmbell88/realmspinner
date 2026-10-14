@@ -476,6 +476,26 @@ def _effect_popup(ctx: Any, name: str, row: int, channel: int) -> None:
     imgui.end_popup()
 
 
+def channel_at(
+    x: float, *, gutter: float, chan_w: float, left: int, fits: int, channels: int
+) -> int | None:
+    """Which *drawn* channel an x offset into the grid is over, or ``None``.
+
+    The 2026-10-14 audit, finding sirens-panes-06: the click arithmetic was
+    ``left + int((x - gutter) // chan_w)`` over the whole content region, so a
+    pattern wider than the window (``channels > fits``) with slack right of its
+    last drawn channel -- up to one channel's width -- put the caret on a channel
+    that was not drawn, and the view then scrolled sideways to follow it. A
+    press in the gutter or in the slack is outside the grid.
+    """
+    if chan_w <= 0 or x < gutter:
+        return None
+    channel = left + int((x - gutter) // chan_w)
+    if channel >= min(left + fits, channels):
+        return None
+    return channel
+
+
 def _grid(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int) -> None:
     from imgui_bundle import imgui
 
@@ -566,8 +586,11 @@ def _grid(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int) ->
     if imgui.is_item_hovered() and imgui.is_mouse_clicked(0):
         mouse = imgui.get_mouse_pos()
         row = top + int((mouse.y - origin.y) // row_h)
-        channel = left + int((mouse.x - origin.x - gutter) // chan_w)
-        if mouse.x >= origin.x + gutter:
+        channel = channel_at(
+            mouse.x - origin.x,
+            gutter=gutter, chan_w=chan_w, left=left, fits=fits, channels=pattern.channels,
+        )
+        if channel is not None:
             # The column too, measured off the cell that was actually drawn:
             # a press that moved the row and the channel and left the column
             # alone meant clicking on ``Fxx``, typing, and getting a note.
@@ -584,9 +607,11 @@ def _grid(ctx: Any, state: Any, tab: Any, pattern: Any, left: int, fits: int) ->
     if imgui.is_item_hovered() and imgui.is_mouse_clicked(1):
         mouse = imgui.get_mouse_pos()
         row = top + int((mouse.y - origin.y) // row_h)
-        channel = left + int((mouse.x - origin.x - gutter) // chan_w)
-        in_grid = 0 <= row < pattern.rows and 0 <= channel < pattern.channels
-        if mouse.x >= origin.x + gutter and in_grid:
+        channel = channel_at(
+            mouse.x - origin.x,
+            gutter=gutter, chan_w=chan_w, left=left, fits=fits, channels=pattern.channels,
+        )
+        if channel is not None and 0 <= row < pattern.rows:
             column = column_at(
                 mouse.x - (origin.x + gutter + (channel - left) * chan_w),
                 [_advance(imgui, part) for part in _cell_text(cells, row, channel)],

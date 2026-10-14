@@ -262,16 +262,17 @@ def open_row(ctx: Any, row: Row) -> None:
 #: Which module's ``open_path`` opens each recent-document kind. Derived from
 #: :mod:`..mode_manifest` -- one manifest instead of the table here and
 #: ``_KIND_MODES`` below drifting from each other, which is exactly how a
-#: ``.rsng`` row once did nothing on click with no toast. Poser has no entry:
-#: a pose begins by rigging a library asset, never by reopening a path, so it
-#: is not offered through Recents at all.
+#: ``.rsng`` row once did nothing on click with no toast.
 KIND_OPENERS = mode_manifest.opener_table()
 
 
 def _open_with(module: str, ctx: Any, path: Path) -> None:
-    from importlib import import_module
-
-    import_module(f"..{module}", __package__).open_path(ctx, path)
+    # The manifest's strings are relative to ``studio``, not to this pane's
+    # package: the 2026-10-14 audit, finding shell-02, found the old relative
+    # ``import_module(f"..{module}", __package__)`` landing in
+    # ``studio.modes.home.ui`` and raising ``ModuleNotFoundError`` for every
+    # document row.
+    mode_manifest.import_named(module).open_path(ctx, path)
 
 
 def move(ctx: Any, delta: int) -> None:
@@ -311,6 +312,9 @@ class Status:
     #: page, and landing on Appearance because that is the remembered tab would
     #: send the reader somewhere the number they clicked is not explained.
     settings_category: str = ""
+    #: The job a row names, or "" -- the queue row's, so opening it can scope
+    #: the Library to that job rather than only to a status word.
+    job_id: str = ""
 
 
 def _health_status(ctx: Any) -> Status:
@@ -372,6 +376,7 @@ def _queue_status(ctx: Any) -> Status:
         # back to a queued job, and a "running" filter hid it (the 2026-10-03
         # audit, finding shell-22) while saving that filter for later sessions.
         word,
+        job_id=str(job.get("id") or ""),
     )
 
 
@@ -470,7 +475,16 @@ def visible_home_rows(rows: list[Status]) -> list[Status]:
 def _count_unreviewed(svc: Any) -> int:
     from ....review.mode import SOURCE
 
-    return len(svc.store.unverdicted_models(source=SOURCE, limit=UNREVIEWED_LIMIT))
+    # None on a failed read, not a raise: this is a background figure the user
+    # never asked for, and the task's generic failure path raises an error toast
+    # for every one -- the 2026-10-14 audit, finding shell-home-library-11, found
+    # a persistently failing read toasting every 30 s. ``tasks`` adopts only an
+    # int, so None leaves the last count standing.
+    try:
+        return len(svc.store.unverdicted_models(source=SOURCE, limit=UNREVIEWED_LIMIT))
+    except Exception:
+        log.debug("could not count the unreviewed models", exc_info=True)
+        return None
 
 
 def pump(ctx: Any) -> None:
@@ -776,8 +790,8 @@ def _version() -> str:
 #: other row's does, for that table's own reason -- a hand-copied glyph is how a
 #: row ends up opening Clay under Plotter's icon.
 #:
-#: One of the seven does not name its own mode: a pose is authored in Poser,
-#: which is a plain alias -- every other kind's name already is its mode.
+#: Every kind's name is its mode's key today, so the table is a plain pairing of
+#: the manifest's two fields.
 _KIND_MODES = mode_manifest.kind_mode_table()
 
 #: How wide a recovery row's button is, in design pixels. Fixed rather than
@@ -1074,15 +1088,46 @@ def _status(ctx: Any, status: list[Status]) -> None:
             if imgui.is_item_hovered():
                 imgui.set_mouse_cursor(imgui.MouseCursor_.hand.value)
             if clicked:
-                if row.status_filter:
-                    ctx.state.filters.status = row.status_filter
-                if row.settings_category:
-                    from ....settings.ui.panes.app_settings import CATEGORY_SLOT
-
-                    ctx.state.preview[CATEGORY_SLOT] = row.settings_category
-                set_mode(ctx.state, row.target)
+                open_status_row(ctx, row)
         else:
             widgets.text_colored(row.colour, row.text)
+
+
+def open_status_row(ctx: Any, row: Status) -> None:
+    """What a clicked status row does: set what it asked for, then switch.
+
+    The queue row used to set only ``Filters.status``. The 2026-10-14 audit,
+    finding shell-home-library-12, found that a standing text query, kind,
+    favourites or usable-only filter, or the trash view, still hid the very job
+    the row named, so the click could land on "Nothing matches". The narrowing
+    fields and the volatile views are cleared first (``status`` itself is the
+    row's own word, and ``sort`` is not narrowing), and the cursor is put on the
+    job. ``job_ids`` is not used for this: the Library has no control that
+    clears it, so a scope set here could not be left.
+    """
+    filters = ctx.state.filters
+    if row.status_filter:
+        filters.text = ""
+        filters.kind = "all"
+        filters.favorites_only = False
+        filters.usable_only = False
+        filters.trash = False
+        # A tick set is per view (the 2026-10-14 audit, finding
+        # shell-home-library-02): ticks made in the trash would otherwise ride
+        # into the live list, where the next bulk action acts on rows the user
+        # can no longer see ticked.
+        checked = getattr(ctx.state, "checked", None)
+        if checked is not None:
+            checked.clear()
+        filters.job_ids = None
+        filters.status = row.status_filter
+    if row.job_id:
+        ctx.state.library_scroll_to = row.job_id
+    if row.settings_category:
+        from ....settings.ui.panes.app_settings import CATEGORY_SLOT
+
+        ctx.state.preview[CATEGORY_SLOT] = row.settings_category
+    set_mode(ctx.state, row.target)
 
 
 def _resume_empty(ctx: Any) -> None:
@@ -1338,7 +1383,7 @@ def start_packwright(ctx: Any) -> None:
 def start_sirens(ctx: Any) -> None:
     """Sirens from Home, and a song to type into when it arrives.
 
-    The four document modes' shape rather than Troupe's: a tracker with no
+    The document modes' shape: a tracker with no
     document is a grid of nothing, and ``new_song`` is deliberately not an
     empty document -- five channels, a pattern and an order that points at it,
     so the first note typed makes a sound.
@@ -1352,7 +1397,7 @@ def start_sirens(ctx: Any) -> None:
 
 #: The things this app can start from nothing, in the order the menu offers
 #: them. Not counted by number in prose: the 2026-09-13 audit's shell-15
-#: found this comment stuck at "eight" after Troupe's addition made it nine.
+#: found this comment stuck at "eight" after a ninth start was added.
 #: "New 3D model" and "New Model" used to sit side by side and the second
 #: one meant *Clay* -- two buttons whose labels differ by a word neither of them
 #: defines, one of which generates a mesh from a prompt and the other opens a

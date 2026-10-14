@@ -157,6 +157,7 @@ def draw(ctx: Any) -> None:
     # *drawing* is clipped.
     clipper = imgui.ListClipper()
     clipper.begin(len(entries), imgui.get_frame_height())
+    open_menu = False
     while clipper.step():
         for at in range(clipper.display_start, clipper.display_end):
             kind, layer, obj = entries[at]
@@ -170,16 +171,25 @@ def draw(ctx: Any) -> None:
                     f"plotter-object-layer/{layer.uid}", enabled=False, divider=False
                 ):
                     widgets.muted(f"{icons.FLAG} {layer.name or 'Objects'}")
-            else:
-                _row(ctx, state, tab, layer, obj)
+            elif _row(ctx, state, tab, layer, obj):
+                open_menu = True
             imgui.pop_id()
     clipper.end()
     widgets.no_matches(needle, shown)
+    if open_menu:
+        # Opened here, at the window's own id level, because imgui hashes a
+        # popup's id with the current id stack and ``_menu`` begins it out here.
+        # It used to be opened inside the per-layer ``push_id`` the rows sit
+        # under, which is a different id, so right-clicking a row never opened
+        # anything (the 2026-10-14 audit, finding plotter-mode-02).
+        imgui.open_popup(MENU)
     _menu(ctx, state, tab)
 
 
-def _row(ctx: Any, state: Any, tab: Any, layer: Any, obj: Any) -> None:
-    """One object: its name, its class and its id.
+def _row(ctx: Any, state: Any, tab: Any, layer: Any, obj: Any) -> bool:
+    """One object: its name, its class and its id. -> whether it was right-clicked.
+
+    The caller opens the popup, not this: see :func:`draw`.
 
     Three columns' worth of information on one row rather than an imgui table,
     because the id is short and the class is usually empty -- a table would
@@ -225,7 +235,8 @@ def _row(ctx: Any, state: Any, tab: Any, layer: Any, obj: Any) -> None:
     if imgui.is_item_hovered() and imgui.is_mouse_clicked(1):
         state.select_object(obj.uid)
         tab.doc.set_active_layer(layer.uid)
-        imgui.open_popup(MENU)
+        return True
+    return False
 
 
 def _trailing_id(obj: Any) -> None:

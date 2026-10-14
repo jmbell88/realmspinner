@@ -600,11 +600,13 @@ def test_restore_already_current_is_not_a_refusal() -> None:
     assert _row(result)["status"] == "current"
 
 
-def test_checkpoint_is_batchable_but_restore_is_not() -> None:
+def test_neither_checkpoint_nor_restore_is_batchable() -> None:
+    # The 2026-10-14 audit's clay-agent-tools-04: a serial minted mid-batch is buried by the
+    # batch's fold, so ``clay_checkpoint`` joined ``clay_restore`` in ``BATCH_EXCLUDED``.
     handlers = set(agent_clay._HANDLERS) - agent_clay.BATCH_EXCLUDED
-    assert "clay_checkpoint" in handlers
+    assert "clay_checkpoint" not in handlers
     assert "clay_restore" not in handlers
-    assert "clay_restore" in agent_clay.BATCH_EXCLUDED
+    assert {"clay_checkpoint", "clay_restore"} <= agent_clay.BATCH_EXCLUDED
 
 
 # --- clay_scene: world TRS plus local for a parented object -----------------------

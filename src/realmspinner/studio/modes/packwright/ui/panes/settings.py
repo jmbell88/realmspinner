@@ -30,6 +30,20 @@ SIZES = (256, 512, 1024, 2048, 4096, 8192)
 # stays the real limit for a hand-edited manifest past this.
 MAX_COLUMNS = 256
 
+def max_size_options(current: int) -> list[tuple[str, str]]:
+    """The Max size combo's options: the standard ladder, plus the document's own
+    value when it is not on it.
+
+    The 2026-10-14 audit, finding packwright-13: ``widgets.combo`` answers index 0
+    for a value it does not list, so a hand-edited ``.rpack`` with a valid
+    ``max_size`` of 1500 (the manual's own example) showed "256 px" while the
+    pack really used 1500, and picking 256 then looked like no change.
+    """
+    sizes = {s for s in SIZES if s <= MAX_ATLAS_PX}
+    sizes.add(int(current))
+    return [(str(s), f"{s} px") for s in sorted(sizes)]
+
+
 _MODE_NOTES = {
     "grid": "Uniform cells, sized to the largest sprite. Exports a .tsx as well, "
     "so the result can be used as a tileset in Plotter or Tiled.",
@@ -175,7 +189,7 @@ def draw(ctx: Any) -> None:
         )
 
     imgui.dummy((0, sp(tokens.SP_2)))
-    sizes = [(str(s), f"{s} px") for s in SIZES if s <= MAX_ATLAS_PX]
+    sizes = max_size_options(settings.max_size)
     picked = widgets.labeled_combo("Max size", str(settings.max_size), sizes)
     if editable and picked != str(settings.max_size):
         packwright_mode.set_settings(ctx, tab, max_size=int(picked))

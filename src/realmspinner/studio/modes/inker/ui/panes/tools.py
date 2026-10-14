@@ -109,22 +109,6 @@ SHADE_LABELS = (
     (-1, "Back"),
 )
 
-#: The brush's ink, and only the brush's: this app has brush modes and layer
-#: locks where Aseprite has a per-tool ink selector, so offering it on every
-#: tool would be four more controls saying the same thing. The keys are
-#: ``blend`` (the composite every stroke has always done) and ``replace``,
-#: which is a member of ``brush.MODES``.
-# One entry per mode ``brush.SYMMETRY`` carries, and that is checked rather
-# than trusted: the table used to stop at ``xy``, so the radial mode the engine
-# implements, the "Ways" slider below and the manual chapter all described a
-# setting the combo could never select.
-# One entry per ``brush.NIBS`` member, checked against it the same way.
-NIB_LABELS = (
-    ("soft", "soft (antialiased)"),
-    ("pixel", "pixel (round)"),
-    ("square", "pixel (square)"),
-)
-
 #: How an image brush places its dabs. One entry per ``brush.STAMP_ALIGN``
 #: member, checked against it the way the nib and symmetry tables are.
 STAMP_ALIGN_LABELS = (

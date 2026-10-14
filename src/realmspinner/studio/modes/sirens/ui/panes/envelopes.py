@@ -48,10 +48,29 @@ from ... import mode as sirens_mode
 from ...engine import envelope
 from ...engine import instruments as inst
 
-#: The sentence a greyed Steps field carries (the 2026-10-03 audit, finding
-#: sirens-23); the Loop and Tail buttons beside it already say why they are
-#: dead, and a field with no word on hover read as a bug.
+#: The sentence a greyed Steps field and the Loop and Tail buttons beside it
+#: carry (the 2026-10-03 audit, finding sirens-23; the buttons joined it under
+#: the 2026-10-14 audit, finding sirens-panes-02 -- they had been left with no
+#: word on hover while the song was busy), where a greyed control with no word
+#: read as a bug.
 _BUSY_WHY = "This song is being written; the field comes back when it lands."
+
+def marker_reason(*, editable: bool, has_values: bool) -> str:
+    """The sentence the Loop and Tail buttons carry while they are greyed, or
+    ``""`` when they are live.
+
+    The 2026-10-14 audit, finding sirens-panes-02: the reason was chosen from
+    ``values`` alone, so a busy song with a non-empty sequence greyed both
+    buttons with ``reason=""`` and ``controls`` shows no tooltip for a disabled
+    control without one -- the silent grey the ``_BUSY_WHY`` comment claimed
+    these buttons did not have. ``editable`` is asked first, as every sibling
+    pane asks it."""
+    if not editable:
+        return _BUSY_WHY
+    if not has_values:
+        return "This sequence has no steps yet."
+    return ""
+
 
 # **The pure half lives under ``studio/sirens/`` now** (2026-09-04), where a
 # test can reach it without an imgui frame -- which is what "a marker cannot be
@@ -60,6 +79,7 @@ _BUSY_WHY = "This song is being written; the field comes back when it lands."
 # already use.
 span = envelope.span
 columns = envelope.columns
+paint_columns = envelope.paint_columns
 painted = envelope.painted
 moved = envelope.moved
 toggled = envelope.toggled
@@ -174,7 +194,7 @@ def _graph(ctx: Any, state: Any, tab: Any, instrument: Any, field: str, label: s
     _header(ctx, state, tab, instrument, field, label, sequence)
 
     low, high = span(field, sequence)
-    count = columns(sequence)
+    count = paint_columns(sequence)
     origin = imgui.get_cursor_screen_pos()
     width = max(imgui.get_content_region_avail().x, 1.0)
     height = sp(GRAPH_H)
@@ -348,7 +368,7 @@ def _header(
             f"{shown}##sirens-env-{grip}-{field}",
             selected=index >= 0,
             enabled=editable and bool(sequence.values),
-            reason="This sequence has no steps yet." if not sequence.values else "",
+            reason=marker_reason(editable=editable, has_values=bool(sequence.values)),
             tooltip=(
                 "Where the held half jumps back to when it runs off its end."
                 if grip == "loop"

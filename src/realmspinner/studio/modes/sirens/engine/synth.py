@@ -342,7 +342,14 @@ def _sound(voice: Voice, count: int, rate: float, samples: dict[str, np.ndarray]
         voice.cut()
         return np.zeros(0, dtype=np.float32)
 
-    level = instrument.volume.value_at(voice.tick, voice.release_tick, inst.MAX_VOLUME)
+    # Held to the four-bit scale (the 2026-10-14 audit, finding
+    # sirens-engine-06): ``Sequence`` validates a value's magnitude only, so a
+    # hand-edited or damaged file's ``30`` played at twice full level and a
+    # ``1000`` hard-clipped the master, a level the envelope editor (a fixed
+    # 0..15 span) cannot even draw. ``MAX_VOLUME`` is documented as four bits;
+    # a negative step was already silent and stays so.
+    step = instrument.volume.value_at(voice.tick, voice.release_tick, inst.MAX_VOLUME)
+    level = max(0, min(inst.MAX_VOLUME, step))
     amp = (level / inst.MAX_VOLUME) * (voice.column_volume / inst.MAX_VOLUME)
     if amp <= 0.0:
         return np.zeros(0, dtype=np.float32)
@@ -463,6 +470,19 @@ def _render(
         if not playing:
             if body_end is None:
                 body_end = produced
+                # **No loop point was reached, so the tail is owed (the
+                # 2026-10-14 audit, finding sirens-engine-09).** ``tail_left``
+                # is zeroed up front whenever ``loop_order`` names an entry, on
+                # the promise that the loop covers the end -- but a ``Cxx`` (or
+                # a pattern that went missing) can end the body before that
+                # entry is ever entered, and then there is no loop and no tail:
+                # the render cut off mid-note with no ``smpl`` chunk. Decided
+                # here, where the body ends, from whether ``loop_start`` was
+                # actually set. A ``Bxx`` loop sets it before it halts, so it
+                # keeps its zero tail.
+                if loop_start is None:
+                    looping = False
+                    tail_left = int(TAIL_SECONDS * rate)
                 # Let go of everything still held, so the tail is the
                 # instruments' own decay rather than two seconds of sustain
                 # followed by a cut. A voice whose envelope loops forever never

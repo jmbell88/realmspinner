@@ -9,12 +9,17 @@ out. ``dev/measurements/2026-08-18-tile-sheet-grid.md`` is why both exist: the
 guide is obeyed and the cells still come back identical, because every cell of
 the guide is identical and there is no per-cell signal for variety. Variety is a
 property of the request, not of the model's composition.
+(Document lost with the 2026-09-20 backup; re-measure before changing this.)
 
 So the mechanism here is not a guide at all. ``tile=True`` selects
-``text2image``'s circular-padding path (``text2image.py:99``, applied at
-``:975-988`` to the UNet, the VAE and any ControlNet), which is what makes one
-material tile against itself -- and it is *refused* rather than degraded on a
-non-SDXL checkpoint at ``:955``, because a DiT has no Conv2d to wrap. There is
+``text2image``'s circular-padding path (``text2image.circular_padding``, applied
+by ``generate`` to the UNet, the VAE and any ControlNet), which is what makes
+one material tile against itself -- and it is *refused* rather than degraded on
+a non-SDXL checkpoint (``generate``'s ``tile`` handling), because a DiT has no
+Conv2d to wrap. Cited by name: the line numbers this used to give
+(``:99``, ``:975-988``, ``:955``) drifted onto unrelated code, and the
+2026-10-14 audit (finding plotter-tiles-06) found a reader following them
+landing nowhere near the claim. There is
 no ControlNet on this path at all, which is why ``vram.estimate_parts`` gates
 that term on ``params["control"]`` and the door writes that key only for the
 grid mode.
@@ -84,7 +89,7 @@ def _erase_seam(
     lora: str | None,
     lora_weight: float,
     negative_prompt: str,
-    size: int,
+    size: tuple[int, int],
     cancel_event: Any,
 ) -> None:
     """One masked img2img pass over a material's wrapped seam cross, in place.
@@ -281,7 +286,11 @@ class TileSetOps:
         # params because params carry the *selection* and this is the image
         # itself, and because a reroll copies the row before it copies the file.
         ref_png = job_dir / "ref.png"
-        has_reference = await asyncio.to_thread(ref_png.exists)
+        # ``is_file``, not ``exists`` (the 2026-10-14 audit, finding
+        # plotter-tiles-09): a directory named ``ref.png`` is also "there", and
+        # put an IP-Adapter on ``Image.open(<directory>)`` after the checkpoint
+        # had already loaded instead of being ignored at the door.
+        has_reference = await asyncio.to_thread(ref_png.is_file)
         ip_scale = float(params.get("ip_scale", models.DEFAULT_IP_SCALE))
 
         with tempfile.TemporaryDirectory(prefix="realmspinner-tileset-") as tmp:

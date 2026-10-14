@@ -81,6 +81,7 @@ MAX_PADDING = 256
 # **4096, measured twice.** dev/measurements/2026-08-31-packwright-max-sprites.md
 # cut this to 1024 on a 190 second pack of 4096 random 8-64px items, and stated
 # the rule: the largest count whose single pack stays under five seconds.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 # dev/measurements/2026-09-06-native-batch-7-candidates.md found that 92% of
 # that time was `_prune` re-checking free-rectangle pairs that cannot fire --
 # after every prune no survivor contains another, so only pairs touching a

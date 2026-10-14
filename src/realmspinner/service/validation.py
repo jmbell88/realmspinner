@@ -122,12 +122,11 @@ DERIVED_PARAMS = (
     # stays so a row an earlier build wrote is still stripped.
     "sheet_id",
     "cells",
-    # How many of a re-render's cells were actually rendered rather than copied
-    # from the sheet it was built on. Recorded by the worker about the output,
-    # so a reroll must not inherit it. Its two *inputs* -- ``subset`` and
-    # ``base_sheet`` -- are deliberately absent from this tuple: they are the
-    # request normalised, which is ``layout``'s case, and "run that again" means
-    # re-rendering those runs against that base.
+    # LEGACY: how many of a retired sheet re-render's cells were actually
+    # rendered rather than copied from the sheet it was built on. No worker
+    # writes it now (``retired.py``); it stays so a row an earlier build wrote
+    # is still stripped. The 2026-10-14 audit, finding docs-E-16: this comment
+    # named a writer that no longer exists, and so did the two that follow.
     "rendered_cells",
     "reference_report",
     # The record of ``cutout.png`` -- which pixels it was cut from, by what, and
@@ -158,20 +157,21 @@ DERIVED_PARAMS = (
     # The same, for the mesh half: it describes this run's reconstructions, so
     # a rerun inheriting it would claim remeshes it never made.
     "mesh_attempts",
-    # Operational evidence about an automatic rig/sheet insert after this run
-    # finished. A rerun gets its own follow-up attempt and must not inherit the
+    # Operational evidence about an automatic rig or sprite-sheet insert after
+    # this run finished. A rerun gets its own follow-up attempt and must not inherit the
     # earlier row's database failure as though it happened again.
     "followup_failures",
     "control_hint",
-    # What the character sheet's pixel-art pass measured about *this* atlas:
-    # orphans cleaned, colours used, which palette it chose. A rerun wearing it
-    # would claim a colour count for pixels it has not rendered yet.
+    # LEGACY: what the retired character sheet's pixel-art pass measured about
+    # *its* atlas (orphans cleaned, colours used, which palette it chose). No
+    # writer or reader remains (``retired.py``); stripped only so a row an
+    # earlier build wrote cannot hand a reroll a colour count for pixels it has
+    # not rendered.
     "pixel_report",
-    # The character sheet's structural verdict -- which cells came back
-    # clipped, blank or missing, and whether it took a wider-margin second
-    # render. About *this* atlas, so a reroll inheriting it would claim a
-    # clipping verdict about frames it has not rendered yet, and worse, an
-    # ``ok: true`` about a sheet nobody has looked at.
+    # LEGACY: the retired character sheet's structural verdict (cells clipped,
+    # blank or missing). Likewise written by nobody now; stripped so a reroll
+    # of an old row cannot inherit an ``ok: true`` about a sheet nobody has
+    # looked at.
     "validation",
     "recipe",
     # What the tile-sheet worker recorded about the sheet it painted -- the
@@ -289,6 +289,14 @@ CONDITIONING_PARAMS = (
     "guide_pose",
 )
 
+#: The ``DERIVED_PARAMS`` keys that no code in the package writes any more: each
+#: stays only so a row an earlier build wrote is still stripped on a rerun or a
+#: promotion. ``tests/service/test_audit_2026_10_14_f53.py`` holds this set to
+#: the truth in both directions -- a key with a writer may not hide here, and a
+#: key nothing writes must be listed (the 2026-10-14 audit, finding docs-E-16:
+#: the ledger named keys nothing produced and nobody could tell which).
+LEGACY_DERIVED_PARAMS = frozenset({"sheet_id", "rendered_cells", "pixel_report", "validation"})
+
 
 def check_glb(data: bytes, field: str = "glb") -> None:
     """Refuse bytes that are not a binary glTF carrying at least one mesh.
@@ -298,7 +306,7 @@ def check_glb(data: bytes, field: str = "glb") -> None:
     this is the door. Both refusals are worth having on their own terms: bytes
     that are not a GLB would mint a ``done`` row whose ``model.glb`` no reader
     can open, and a GLB with no mesh in it would mint one whose every
-    downstream export -- STL, OBJ, FBX, collision, sheet -- produced an empty
+    downstream export -- STL, OBJ, FBX, collision -- produced an empty
     file, each failing far from here with a message about its own format.
 
     Deliberately structural rather than semantic: the JSON chunk is parsed and
@@ -724,10 +732,14 @@ def check_weights(svc: Any, kind: str, params: dict[str, Any]) -> None:
     Only text jobs, because only they touch SDXL: an image job's reference is
     its upload and no image model is loaded at all.
 
-    Deliberately *not* checked here: the trellis exe and the GGUF weights. Those
-    are the two fatal doctor rows, and a host missing them has a red banner at
-    startup rather than a per-job surprise -- re-refusing every submit would say
-    the same thing a second time in a worse place.
+    Deliberately *not* checked here: the trellis exe and the GGUF weights
+    (``engine:trellis_runtime`` and ``engine:trellis_gguf``), which are not text
+    weights. They are Settings downloads since 2026-09-10, not startup-banner
+    rows, so nothing says the same thing a second time: the doors that reach the
+    engine ask ``create.engine.mesh.engine_problem`` against the frame's row
+    snapshot (Create's Mesh press, and Review's sweep launch since the
+    2026-10-14 audit, finding shell-review-settings-04, found a sweep of 64
+    units admitted on a host with no engine).
     """
     if kind == "music":
         # Before the text gate below, not after it: a music job would otherwise
@@ -885,14 +897,25 @@ def valid_template(key: str | None, default: str) -> str:
 STATUS_SENTENCES = {
     "queued": "is still waiting in the queue",
     "running": "is still being generated",
-    "error": "failed, so it has no image",
-    "cancelled": "was cancelled, so it has no image",
+    "error": "failed, so it has no {noun}",
+    "cancelled": "was cancelled, so it has no {noun}",
 }
 
 
-def not_done_message(subject: str, status: str) -> str:
-    """-> "<subject> <what that status means>", e.g. for a refused promotion."""
-    return f"{subject} {STATUS_SENTENCES.get(status, f'is {status}')}."
+def not_done_message(subject: str, status: str, *, noun: str = "image") -> str:
+    """-> "<subject> <what that status means>", e.g. for a refused promotion.
+
+    ``noun`` is what the failed or cancelled row never produced. It is "image"
+    for every caller that reaches a reference, and the music doors say "audio":
+    the 2026-10-14 audit, finding muse-jobs-03, found a failed take refused with
+    "it failed, so it has no image" because the table had one noun for every
+    kind of row.
+    """
+    # Formatted only when the table spoke: an unknown status is a word to quote
+    # verbatim, and may hold a brace.
+    known = STATUS_SENTENCES.get(status)
+    sentence = known.format(noun=noun) if known is not None else f"is {status}"
+    return f"{subject} {sentence}."
 
 
 def normalize_tags(raw: Any) -> str:

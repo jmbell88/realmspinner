@@ -16,7 +16,7 @@ zero, which costs importers nothing and needs no new format version.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -41,9 +41,11 @@ MAX_ATLAS_PX = 8192
 # How much room is left around the subject when a cell is framed. One owner,
 # here, because two modules have to agree about it and neither may import the
 # other: ``blender_worker.op_sheet`` frames what is actually rendered, and
-# ``studio.viewer.sheet`` frames the in-app direction preview of it. They were
-# two hand-written 1.12s, so a preview that depicted a sheet nobody would get
-# was one edit away. This module is where they already meet.
+# whatever previews a sheet has to frame it the same way. They were two
+# hand-written 1.12s, so a preview that depicted a sheet nobody would get was
+# one edit away. This module is where they already meet. (The in-app preview
+# that was the second reader, ``studio.viewer.sheet``, was removed: the
+# 2026-10-14 audit, finding create-20.)
 FRAME_MARGIN = 1.12
 
 REST_POSE_NAME = "rest"
@@ -280,33 +282,12 @@ def _record(
     # there would read as "this frame has no opinion" rather than "this frame
     # is at rest height" -- and because a clip that carried no offset at all
     # then produces byte-identical records to the ones it always did, which is
-    # what keeps ``_sheet_root_offsets`` short-circuiting on them.
+    # what keeps the sheet renderer's root-offset handling short-circuiting on
+    # them (the 2026-10-14 audit, finding inker-80: this used to name a
+    # ``queue._sheet_root_offsets`` that exists nowhere).
     if with_root:
         out["root_translation"] = [float(v) for v in root]
     return out
-
-
-def interpolate(
-    pose_a: Mapping[str, Any], pose_b: Mapping[str, Any], frames: int
-) -> list[dict[str, Any]]:
-    """``frames`` pose records stepping from A toward B.
-
-    The last frame stops *short* of B rather than landing on it, so a clip that
-    loops back to A does not hold a duplicate frame at the seam.
-
-    **Root translation is interpolated, not refused.** It used to be refused by
-    name, on the correctness argument that a snapshotted library pose carrying
-    a root offset would render a clip disagreeing with the pose's own bake. The
-    machinery to honour it instead was already everywhere else --
-    ``blender_spec.root_offset_world``, ``queue._sheet_root_offsets`` (keyed by
-    ``(pose id, frame)``, which is per *frame* and so already clip-shaped), and
-    ``op_sheet``'s per-cell ``root_offset`` -- so the guard was costing the one
-    thing a walk cycle needs most, a vertical bob, for a disagreement that no
-    longer exists.
-    """
-    if not 1 <= int(frames) <= MAX_CLIP_FRAMES:
-        raise ValueError(f"a clip must be 1-{MAX_CLIP_FRAMES} frames")
-    return _expand([pose_a, pose_b], [int(frames)], "linear", land=False)
 
 
 #: Which frame a stored rotation is in. ``node`` is the pose editor's and every
@@ -331,17 +312,16 @@ def interpolate_clip(
 
     ``closed`` is a cycle -- Idle, Walk, Run: there is one segment per key and
     the last returns to the first, and no segment lands on its far key because
-    that key is the next segment's frame 0. That is the seam rule ``interpolate``
-    already had, generalised.
+    that key is the next segment's frame 0. That is the old two-key seam rule,
+    generalised.
 
     Open is a one-shot -- Attack, Jump: one segment per *gap*, and one extra
     frame at the end that lands exactly on the last key, because a one-shot's
     final frame is a pose the animation holds rather than a seam it hides.
 
-    Two keys and one segment, closed, is exactly the old two-key behaviour,
-    which is why ``interpolate`` is now three characters of delegation. Eight
-    frames from contact A to contact B was half a stride played straight; four
-    keys -- contact A, passing A, contact B, passing B -- is a stride.
+    Eight frames from contact A to contact B was half a stride played
+    straight; four keys -- contact A, passing A, contact B, passing B -- is a
+    stride.
     """
     keys = list(keys)
     counts = [int(n) for n in segments]
@@ -452,8 +432,8 @@ def _expand(
     finishes a one-shot on its final pose.
 
     ``clip_id`` names the row outright. Derived from the keys' own ids when it
-    is not given, which is right for :func:`interpolate`: its two poses are
-    *pose library* rows, and those carry an ``id``. It is wrong for a clip
+    is not given, which is right for two *pose library* rows, and those carry
+    an ``id``. It is wrong for a clip
     library, whose key poses are built by ``cliplib._load_clip_library`` as
     ``{"name", "bones"[, "root_translation"]}`` with no ``id`` at all -- so the
     join collapsed to ``":" * (len(keys) - 1)`` and every clip with the same
@@ -545,7 +525,7 @@ def plan(
                     pose=pose.get("id"),
                     pose_name=str(pose.get("name") or REST_POSE_NAME),
                     yaw=yaw,
-                    # A record produced by interpolate() carries its own frame;
+                    # A record produced by a clip expansion carries its own frame;
                     # an ordinary saved pose has none and defaults to 0.
                     frame=int(pose.get("frame", 0)),
                 )
@@ -614,8 +594,6 @@ def pack(
     sheet: Plan,
     frames: Mapping[int, Path],
     out_png: Path,
-    *,
-    only: Collection[int] | None = None,
 ) -> dict[int, dict[str, int] | None]:
     """Composite the rendered frames into one RGBA atlas.
 
@@ -630,27 +608,18 @@ def pack(
     tolerance a slightly mismatched renderer output should get instead of a
     refusal.
 
-    ``only`` packs a *subset* of the plan's cells and leaves the rest
-    transparent -- a re-render of one animation, which is composited onto the
-    previous atlas by :func:`compose_cells` afterwards. The geometry is the
-    whole plan's either way, so a cell keeps the rectangle it has always had.
-
-    **The refusal above keeps its force**, which is why this is a filter and
-    not a relaxation: every index in ``only`` must still arrive, and a cell
-    outside it is deliberately absent rather than missing. Softening the raise
-    to "skip whatever is not there" would have made a dropped render frame
-    indistinguishable from a subset, in the one function positioned to notice.
+    The ``only=`` subset this once took (a re-render of one animation,
+    composited onto the previous atlas) went with the pipeline that asked for
+    it; no production caller ever passed it again (the 2026-10-14 audit,
+    finding inker-80).
     """
     from PIL import Image
 
     size = (sheet.cell_w, sheet.cell_h)
     atlas = Image.new("RGBA", (sheet.width, sheet.height), (0, 0, 0, 0))
     trims: dict[int, dict[str, int] | None] = {}
-    wanted = None if only is None else set(only)
     try:
         for cell in sheet.cells:
-            if wanted is not None and cell.index not in wanted:
-                continue
             path = frames.get(cell.index)
             # is_file(), not exists(): the 2026-09-07 audit found exists()
             # here, which is also true of a directory and would let a stale
@@ -671,66 +640,6 @@ def pack(
     return trims
 
 
-def compose_cells(
-    base_png: Path,
-    overlay_png: Path,
-    sheet: Plan,
-    indices: Collection[int],
-    out_png: Path,
-) -> None:
-    """Paste ``indices``' cells from ``overlay_png`` onto a copy of ``base_png``.
-
-    The last step of a subset re-render, and it is deliberately the *last* one.
-
-    **The pixel-art pass is not idempotent**, which is what fixes this order.
-    ``pixelize.pixelize_atlas`` runs ``clean_orphans`` and ``outline`` per cell,
-    and ``outline`` in the shipped ``outer`` mode grows the silhouette by a
-    pixel on every side -- so composing first and quantising the result would
-    fatten every *copied* cell once per re-render, cumulatively, and the sheet
-    would drift a pixel thinner in the runs nobody re-rendered. Render, reduce,
-    pack the subset, quantise the subset, and only then compose. Quantise once.
-
-    Geometry is taken from the plan rather than measured, because both images
-    are the same plan's atlas by construction; a size mismatch is refused by
-    name rather than pasted at an offset that happens to fit.
-    """
-    from PIL import Image
-
-    wanted = set(indices)
-    with Image.open(base_png) as opened:
-        base = opened.convert("RGBA")
-    try:
-        with Image.open(overlay_png) as opened:
-            overlay = opened.convert("RGBA")
-        try:
-            expected = (sheet.width, sheet.height)
-            if base.size != expected:
-                raise ValueError(
-                    f"the sheet being re-rendered is {base.size[0]}x{base.size[1]} "
-                    f"and this layout is {expected[0]}x{expected[1]}"
-                )
-            if overlay.size != expected:
-                raise ValueError(
-                    f"the re-rendered cells are {overlay.size[0]}x{overlay.size[1]} "
-                    f"and this layout is {expected[0]}x{expected[1]}"
-                )
-            for cell in sheet.cells:
-                if cell.index not in wanted:
-                    continue
-                box = (cell.x, cell.y, cell.x + sheet.cell_w, cell.y + sheet.cell_h)
-                # Pasted, not alpha-composited: a re-rendered cell *replaces*
-                # what was there. Blending would leave the old silhouette
-                # showing through wherever the new one is transparent, which is
-                # a ghost rather than a merge.
-                base.paste(overlay.crop(box), (cell.x, cell.y))
-        finally:
-            overlay.close()
-        out_png.parent.mkdir(parents=True, exist_ok=True)
-        base.save(out_png, "PNG")
-    finally:
-        base.close()
-
-
 def sidecar(
     sheet: Plan,
     *,
@@ -745,7 +654,6 @@ def sidecar(
     pivots: Mapping[int, tuple[float, float]] | None = None,
     slices: Mapping[int, list[dict[str, Any]]] | None = None,
     slices_conflict: Mapping[int, list[int]] | None = None,
-    front_yaw: float = 0.0,
 ) -> dict[str, Any]:
     """The engine-neutral description of the atlas next to it.
 
@@ -757,7 +665,7 @@ def sidecar(
     ``animation``, when given, adds one ``"animation"`` key: ``frames``, each a
     ``{cell_index, duration_ms}``, and ``tags``. It has **two** builders now --
     the Inker exporter, for a drawn clip, and ``charsheet.animation_block``,
-    for a rendered character sheet, which is what closed the gap where a
+    for a sprite sheet (``spritesynth`` calls it), which is what closed the gap where a
     rendered sheet reached an engine as frame indices with no fps and no loop
     tags. Two builders, one format: ``charsheet`` deliberately emits the same
     keys with the same spellings (``repeat: 1`` for a play-once tag, omitted
@@ -780,16 +688,6 @@ def sidecar(
     a cell has one geometry, but until now silently. A reader that has never
     heard of the key sees exactly the file it saw before, because an export with
     nothing to report does not write it at all.
-
-    ``front_yaw`` is the fifth, same rule: a top-level ``"front_yaw"`` degrees
-    figure, written **only when non-zero**. It is not a field of ``Plan`` --
-    the caller adds it to every render's camera yaw and passes the same
-    number here so the sidecar says what was actually shot. It is
-    deliberately *not* folded into ``cells[].yaw``: those stay the plan's own,
-    unrotated direction angles (``charsheet.resolve_layout`` refuses a
-    direction list that is not literally a preset value), so a cell still
-    says which way the sprite faces and this key alone says the camera angle
-    actually used to shoot it was ``(yaw + front_yaw) % 360``.
 
     On a non-square plan ``frame_size`` is emitted as **0** and ``frame_w`` /
     ``frame_h`` carry the truth. Zero is a loud wrong answer rather than a quiet
@@ -852,10 +750,4 @@ def sidecar(
             int(cell): [int(frame) for frame in frames]
             for cell, frames in sorted(slices_conflict.items())
         }
-    # Same rule again: absent rather than 0.0, so the overwhelming majority of
-    # sheets -- no front chosen -- publish the byte-identical sidecar they
-    # always did, and ``tests/test_sheet.py``'s square-sidecar equality test
-    # is what pins that.
-    if front_yaw:
-        payload["front_yaw"] = float(front_yaw)
     return payload

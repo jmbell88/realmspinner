@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
+
 from ..... import anchors, controls, icons, tokens, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
@@ -156,7 +158,14 @@ def _name_of(doc: Any, uid: int) -> str:
         # can carry it and a row that renders as an exception is worse than a
         # row that says what is wrong.
         return "(missing)"
-    return pattern.name or f"Pattern {doc.patterns.index(pattern) + 1}"
+    # Numbered by place in the list the person sees (the 2026-10-14 audit,
+    # finding sirens-panes-03): ``doc.patterns`` also holds every sound effect's
+    # private pattern, so one effect between two song patterns made the list read
+    # "Pattern 1", "Pattern 3". An effect's own pattern is not in the visible
+    # list; it keeps its place in the full one rather than raising.
+    shown = visible_patterns(doc)
+    place = shown.index(pattern) if pattern in shown else doc.patterns.index(pattern)
+    return pattern.name or f"Pattern {place + 1}"
 
 
 def reuse_counts(order: list[int]) -> dict[int, int]:
@@ -376,6 +385,43 @@ def visible_patterns(doc: Any) -> list[Any]:
     return [pattern for pattern in doc.patterns if pattern.uid not in owned]
 
 
+#: The Rows slider's drag in flight: ``(pattern uid, the grid as the drag found
+#: it, the grid the last frame produced)``, or ``None`` between gestures. One
+#: slot because imgui has one active item.
+_rows_held: tuple[int, np.ndarray, np.ndarray] | None = None
+
+
+def resized_in_drag(
+    doc: Any, uid: int, rows: int, held: tuple[int, np.ndarray, np.ndarray] | None
+) -> tuple[bool, tuple[int, np.ndarray, np.ndarray] | None]:
+    """One frame of the Rows slider. -> ``(changed, held)``; pass ``held`` back.
+
+    The 2026-10-14 audit, finding sirens-panes-01: every frame the pointer moved
+    called ``resize_pattern``, and each call truncated the grid it started from,
+    so a drag that passed through 8 on its way from 64 to 64 left a 64-row
+    pattern with rows 8 to 63 empty (and one undo step that read 64 to 64). The
+    surviving rows are now copied from the grid the drag began with. A held grid
+    is only trusted while the pattern still holds exactly what the last frame
+    left in it; anything else (an undo, a typed note, another pattern) means a
+    new gesture, and the current grid is the one to keep.
+    """
+    pattern = doc.pattern(uid)
+    if pattern is None:
+        return False, None
+    if (
+        held is not None
+        and held[0] == uid
+        and held[2].shape == pattern.cells.shape
+        and np.array_equal(held[2], pattern.cells)
+    ):
+        source = held[1]
+    else:
+        source = pattern.cells.copy()
+    if not doc.resize_pattern(uid, rows, keep_from=source):
+        return False, held
+    return True, (uid, source, doc.pattern(uid).cells.copy())
+
+
 def _patterns(ctx: Any, state: Any, tab: Any, editable: bool) -> None:
     from imgui_bundle import imgui
 
@@ -414,10 +460,16 @@ def _patterns(ctx: Any, state: Any, tab: Any, editable: bool) -> None:
         changed, value = widgets.labeled_slider_int(
             "Rows", pattern.rows, 1, 256, enabled=editable, reason=_BUSY_WHY
         )
+        held_open = imgui.is_item_active()
         controls.fold_undo(doc.history)
-        if changed and doc.resize_pattern(pattern.uid, int(value)):
-            sirens_mode.request_rerender(ctx, tab)
-            sirens_mode.clamp_caret(ctx, tab)
+        global _rows_held
+        if changed:
+            resized, _rows_held = resized_in_drag(doc, pattern.uid, int(value), _rows_held)
+            if resized:
+                sirens_mode.request_rerender(ctx, tab)
+                sirens_mode.clamp_caret(ctx, tab)
+        if not held_open:
+            _rows_held = None
         width = widgets.grid_width(2)
         duplicatable, duplicate_why = pattern_room(doc, editable)
         if widgets.disabled_button(

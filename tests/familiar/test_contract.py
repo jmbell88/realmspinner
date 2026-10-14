@@ -61,8 +61,13 @@ def test_the_frozen_clay_card_hashes_to_its_recorded_sha():
 
     Re-frozen 2026-10-13 (Tranche 3, Add Bone) when ``clay_op`` gained ``add-bone``:
     ``455f34fa...6a17`` -> ``207a75c0...661a``.
+
+    Re-frozen 2026-10-14: clay-agent-tools-04 dropped ``clay_checkpoint`` from ``clay_batch``'s
+    enum; clay-12 dropped the pose-only ops (``insert-key``, ``delete-key``, ``reset-pose``,
+    ``apply-pose-as-rest``) from ``clay_op``'s: ``207a75c0...661a`` -> ``4d621000...8b``.
+    Still free (``card_shas`` is ``()``).
     """
-    expected = "207a75c07669e333cec76d140331ba08aeb4a6d89662eaa3cdf4e0221f8d661a"
+    expected = "4d621000a77874153997007d402ac2090a0d2ea46798d1c790e0b0d7ade4d78b"
     assert contract.card_sha("clay") == expected
 
 

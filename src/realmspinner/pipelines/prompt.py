@@ -126,6 +126,7 @@ TILESHEET_TEMPLATE = (
 # and a benchmark comparing across the bump is comparing two compilers.
 #
 # 5: the taxonomy retirement (dev/measurements/2026-08-17-taxonomy-retirement.md).
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 # guidance._PROMPT_FIELDS emptied, TILE_FIELDS and the ``{view}`` slot deleted
 # with the view literal re-inlined. The empty-params composition is
 # byte-identical to 4 (tests/test_prompt.py pins it as a literal); the bump is
@@ -336,7 +337,9 @@ def build(
 ) -> str:
     """The final positive prompt.
 
-    The composed subject, then the LoRA trigger (if any), then the template --
+    The LoRA trigger first (if any), then the composed subject set into the
+    template -- ``f"{trigger}, {text}"``, the order the 2026-10-14 audit
+    (finding pipelines-image-09) found this docstring stating backwards. It is
     the same assembly text2image.generate() does by hand, kept as a pure
     mirror of it rather than exposed to any pane today (the 2026-09-26 audit,
     finding pipelines-image-02: no caller shows this before a job runs any

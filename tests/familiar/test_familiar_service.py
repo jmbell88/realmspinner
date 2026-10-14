@@ -686,7 +686,6 @@ def test_a_character_route_returns_a_plan_after_a_dry_run_and_mints_nothing(monk
             "recipe": {"family": "goblin"},
             "resolution": {},
             "ignored": [],
-            "cells": 24,
             "estimate_minutes": 3.5,
         }
 
@@ -714,7 +713,9 @@ def test_a_character_route_returns_a_plan_after_a_dry_run_and_mints_nothing(monk
     }
     assert answer.action["overrides"] == calls["overrides"]
     assert answer.action["summary"]["species"] == "Goblin"
-    assert answer.action["summary"]["cells"] == 24
+    # No sheet is laid out, so the plan summary carries no cell count (the 2026-10-14
+    # audit, finding poser-jobs-02).
+    assert "cells" not in answer.action["summary"]
     assert answer.action["summary"]["estimate_minutes"] == 3.5
 
 
@@ -803,7 +804,6 @@ def test_a_movement_or_theme_the_plan_itself_dropped_is_surfaced_in_the_characte
             "recipe": {"family": "goblin"},
             "resolution": {},
             "ignored": [],
-            "cells": 24,
             "estimate_minutes": 3.5,
         }
 

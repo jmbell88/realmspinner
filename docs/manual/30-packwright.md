@@ -4,7 +4,7 @@ Packwright is the top-level packing mode: many images in, one atlas out, with a 
 where everything landed. It is the step between drawing sprites and shipping them.
 
 It exists because every 2D engine wants an atlas and nothing else in Realmspinner made one. A sprite
-sheet baked from a 3D model is a regular grid by construction; a folder of hand-drawn frames is not,
+sheet from Inker is a regular grid by construction; a folder of hand-drawn frames is not,
 and packing it by hand is exactly the sort of arithmetic a person should never do.
 
 It is a mode, not a takeover. Switching away leaves every open document where it was. Several
@@ -173,8 +173,10 @@ MaxRects, is the fix either line points at.
 
 ## When it does not fit
 
-A pack that cannot fit says so in the placement list, with the number and the remedy — raise the max
-size, turn trimming on, or split it into two atlases. It never produces a partial atlas: half an
+A pack that cannot fit says so in the placement list, with the number and the remedy — only the
+options that would change something for this atlas's current settings: raise the max size (unless it
+is already at the ceiling), turn trimming on (MaxRects only, and only when it is off), or split it
+into two atlases. It never produces a partial atlas: half an
 atlas is much harder to notice than none of one, because it looks like success.
 
 ## Exporting

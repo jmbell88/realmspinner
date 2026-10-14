@@ -148,7 +148,13 @@ def test_weights_at_the_pinned_commit_or_with_no_recorded_commit_are_current(tmp
     assert fetch.outdated(config, "engine", spec) == ()
 
 
-def test_only_engine_rows_are_ever_outdated(tmp_path) -> None:
+def test_only_engine_and_familiar_rows_are_ever_outdated(tmp_path) -> None:
+    """The 2026-10-14 audit (pipelines-install-03) widened this from "only engine
+    rows": a Familiar runtime installed at an older pin is outdated too (see
+    ``tests/test_audit_2026_10_14_f03.py``). Every other kind still answers
+    nothing, and a Familiar row with no manifest is unknown, never stale."""
     config = _config(tmp_path)
     spec = models.FAMILIAR_MODELS[next(iter(models.FAMILIAR_MODELS))]
     assert fetch.outdated(config, "familiar", spec) == ()
+    base = models.BASE_MODELS[next(iter(models.BASE_MODELS))]
+    assert fetch.outdated(config, "base", base) == ()

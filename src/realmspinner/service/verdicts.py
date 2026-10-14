@@ -8,6 +8,7 @@ slab with no geometry, a smeared texture and a mesh a modeller would fix in five
 minutes are all the same row. A bit can say a mesh failed and can never say how
 close it came. The scale, its +-3 backfill and its ``grade >= +3`` usable cut are
 argued in ``dev/measurements/2026-08-09-grade-scale.md``.
+(Document lost with the 2026-09-20 backup; re-measure before changing this.)
 
 **``verdict`` survives as a derived column with exactly one writer.** This
 function is that writer, via ``vectors.verdict_for_grade``, which is what leaves
@@ -74,6 +75,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from .. import retired
+from ..db import RECONSTRUCTION_KINDS
 from ..vectors import (
     BAD_TAGS,
     BINARY_GRADES,
@@ -238,6 +241,19 @@ def record_verdict(
         # queued or failed unit poisons the corpus with accepts for meshes
         # that never existed.
         raise Invalid(blocker)
+    elif retired.is_retired(job.get("kind")) or job.get("kind") not in RECONSTRUCTION_KINDS:
+        # Every follow-up kind (rig, remesh, retexture, sprite_synthesis,
+        # separate, lora_train) and every retired sheet row sits at stage
+        # ``model`` and is ``done``, so the two gates around this one let a +4
+        # be filed against a stem split or a retired character sheet and become
+        # permanent mesh evidence with a vector snapshot (the 2026-10-14 audit,
+        # finding service-gates-03: ten kinds, ten grades, ``graded_n`` 10).
+        # ``unverdicted_models`` was narrowed to text/image for the same reason
+        # and the door was not. Field-less: the kind is not a form control.
+        raise Invalid(
+            f"that job is a {job.get('kind') or 'non-mesh'} row, not a reconstruction; "
+            "a mesh verdict needs a text or image job's mesh"
+        )
     elif job.get("stage") != "model":
         # The same reason, one question further: a finished *picture* (a
         # reference-stage or tile-stage row) is done and has no mesh, so a graded

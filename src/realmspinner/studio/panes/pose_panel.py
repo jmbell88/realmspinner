@@ -60,19 +60,22 @@ def draw(ctx: Any, job: Any, *, hosted: bool = False) -> None:
         # and the Mesh stage's checkbox) rather than hidden, but this section
         # has no control to grey: "rig this mesh first" would be instructing
         # the user to press a button that cannot work, so it states the cause.
-        if not ctx.rigging_available:
-            widgets.muted("Posing needs Blender, which is not installed.")
-            return
+        # The 2026-10-14 audit, finding shell-29: only the template fit is
+        # Blender's. "Rig by hand in Clay" below is not, so there is no early
+        # return -- it used to hide that button on a machine without Blender.
         widgets.muted("Posing needs a rig.")
-        # S138. Rigging is a real queued job -- Blender out of process, behind
-        # whatever the serial worker is already doing -- and looked from here
-        # like a button that does something immediately.
-        widgets.cost_note(
-            "Rigging is queued like a generation: it runs Blender in a separate "
-            "process and waits behind anything already running."
-        )
         rig_key = stage_rig.rig_key(job)
-        if widgets.disabled_button(
+        if ctx.rigging_available:
+            # S138. Rigging is a real queued job -- Blender out of process, behind
+            # whatever the serial worker is already doing -- and looked from here
+            # like a button that does something immediately.
+            widgets.cost_note(
+                "Rigging is queued like a generation: it runs Blender in a separate "
+                "process and waits behind anything already running."
+            )
+        else:
+            widgets.muted_wrapped("Rigging from a template needs Blender, which is not installed.")
+        if ctx.rigging_available and widgets.disabled_button(
             "Rig this mesh", not ctx.busy(rig_key), reason="This mesh is already being rigged."
         ):
             # ``stage_rig.skeleton``, like the library row and the Rig stage
@@ -85,7 +88,8 @@ def draw(ctx: Any, job: Any, *, hosted: bool = False) -> None:
             ctx.submit(
                 rig_key, svc_rig.create_rig, ctx.svc, job["id"], template=stage_rig.skeleton(ctx)
             )
-        imgui.same_line()
+        if ctx.rigging_available:
+            imgui.same_line()
         if widgets.ghost_button(
             "Rig by hand in Clay",
             tooltip=(
@@ -294,6 +298,10 @@ def land_enter(ctx: Any, job: Any) -> None:
     # The preset library follows the rig's skeleton, so it is fetched here
     # rather than at startup -- there is no single answer before a rig is open.
     ctx.load_presets((rig or {}).get("template"))
+    # What authored this skeleton, kept for "Apply joint positions": the re-rig
+    # it queues rebuilds the skin from the static mesh, which is not what a
+    # Clay rig was bound with (see :func:`clay_authored`).
+    _RIG_SOURCE[job_id] = str((rig or {}).get("source") or "")
     # And the saved poses, because opening the editor is the one moment the
     # viewer changes what it shows without the selection changing -- which is
     # what otherwise triggers a refresh.
@@ -353,8 +361,9 @@ def _pose(ctx: Any, job: Any, viewer: Any) -> None:
         #
         # The reason used to read "and there is no undo behind it", which
         # stopped being true when ``docmodes.pose_undo_key`` was wired into
-        # this editor as well as the Poser's (``main.py``'s viewer key
-        # handling) -- one editor with two doors. The guard stays: Ctrl+Z can
+        # this editor (``main.py``'s viewer key handling; the pose editor
+        # once had a second door in a mode removed in eed32549, the 2026-10-14
+        # audit, finding create-panes-08). The guard stays: Ctrl+Z can
         # recover a misclick, but a confirm is the difference between losing a
         # pose and being asked about it, and this button rewrites all of it.
         guard(ctx, "reset every joint", viewer.reset_all)
@@ -400,9 +409,9 @@ def _apply_saved_pose(ctx: Any, job: Any, pose: dict[str, Any], pose_id: str) ->
     poser-01 (the 2026-09-20 audit): this used to call ``set_pose`` alone, with
     no ``reset_all`` first and no ``set_root_translation`` after, so a pose
     authored with "Move root" lost its offset the moment it was re-applied
-    from here -- the same omission the Poser's own apply door,
-    ``poser_mode.apply_asset_pose``, was fixed for on 2026-09-11 (poser-02).
-    Mirrors that function's sequence exactly: reset clean, then the bones,
+    from here -- the same omission the apply door of the removed Poser mode
+    was fixed for on 2026-09-11 (poser-02).
+    Mirrors that door's sequence exactly: reset clean, then the bones,
     then the root, both loads landing with ``dirty=False`` since applying a
     saved pose is not itself an unsaved edit.
     """
@@ -433,6 +442,27 @@ def _load_pose(viewer: Any, pose: dict[str, Any], pose_id: str) -> None:
         viewer.set_root_translation(pose.get("root_translation") or [0.0, 0.0, 0.0], dirty=False)
 
 
+# The pose each in-flight ``pose-save:{job_id}`` wrote, for the landing to compare
+# the editor against. Frame thread only: ``_save`` fills it right after the submit
+# and the landing (``shell.tasks``) takes it. One per job, which is also the
+# submit key's own single-flight rule, so a second save of the same job is
+# refused before it can overwrite the first's snapshot.
+_SAVES_IN_FLIGHT: dict[str, dict[str, Any]] = {}
+
+
+def remember_save(job_id: str, bones: dict[str, Any], root_translation: Any) -> None:
+    """Record what a ``pose-save:{job_id}`` is writing (copied: the editor goes on)."""
+    _SAVES_IN_FLIGHT[job_id] = {
+        "bones": {name: list(quat) for name, quat in bones.items()},
+        "root_translation": list(root_translation),
+    }
+
+
+def take_save(job_id: str) -> dict[str, Any] | None:
+    """What the save that just landed wrote, or None if nothing was recorded."""
+    return _SAVES_IN_FLIGHT.pop(job_id, None)
+
+
 def _save(ctx: Any, job: Any, viewer: Any) -> None:
     job_id = job["id"]
     existing = viewer.editor.current
@@ -442,8 +472,8 @@ def _save(ctx: Any, job: Any, viewer: Any) -> None:
         # this payload, and store.save_pose rebuilds the record wholesale from
         # what it is given -- so re-saving a pose authored with "Move root"
         # erased the offset from disk even though the editor still showed it.
-        # Mirrors poser_mode.save_pose_to_asset's own payload, fixed for the
-        # identical omission by poser-02 on 2026-09-11.
+        # The removed Poser mode's save door was fixed for the identical
+        # omission by poser-02 on 2026-09-11.
         payload: dict[str, Any] = {
             "name": name,
             "bones": viewer.get_pose(),
@@ -456,7 +486,15 @@ def _save(ctx: Any, job: Any, viewer: Any) -> None:
         # Dirty is cleared when the save *lands*, not here: clearing it at
         # submit time means a failed write leaves the editor claiming the pose
         # is safe, and the next Escape or selection change discards it silently.
-        ctx.submit(f"pose-save:{job_id}", svc_rig.save_pose, ctx.svc, job_id, payload)
+        #
+        # The 2026-10-14 audit, finding shell-shell-pkg-07: the landing cleared
+        # ``dirty`` for any ``pose-save:`` while pose mode was on, but the save
+        # can wait on ``convert_lock`` behind a bake while the user keeps posing
+        # (or enters another asset's pose mode). What was written is remembered
+        # (:func:`remember_save`) so the landing can tell whether the editor
+        # still holds exactly that.
+        if ctx.submit(f"pose-save:{job_id}", svc_rig.save_pose, ctx.svc, job_id, payload):
+            remember_save(job_id, payload["bones"], payload["root_translation"])
 
     ctx.prompts.ask(dialogs.Prompt(title="Name this pose", label="Name", on_accept=accept))
 
@@ -474,27 +512,50 @@ def _save(ctx: Any, job: Any, viewer: Any) -> None:
 _JOINTS_LANDED: set[str] = set()
 
 
-def _joints(ctx: Any, job: Any, viewer: Any) -> None:
-    moved = viewer.joint_moves()
-    if job["id"] in _JOINTS_LANDED:
-        _JOINTS_LANDED.discard(job["id"])
-        # A flag left by a landing the user walked away from (Back to posing,
-        # Escape) meets a fresh session with nothing moved: drop it, don't exit.
-        if moved:
-            # Directly, not through ``guard``: the markers are still "moved" and
-            # the re-rig that just landed is what made them the skeleton.
-            viewer.exit_joints_mode()
-            moved = viewer.joint_moves()
-    widgets.muted(viewer.selected_bone or "Click a joint to move it.")
-    widgets.muted(f"{len(moved)} joint(s) moved")
-    job_id = job["id"]
-    busy = ctx.busy(f"joints:{job_id}")
-    if widgets.disabled_button(
-        "Apply joint positions",
-        bool(moved) and not busy,
-        (-1, 0),
-        reason="Re-rigging..." if busy else "Drag a joint marker first.",
-    ):
+# ``rig.json``'s ``source`` for each job the editor has bound, read once on the
+# entering task (:func:`_enter`) so a frame never opens a file to ask. Frame
+# thread only, like ``_SAVES_IN_FLIGHT``.
+_RIG_SOURCE: dict[str, str] = {}
+
+#: Why "Save GLB..." is greyed on a host with no Blender: the one sentence the
+#: app uses wherever something needs Blender, and ``service.rig.posed_model``'s
+#: own refusal.
+SAVE_GLB_NEEDS_BLENDER = "Rigging needs Blender, which is not installed."
+
+#: Said in joints mode, and as the confirm's message, for a rig Clay wrote.
+CLAY_REBIND_WARNING = (
+    "This rig was built by hand in Clay. Applying joint positions re-rigs the "
+    "static mesh with Blender's automatic weights and replaces its binding."
+)
+
+
+def note_rig_source(job_id: str, source: Any) -> None:
+    """Record what authored ``job_id``'s rig, from a landing other than entering the editor.
+
+    The 2026-10-14 audit, finding create-panes-06: the Rig stage's "Rig this mesh
+    again" asks :func:`clay_authored` first, and that answer used to exist only
+    once the Pose editor had been entered for the job. ``tasks`` calls this from
+    the ``poses:`` landing, which runs for every selected rigged job.
+    """
+    _RIG_SOURCE[job_id] = str(source or "")
+
+
+def clay_authored(job_id: str) -> bool:
+    """Whether ``job_id``'s rig is one Clay wrote (``rig.json`` ``source`` is ``"clay"``).
+
+    The 2026-10-14 audit, finding create-panes-06: "Apply joint positions" is
+    offered for every rig with fitted bones, and ``adjust_joints`` queues a
+    Blender re-rig from ``model.glb`` -- so one press of what reads as a small
+    joint correction threw away a hand-built binding (rigid parenting, or
+    Weight with Blender) with no warning and no earlier-meshes copy.
+    """
+    return _RIG_SOURCE.get(job_id) == "clay"
+
+
+def _apply_joints(ctx: Any, job_id: str, viewer: Any) -> None:
+    """Queue the re-rig for the markers as dragged, asking first for a Clay rig."""
+
+    def queue() -> None:
         # A re-rig, not an edit: skinning is minutes of CPU and must never
         # overlap a trellis run, so it goes through the queue like the first
         # rig did.
@@ -509,6 +570,48 @@ def _joints(ctx: Any, job: Any, viewer: Any) -> None:
 
         _JOINTS_LANDED.discard(job_id)
         ctx.submit(f"joints:{job_id}", adjust)
+
+    if not clay_authored(job_id):
+        queue()
+        return
+    ctx.confirms.ask(
+        dialogs.Confirm(
+            title="Replace this rig's binding?",
+            message=CLAY_REBIND_WARNING,
+            confirm_label="Replace binding",
+            cancel_label="Keep",
+            on_confirm=queue,
+        )
+    )
+
+
+def _joints(ctx: Any, job: Any, viewer: Any) -> None:
+    moved = viewer.joint_moves()
+    if job["id"] in _JOINTS_LANDED:
+        _JOINTS_LANDED.discard(job["id"])
+        # The re-rig that just landed replaced the Clay binding (the user was
+        # asked), so the rig is no longer Clay's and the next press is plain.
+        _RIG_SOURCE.pop(job["id"], None)
+        # A flag left by a landing the user walked away from (Back to posing,
+        # Escape) meets a fresh session with nothing moved: drop it, don't exit.
+        if moved:
+            # Directly, not through ``guard``: the markers are still "moved" and
+            # the re-rig that just landed is what made them the skeleton.
+            viewer.exit_joints_mode()
+            moved = viewer.joint_moves()
+    if clay_authored(job["id"]):
+        widgets.text_colored(theme.WARN, CLAY_REBIND_WARNING)
+    widgets.muted(viewer.selected_bone or "Click a joint to move it.")
+    widgets.muted(f"{len(moved)} joint(s) moved")
+    job_id = job["id"]
+    busy = ctx.busy(f"joints:{job_id}")
+    if widgets.disabled_button(
+        "Apply joint positions",
+        bool(moved) and not busy,
+        (-1, 0),
+        reason="Re-rigging..." if busy else "Drag a joint marker first.",
+    ):
+        _apply_joints(ctx, job_id, viewer)
     if widgets.disabled_button("Revert", bool(moved), reason="No joint has been moved."):
         # Throws away every marker the user dragged, unlabelled and one row
         # under "Apply joint positions"; guarded for the same reason.
@@ -556,7 +659,8 @@ def _saved_list(ctx: Any, job: Any) -> None:
             # global library, not a hand-made pose.
             imgui.same_line()
             widgets.muted("(library)")
-        # Wrapped rather than chained, poser_library's reason: the row leads
+        # Wrapped rather than chained (the reason the removed pose library's
+        # rows were too): the row leads
         # with a user-typed name (and sometimes a "(library)" marker) and then
         # wants three controls, one of which reads "Save GLB...". A long name
         # pushed Delete past the content edge where imgui clips it.
@@ -577,8 +681,15 @@ def _saved_list(ctx: Any, job: Any) -> None:
             guard(ctx, "apply a saved pose", _apply)
         widgets.same_line_or_wrap(widgets.button_width("Save GLB..."))
         key = f"bake:{job_id}:{pose_id}"
+        # A bake runs Blender, and since Clay writes ``rig.glb`` with none a
+        # rigged asset can exist on a host that has no Blender (the 2026-10-14
+        # audit, finding create-panes-05). The button said nothing and the press
+        # ended in "could not bake this pose"; the reason is now beside it.
+        has_blender = bool(getattr(ctx, "rigging_available", True))
         if widgets.disabled_button(
-            "Save GLB...", not ctx.busy(key), reason="This pose is already baking."
+            "Save GLB...",
+            has_blender and not ctx.busy(key),
+            reason=SAVE_GLB_NEEDS_BLENDER if not has_blender else "This pose is already baking.",
         ):
             _bake(ctx, job_id, pose_id)
         widgets.same_line_or_wrap(widgets.button_width("Delete"))

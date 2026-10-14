@@ -28,13 +28,62 @@ from . import state as inker_state
 from .state import InkerDoc, InkerState
 
 
+def _quick_modifier(event: Any) -> str:
+    """``"Alt"``/``"Ctrl"`` when ``event`` is one of the quick-tool modifiers."""
+    import pygame
+
+    if event.key in (pygame.K_LALT, pygame.K_RALT):
+        return "Alt"
+    if event.key in (pygame.K_LCTRL, pygame.K_RCTRL):
+        return "Ctrl"
+    return ""
+
+
 def handle_key(ctx: Any, event: Any) -> bool:
     """Inker's shortcuts. -> whether the key was consumed.
 
     Consumed unconditionally while a document is open, exactly as the old
     inline editor did: F, W and S would otherwise frame and wireframe a
     viewport that is not on screen.
+
+    **A tool chosen during a quick-tool hold is the user's, not the hold's.**
+    The 2026-10-14 audit (finding inker-mode-08): with a paint tool in hand,
+    Ctrl is quick Move, and Ctrl+V pastes and calls ``set_tool("move")`` -- the
+    tool the manual promises -- after which releasing Ctrl put the pre-hold
+    brush back unconditionally, so every paste ended with a floating buffer and
+    the wrong tool. ``capture_brush`` (Ctrl+B) had the same shape. Whatever
+    calls ``set_tool`` while a hold is armed -- an op, the tool-letter arm, a
+    stamp -- is watched here and drops the pending restore, because the
+    choice cannot be told from the hold's own tool by comparing names (a paste
+    selects Move, which is what the hold already selected).
     """
+    import pygame
+
+    state = ctx.state.inker
+    if (
+        state is None
+        or not state.quick_key
+        or event.type != pygame.KEYDOWN
+        or _quick_modifier(event)
+    ):
+        return _handle_key(ctx, event)
+    chosen: list[str] = []
+    real = state.set_tool
+
+    def watching(tool: str) -> None:
+        chosen.append(tool)
+        real(tool)
+
+    state.set_tool = watching
+    try:
+        return _handle_key(ctx, event)
+    finally:
+        state.__dict__.pop("set_tool", None)
+        if chosen:
+            state.quick_key = state.quick_tool = ""
+
+
+def _handle_key(ctx: Any, event: Any) -> bool:
     import pygame
 
     state = ctx.state.inker
@@ -53,35 +102,36 @@ def handle_key(ctx: Any, event: Any) -> bool:
         # ``plotter_mode.handle_key`` learned the same lesson at its own door.
         state.space_held = event.type == pygame.KEYDOWN
         return bool(state.docs)
+    quick_key = _quick_modifier(event)
+    if quick_key and event.type == pygame.KEYUP and state.quick_key == quick_key:
+        # **Above the "is there a document" returns below**, the Space hold's
+        # fix over again (the 2026-10-14 audit, finding inker-mode-09): holding
+        # Ctrl and closing the last tab with Ctrl+W dropped this release, so
+        # ``quick_key`` stayed armed with Move in hand and the next drawing
+        # opened on Move. The release is honoured whether or not a document
+        # survives, because the hold outlives it.
+        previous = state.quick_tool
+        state.quick_key = state.quick_tool = ""
+        if previous:
+            state.set_tool(previous)
+        return True
     if not state.docs:
         return False
     tab = state.active
     if tab is None:
         return False
 
-    quick_key = ""
-    if event.key in (pygame.K_LALT, pygame.K_RALT):
-        quick_key = "Alt"
-    elif event.key in (pygame.K_LCTRL, pygame.K_RCTRL):
-        quick_key = "Ctrl"
-    if quick_key:
-        if event.type == pygame.KEYUP and state.quick_key == quick_key:
-            previous = state.quick_tool
-            state.quick_key = state.quick_tool = ""
-            if previous:
-                state.set_tool(previous)
+    if quick_key and event.type == pygame.KEYDOWN and not state.quick_key:
+        quick = inker_ops.resolve_binding(
+            quick_key,
+            inker_state.key_context(state, tab),
+            state.shortcut_overrides,
+            trigger="hold",
+        )
+        if quick is not None and quick.kind == "tool":
+            state.quick_key, state.quick_tool = quick_key, state.tool
+            state.set_tool(quick.target)
             return True
-        if event.type == pygame.KEYDOWN and not state.quick_key:
-            quick = inker_ops.resolve_binding(
-                quick_key,
-                inker_state.key_context(state, tab),
-                state.shortcut_overrides,
-                trigger="hold",
-            )
-            if quick is not None and quick.kind == "tool":
-                state.quick_key, state.quick_tool = quick_key, state.tool
-                state.set_tool(quick.target)
-                return True
     doc = tab.doc
     if event.type != pygame.KEYDOWN:
         return True

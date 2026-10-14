@@ -4,6 +4,7 @@ Tier qualification's automated half, and until 2026-09-23 the only way this
 module was reached: a named tier stayed out of the generate forms until it had
 been run, by hand, against a chest, a sword and a rock
 (``dev/measurements/2026-08-13-tier-qualification.md`` records that attempt).
+(Document lost with the 2026-09-20 backup; re-measure before changing this.)
 ``vendor/gltfpack/gltfpack.exe`` has been present since 2026-08-07, so
 ``draft``/``standard``/``detailed`` were live code rather than dormant -- which
 changed the shape of the constraint instead of removing it. A named tier was no
@@ -14,8 +15,8 @@ and that is harder to notice.
 usable result (0 of 20 accepted on 2026-08-13, a single reconstruction in the
 library on 2026-09-23), and the invariant's real fear -- a tier that silently
 ships a worse mesh -- is exactly what :func:`compare` already measures.
-``dev/measurements/2026-09-23-default-mesh-budget.md`` replaces the sample with
-a check on **every** job instead: ``pipelines.optimize.run`` now calls
+``dev/measurements/2026-09-23-default-mesh-budget.md`` [lost; re-measure to change] replaces the
+sample with a check on **every** job instead: ``pipelines.optimize.run`` now calls
 :func:`compare` on its own output before publishing it, on every gltfpack
 pass, not just three hand-picked subjects. That is strictly stronger --
 it cannot pass on a sword and then fail unseen on a chest. :func:`qualify`

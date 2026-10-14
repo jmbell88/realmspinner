@@ -200,7 +200,11 @@ def _layer_rows(ctx: Any, state: Any, tab: Any) -> None:
     doc = None if tab is None else tab.doc
     ready = tab is not None and not tab.busy
     active = None if doc is None else doc.active_layer
-    many = doc is not None and len(doc.layers) > 1
+    # The same rule the layers bar enforces, over the whole tree rather than the
+    # root list: a layer inside the map's only group was refused as "the last
+    # layer" while its siblings would remain (the 2026-10-14 audit, finding
+    # plotter-mode-14).
+    many = not (active is not None and plotter_layers.layer_delete_blocker(doc, active))
     if _row("New tile layer", enabled=ready, reason=_layer_reason(tab)):
         doc.add_tile_layer()
     if _row("New object layer", enabled=ready, reason=_layer_reason(tab)):
@@ -226,13 +230,12 @@ def _layer_rows(ctx: Any, state: Any, tab: Any) -> None:
         # single-object verb then did nothing, with no reason given.
         plotter_mode._prune_object_selection(ctx, tab)
     controls.menu_separator()
-    # Sibling-aware, not ``many`` (the root-only count Delete above still
-    # uses): a layer that is the only child of a group had no sibling to
-    # trade places with even on a map with plenty of layers elsewhere, and
-    # ``many`` alone left Raise/Lower lit for a click ``shift_layer`` quietly
-    # did nothing with -- the pane's own bar already asked
-    # ``can_shift_layer`` for exactly this reason (the 2026-09-26 audit,
-    # finding plotter-mode-10).
+    # Sibling-aware, not ``many`` (the whole-tree Delete rule above): a layer
+    # that is the only child of a group had no sibling to trade places with
+    # even on a map with plenty of layers elsewhere, and ``many`` alone left
+    # Raise/Lower lit for a click ``shift_layer`` quietly did nothing with --
+    # the pane's own bar already asked ``can_shift_layer`` for exactly this
+    # reason (the 2026-09-26 audit, finding plotter-mode-10).
     can_raise = ready and active is not None and plotter_mode.can_shift_layer(doc, active, 1)
     can_lower = ready and active is not None and plotter_mode.can_shift_layer(doc, active, -1)
     if _row(

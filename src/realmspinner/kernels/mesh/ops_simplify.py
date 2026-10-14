@@ -171,13 +171,20 @@ def selection_cost(meshes, target: int) -> int:
 
 def _refuse_if_too_large(mesh: Mesh) -> None:
     """Refuse from the input's own counts, before anything is derived from it."""
-    ceiling = MAX_SIMPLIFY_CORNERS // 2 if mesh.uv is not None else MAX_SIMPLIFY_CORNERS
     triangles = len(mesh.loops) - 2 * face_count(mesh)
-    if simplify_cost(mesh) > MAX_SIMPLIFY_CORNERS:
+    cost = simplify_cost(mesh)
+    if cost > MAX_SIMPLIFY_CORNERS:
+        # The 2026-10-14 audit, finding clay-mesh-ops-04: this named the corner count
+        # against a corner ceiling, but the test is :func:`simplify_cost` -- twice the
+        # triangles for a mesh of big polygons, doubled again for UVs -- so 950
+        # twenty-gons (19,000 corners) were refused with "past ... 20,000 corners".
+        # It states the charged cost, and what the charge is made of.
+        uvs = ", doubled because it carries UVs" if mesh.uv is not None else ""
         raise OpError(
             f"This mesh has {len(mesh.loops):,} corners ({triangles:,} triangles "
-            f"once split), past what Simplify can work through without stalling "
-            f"-- {ceiling:,} corners. Split the mesh first, or use Merge Faces "
+            f"once split). Simplify charges it {cost:,}, the larger of its corners and "
+            f"twice its triangles{uvs}, past the {MAX_SIMPLIFY_CORNERS:,} it can work "
+            "through without stalling. Split the mesh first, or use Merge Faces "
             "on the flat parts."
         )
 

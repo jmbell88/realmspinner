@@ -22,14 +22,13 @@ not" per-request, which stopped being true when those axes arrived.
 
 The creative-direction taxonomy this module used to own (twelve tables of
 subject adjectives) was retired on 2026-08-17 -- see
-dev/measurements/2026-08-17-taxonomy-retirement.md. What survives is the
-machinery selection: ``platform`` (geometry resolution), the model fields
-(``base_model``/``style_lora``) and the conditioning fields
-(``ip_adapter``/``control``), all validated and stored here so the API gets
-its 400-on-unknown from one place. Retired keys arriving in stored params are
-tolerated and ignored, never refused, so every pre-retirement job still
-rerolls and promotes. The single-object/plain-background scaffolding that
-keeps images TRELLIS-friendly lives in pipelines/prompt.PROMPT_TEMPLATE.
+dev/measurements/2026-08-17-taxonomy-retirement.md [lost; re-measure to change]. What survives is
+the machinery selection: ``platform`` (geometry resolution), the model fields
+(``base_model``/``style_lora``) and the conditioning fields (``ip_adapter``/``control``), all
+validated and stored here so the API gets its 400-on-unknown from one place. Retired keys arriving
+in stored params are tolerated and ignored, never refused, so every pre-retirement job still rerolls
+and promotes. The single-object/plain-background scaffolding that keeps images TRELLIS-friendly
+lives in pipelines/prompt.PROMPT_TEMPLATE.
 """
 
 from __future__ import annotations

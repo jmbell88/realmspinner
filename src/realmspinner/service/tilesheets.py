@@ -20,7 +20,8 @@ sheet.
 
 ``grid``
     The original path: one 1024px frame painted through a canny guide and cut
-    into sixty-four cells. ``dev/measurements/2026-08-18-tile-sheet-grid.md``
+    into sixty-four cells. ``dev/measurements/2026-08-18-tile-sheet-grid.md`` [lost; re-measure to
+    change]
     measured what it produces -- every cell of the guide is identical, so there
     is no per-cell signal for variety and the model answers with one scene cut
     up or one tile repeated. It still builds, because rerunning a sheet made
@@ -176,6 +177,7 @@ LEGACY_VIEWS: dict[str, str] = {"orthogonal": "top_down"}
 #: (``dev/measurements/2026-08-17-ground-reduction.md``: occupancy at 32 was
 #: saturated, 64 stayed above 95%). Not a control, for the reason the module
 #: docstring gives.
+#: (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 #:
 #: **The grid mode's value, and only that.** The measurement was taken over
 #: *one* generation of *one* subject, which is exactly what a grid sheet is: one
@@ -507,10 +509,15 @@ def create_tile_sheet(
 ) -> dict[str, Any]:
     """Queue a sheet of generated tiles. Three shapes -- see the module docstring.
 
-    ``prompt`` is the **style sentence** in the two seamless modes: the words
-    every cell shares. What each cell is *of* comes from ``prompt_items``
-    (materials) or from ``inner_terrain``/``outer_terrain`` (terrain). In grid
-    mode it is the whole subject, as it always was.
+    ``prompt`` **only names the sheet** in the two seamless modes: the history
+    row reads ``"<prompt> tile sheet"`` and the worker never reads it again.
+    What each cell is *of* comes from ``prompt_items`` (materials) or from
+    ``inner_terrain``/``outer_terrain`` and ``boundary`` (terrain), so the words
+    here do not reach the picture. The empty-prompt refusal is a refusal of an
+    unnamed row, nothing more (the 2026-10-14 audit, finding plotter-tiles-07:
+    this docstring used to say it carried the words every cell shares, which
+    contradicted both the worker and the manual). In grid mode it is the whole
+    subject, as it always was.
 
     ``boundary`` is **context, and never an instruction**. It is appended to
     *both* terrain subjects so two independent samples come back sharing a world
@@ -961,7 +968,10 @@ def create_tile_sheet(
     normalized_ref: bytes | None = None
     if reference is not None:
         if len(reference) > MAX_UPLOAD_BYTES:
-            raise TooLarge("reference upload is over 20 MB")
+            # ``field`` so the form can ring the reference control, as the two
+            # refusals just below do (the 2026-10-14 audit, finding
+            # plotter-tiles-08).
+            raise TooLarge("reference upload is over 20 MB", field="reference")
         try:
             normalized_ref = to_png(reference)
         except ImageTooLarge as exc:

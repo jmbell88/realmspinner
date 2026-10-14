@@ -4,6 +4,7 @@ recipe, and stamped by the sprite and particle primitives."""
 from __future__ import annotations
 
 import dataclasses
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -346,11 +347,17 @@ def test_the_generate_door_queues_polls_decodes_and_lands(tmp_path, monkeypatch)
     state.flourish_layer[group] = sparks.uid
     calls: list = []
 
+    from realmspinner.service import jobs as svc_jobs
+
+    real_signature = inspect.signature(svc_jobs.create_job)
+
     def fake_create_job(svc, **kwargs):
+        # Bound to the real signature: a fake taking ``**kwargs`` hid the
+        # ``negative=`` keyword the real door has never accepted (the
+        # 2026-10-14 audit, finding inker-flourish-01).
+        real_signature.bind(svc, **kwargs)
         calls.append(kwargs)
         return {"id": "job1"}
-
-    from realmspinner.service import jobs as svc_jobs
 
     monkeypatch.setattr(svc_jobs, "create_job", fake_create_job)
     assert inker_ops.run(ctx, inker_ops.get("flourish_texture_generate"))
@@ -365,6 +372,7 @@ def test_the_generate_door_queues_polls_decodes_and_lands(tmp_path, monkeypatch)
     # Still running: nothing lands.
     ctx.svc.store.jobs["job1"] = {"status": "running"}
     inker_flourish.poll_texture(ctx, state, now=100.0)
+    ctx.land_all()  # the store read is a task now; its answer lands on the frame thread
     assert state.flourish_texture_pending is not None
     # Done: the picture on black is keyed out and lands as an asset.
     job_dir = tmp_path / "job1"
@@ -376,6 +384,7 @@ def test_the_generate_door_queues_polls_decodes_and_lands(tmp_path, monkeypatch)
     picture.save(job_dir / "input.png")
     ctx.svc.store.jobs["job1"] = {"status": "done"}
     inker_flourish.poll_texture(ctx, state, now=200.0)
+    ctx.land_all()
     assert state.flourish_texture_pending is None
     ctx.land_all()
     # Not in the document yet -- only pixels in ``state``, until the render
@@ -404,6 +413,7 @@ def test_a_failed_job_is_a_warning_and_clears_the_pending(tmp_path):
     }
     ctx.svc.store.jobs["j"] = {"status": "failed", "error": "out of memory"}
     inker_flourish.poll_texture(ctx, state, now=1.0)
+    ctx.land_all()
     assert state.flourish_texture_pending is None
     assert ctx.toasts[-1][1] == "warn"
 

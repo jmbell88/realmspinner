@@ -61,6 +61,20 @@ def columns(sequence: inst.Sequence) -> int:
     return max(len(sequence.values), min(MIN_STEPS, inst.MAX_SEQUENCE_LEN))
 
 
+def paint_columns(sequence: inst.Sequence) -> int:
+    """How many columns the graph *draws and accepts a pointer on*: the steps
+    the sequence holds plus one spare to paint into, until the ceiling.
+
+    The 2026-10-14 audit, finding sirens-panes-05: the graph drew
+    :func:`columns` -- exactly ``len(values)`` once a sequence reached
+    :data:`MIN_STEPS` -- and :func:`step_at` clamps to the last of them, so on a
+    sixteen-step sequence there was no column past the end for a drag to land
+    on and "painting past the end lengthens the sequence" (the Steps tooltip and
+    the manual) was true only below sixteen steps. One spare column makes it
+    true at every length the engine allows."""
+    return min(max(columns(sequence), len(sequence.values) + 1), inst.MAX_SEQUENCE_LEN)
+
+
 def painted(
     sequence: inst.Sequence, step: int, value: int, *, previous: int = -1
 ) -> inst.Sequence:

@@ -52,7 +52,7 @@ class ServiceError(Exception):
 
 
 class NotFound(ServiceError):
-    """No such job / pose / sheet / file. Also covers a malformed id: a caller
+    """No such job / library item / file. Also covers a malformed id: a caller
     that supplies one cannot tell the difference, and saying so leaks less."""
 
     status = 404

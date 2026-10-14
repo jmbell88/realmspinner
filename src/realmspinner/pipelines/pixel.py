@@ -46,6 +46,7 @@ GRID_SCALES: tuple[int, ...] = (4, 5, 6, 8, 10, 12, 16)
 # dev/measurements/2026-08-06-pixel-art-xl.md is that document (procedure
 # pre-registered, run not yet taken) and comes before it moves -- the pattern
 # trellis_band and mesh_hole_max both set.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 GRID_RESIDUAL_MAX = 0.05
 
 # Alpha is binary in pixel art: a cell is drawn or it is not. The threshold is
@@ -83,7 +84,7 @@ class PixelOpts:
 _HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6})$")
 
 #: The absolute ceiling on how many rows any reader below will turn into
-#: colours. Restated from ``studio/inker/gpl.MAX_PALETTE_ROWS`` verbatim --
+#: colours. Restated from ``kernels/pixel/gpl.MAX_PALETTE_ROWS`` verbatim --
 #: this package may not import the studio, and the studio's headless Inker
 #: package may not import this one, so the intentional-duplication comment
 #: above applies to the constant too. The 2026-09-16 audit found these four
@@ -213,7 +214,7 @@ def parse_gpl(text: str) -> tuple[RGB, ...]:
 # The two ported readers
 # --------------------------------------------------------------------------
 #
-# ``studio/inker/gpl.py`` reads these same two formats for the Inker's own
+# ``kernels/pixel/gpl.py`` reads these same two formats for the Inker's own
 # import, and the code below is a **port** of that module's ``parse_jasc`` and
 # ``parse_txt`` rather than a call to them: this package may not import the
 # studio, and the studio's headless Inker package may not import this one. Two
@@ -482,6 +483,7 @@ def lattice(image: PILImage) -> dict[str, Any]:
     that would decide such a thing, ``GRID_RESIDUAL_MAX``, is provisional --
     see the constant, and ``dev/measurements/2026-08-06-pixel-art-xl.md``,
     whose procedure was pre-registered and whose run has never been taken.
+    (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     Rewiring a path's reduction onto an uncalibrated threshold is the mistake
     that document exists to prevent; shipping the measurement is what makes the
     run possible, because it is the field data the calibration needs. Field
@@ -546,12 +548,11 @@ def _get_srgb_lut() -> Any:
 def _to_oklab(rgb: Any) -> Any:
     """sRGB (0..255 float, or 0..255 uint8) -> Oklab.
 
-    dev/measurements/2026-08-30-native-batch-6-candidates.md #3: at 1024^2 the
-    float sRGB->linear step allocates several 8 MB float64 temporaries and
-    evaluates the discarded ``** 2.4`` branch on every pixel. When the input
-    is already ``uint8`` (the dtype ``map_palette`` hands the frame in as),
-    a 256-entry lookup table replaces that step; anything else -- including a
-    palette explicitly widened to float64 -- keeps the original closed form,
+    dev/measurements/2026-08-30-native-batch-6-candidates.md [lost; re-measure to change] #3: at
+    1024^2 the float sRGB->linear step allocates several 8 MB float64 temporaries and evaluates the
+    discarded ``** 2.4`` branch on every pixel. When the input is already ``uint8`` (the dtype
+    ``map_palette`` hands the frame in as), a 256-entry lookup table replaces that step; anything
+    else -- including a palette explicitly widened to float64 -- keeps the original closed form,
     since a float array is not provably a set of 0..255 integers.
     """
     import numpy as np
@@ -771,14 +772,28 @@ def clean_orphans(image: PILImage) -> tuple[PILImage, int]:
 
     Transparent pixels are left alone in both roles: an isolated *hole* is a
     silhouette decision, and the alpha snap above already made it deliberate.
+
+    The count is of pixels **recoloured**. A pixel with no opaque neighbour at
+    all -- a floating dot -- has nothing to take a colour from and is left as it
+    is, so it is not counted: the 2026-10-14 audit, finding inker-sheets-06, found
+    it counted anyway, so the ``orphans`` a pixelize report calls cleaned (and
+    the draft and bench numbers built on it) included pixels that survived.
+    :func:`report` still measures such a dot as a lone pixel, which it is.
     """
+    out, recoloured, _lonely = _clean_orphans(image)
+    return (out, recoloured)
+
+
+def _clean_orphans(image: PILImage) -> tuple[PILImage, int, int]:
+    """``(image, pixels recoloured, lone pixels found)`` -- the two figures
+    :func:`clean_orphans` and :func:`report` each want one of."""
     import numpy as np
     from PIL import Image
 
     rgba = np.asarray(image.convert("RGBA"))
     h, w = rgba.shape[:2]
     if h < 3 or w < 3:
-        return (image.convert("RGBA"), 0)
+        return (image.convert("RGBA"), 0, 0)
     opaque = rgba[:, :, 3] > 0
     # One integer per distinct colour, so "same colour" is one comparison.
     rgb = rgba[:, :, :3].astype(np.int64)
@@ -795,9 +810,10 @@ def clean_orphans(image: PILImage) -> tuple[PILImage, int]:
     stack = np.stack(neighbours, axis=-1)
     lonely = opaque & ~(stack == code[:, :, None]).any(axis=-1)
     if not lonely.any():
-        return (Image.fromarray(rgba, "RGBA"), 0)
+        return (Image.fromarray(rgba, "RGBA"), 0, 0)
 
     out = rgba.copy()
+    recoloured = 0
     ys, xs = np.nonzero(lonely)
     for y, x in zip(ys.tolist(), xs.tolist(), strict=True):
         vals = [v for v in stack[y, x].tolist() if v >= 0]
@@ -809,7 +825,8 @@ def clean_orphans(image: PILImage) -> tuple[PILImage, int]:
             (winner >> 8) & 0xFF,
             winner & 0xFF,
         )
-    return (Image.fromarray(out, "RGBA"), int(lonely.sum()))
+        recoloured += 1
+    return (Image.fromarray(out, "RGBA"), recoloured, int(lonely.sum()))
 
 
 # --------------------------------------------------------------------------
@@ -858,7 +875,9 @@ def report(
             out["palette_fraction"] = float(member_pixels) / total
         else:
             out["palette_fraction"] = 1.0
-    _, orphans = clean_orphans(image)
+    # The lone pixels *found*, not those ``clean_orphans`` could recolour: a
+    # floating dot is a lone pixel the viewer sees whether or not it can be fixed.
+    _, _, orphans = _clean_orphans(image)
     out["orphan_fraction"] = (float(orphans) / total) if total else 0.0
     if grid is not None:
         out["grid_residual"] = grid.get("residual")

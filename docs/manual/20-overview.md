@@ -223,8 +223,8 @@ One menu bar across the top of the window, drawn in every mode. Its roots are **
 **View**, **Workspace**, **Window** and **Help** for every mode — no mode gets a menu root of its
 own name. Clay's, Plotter's, Mason's and every other mode's actions are folded into File, Edit and
 View alongside the commands every mode already carries, rather than filed under the mode's own
-name. Inker is the one exception: between Edit and View it contributes six mode-specific roots —
-**Sprite**, **Layer**, **Frame**, **Select**, **Sheet** and **Flourish** — and it also adds rows to
+name. Inker is the one exception: between Edit and View it contributes five mode-specific roots —
+**Sprite**, **Layer**, **Frame**, **Select** and **Flourish** — and it also adds rows to
 File, Edit and View.
 
 **Nothing in the menu is a second implementation of anything.** Every row is an adapter over the
@@ -233,7 +233,7 @@ through, so the menu, `Ctrl+K` and the keyboard cannot disagree about what an ac
 it is available, or why it is not. A row you cannot use is greyed with the reason on hover — the
 same reason the palette gives — and a row with a keyboard binding prints it on the right.
 
-**Workspace** is the one to know about: it holds all thirteen modes, so it is a third way — beside
+**Workspace** is the one to know about: it holds all twelve modes, so it is a third way — beside
 the rail and the palette — to change what the window is showing.
 
 ## The status group
@@ -242,7 +242,7 @@ A right-aligned group at the far end of the same bar carries the app's status re
 workspace you are in, the open document and whether it has unsaved changes, the current tool and
 zoom in any workspace that has them (Inker, Plotter and Packwright zoom; Inker and Plotter have
 tools), the queue when anything is running or waiting, an **Agent connected** chip while an MCP
-client is attached (Settings → Agent), and an amber **N issue(s)** when a startup
+client is attached (the switch is under Settings → Advanced), and an amber **N issue(s)** when a startup
 check has failed. That figure is a report rather than a control — for the list behind it, go to
 **Settings → Health**, which is also where you look when nothing is failing and there is no count
 in the group at all. There is no green "all well" state, because a healthy install has nothing to
@@ -309,8 +309,8 @@ left you. It never presses **Generate** for you; you check the
 brief and do that yourself. Neither door goes anywhere or does anything you could not already reach by hand — a mode
 that is not ready yet says why, the same sentence its greyed rail item shows, and a request to draft in Create when
 Create itself is not ready says that instead of opening a form that could not generate anything. Ask Familiar for a
-character — **"make me a goblin in the swamp"** — and instead of a brief it shows a plan: the species, the theme,
-whichever movements, direction count or name you actually asked for, and a time estimate, with **Create**, **Open in
+character — **"make me a goblin in the swamp"** — and instead of a brief it shows a plan: the species, its look
+(the theme) and a time estimate, with **Create**, **Open in
 Create** and **Discard** underneath. **Create** queues the character exactly the way pressing Create's own Generate
 button would; **Open in Create** drops the same plan into Create's form instead, at the Reference stage, for you to
 adjust and generate yourself; **Discard** drops it. Nothing is queued until you press Create — proposing a plan never

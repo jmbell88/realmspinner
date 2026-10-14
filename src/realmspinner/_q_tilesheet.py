@@ -28,16 +28,15 @@ seed, the recipe that ran. It cannot record *structure*, because one guided
 generation has none -- there is no per-cell prompt, no cell seed and no
 Wang/path role anywhere in it, and the sixty-four guide cells are identical,
 which is the measurement that retired the mode for new requests
-(``dev/measurements/2026-08-18-tile-sheet-grid.md``). So this worker compiles
-no plan and the sidecar carries no ``workflow`` block. It used to: a stored
-``generation_request`` was run through ``asset_workflows.tile_plan`` and the
-compiled per-cell (or sixteen-role) description was written beside a picture
-that has neither -- a record of a structure the image does not have, which is
-the original defect the whole tileset programme was started to fix. The
-seamless modes in ``_q_tileset`` honour their plan for real and describe it in
-``pipelines.tileatlas.atlas_sidecar``; a second structural block here would be
-either a duplicate of the geometry above it or a contradiction of the pixels
-beside it. Anything "restoring" one is restoring the defect.
+(``dev/measurements/2026-08-18-tile-sheet-grid.md`` [lost; re-measure to change]). So this worker
+compiles no plan and the sidecar carries no ``workflow`` block. It used to: a stored
+``generation_request`` was run through ``asset_workflows.tile_plan`` and the compiled per-cell (or
+sixteen-role) description was written beside a picture that has neither -- a record of a structure
+the image does not have, which is the original defect the whole tileset programme was started to
+fix. The seamless modes in ``_q_tileset`` honour their plan for real and describe it in
+``pipelines.tileatlas.atlas_sidecar``; a second structural block here would be either a duplicate of
+the geometry above it or a contradiction of the pixels beside it. Anything "restoring" one is
+restoring the defect.
 """
 
 from __future__ import annotations
@@ -162,7 +161,9 @@ class TileSheetOps:
         # from params because params carry the *selection* and this is the
         # image itself.
         ref_png = job_dir / "ref.png"
-        has_reference = await asyncio.to_thread(ref_png.exists)
+        # ``is_file``: a directory named ``ref.png`` is not a reference (the
+        # 2026-10-14 audit, finding plotter-tiles-09).
+        has_reference = await asyncio.to_thread(ref_png.is_file)
 
         with tempfile.TemporaryDirectory(prefix="realmspinner-tilesheet-") as tmp:
             scratch = Path(tmp)

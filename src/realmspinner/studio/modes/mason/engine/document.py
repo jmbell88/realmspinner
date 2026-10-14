@@ -63,6 +63,55 @@ _FINITE_SCALAR_FIELDS = frozenset(
     {"intensity", "range", "inner_cone_angle", "outer_cone_angle", "yfov", "znear", "zfar"}
 )
 
+def _check_gltf_ranges(node: Node, props: dict[str, Any]) -> None:
+    """Refuse a light or camera number glTF's own schema forbids.
+
+    The 2026-10-14 audit's mason-engine-07: ``set_props`` checked only that the
+    numbers were finite, so a spot's inner cone at or past its outer, an outer
+    above pi/2, a negative intensity and a ``znear`` at or past ``zfar`` were
+    all stored and written straight into the GLB's KHR_lights_punctual and
+    camera blocks (and the manifest), where a strict importer rejects or clamps
+    them. The Properties pane only lower-clamped, and its near field never
+    looked at far. Only a key this call is changing is checked against its own
+    range, and the cross-field pairs only when one of the pair is changing, so a
+    document that already carries an out-of-range value (the pane could make
+    them) stays editable on every other field. A far of 0 is "no far plane",
+    the exporter's own reading, and stays legal.
+
+    ``props`` values are already known finite when this runs.
+    """
+
+    def value(key: str) -> float:
+        return float(props[key]) if key in props else float(getattr(node, key))
+
+    if isinstance(node, nd.LightNode):
+        if "intensity" in props and value("intensity") < 0.0:
+            raise ValueError("a light's intensity cannot be negative.")
+        if "range" in props and value("range") < 0.0:
+            raise ValueError("a light's range cannot be negative (0 means no limit).")
+        if "inner_cone_angle" in props and value("inner_cone_angle") < 0.0:
+            raise ValueError("a spot's inner cone angle cannot be negative.")
+        if "outer_cone_angle" in props and not 0.0 < value("outer_cone_angle") <= math.pi / 2:
+            raise ValueError(
+                "a spot's outer cone angle must be above 0 and at most pi/2 (90 degrees)."
+            )
+        if (
+            ("inner_cone_angle" in props or "outer_cone_angle" in props)
+            and props.get("kind", node.kind) == "spot"
+            and value("inner_cone_angle") >= value("outer_cone_angle")
+        ):
+            raise ValueError("a spot's inner cone angle must be smaller than its outer cone angle.")
+    elif isinstance(node, nd.CameraNode):
+        if "yfov" in props and not 0.0 < value("yfov") < math.pi:
+            raise ValueError("a camera's vertical field of view must be above 0 and below pi.")
+        if "znear" in props and value("znear") <= 0.0:
+            raise ValueError("a camera's near plane must be above 0.")
+        if "zfar" in props and value("zfar") < 0.0:
+            raise ValueError("a camera's far plane cannot be negative (0 means no far plane).")
+        if ("znear" in props or "zfar" in props) and 0.0 < value("zfar") <= value("znear"):
+            raise ValueError("a camera's far plane must be beyond its near plane.")
+
+
 # "The parent you already have." ``None`` is a real parent -- the root list --
 # so a nullable default could not tell "move to the root" apart from "leave it
 # where it is", and those are two different gestures. ``plotter/_map_layers.py``
@@ -388,6 +437,19 @@ class MasonDoc:
                 return None if found is None else found.world
         return None
 
+    def placed_total(self) -> int:
+        """Every node the reader will count against :data:`sc.MAX_PLACED`: the
+        scene tree plus every prefab template.
+
+        The 2026-10-14 audit, finding mason-mode-08: the placement doors' friendly
+        pre-check counted ``len(all_nodes())`` -- the tree alone -- while
+        :meth:`_check_max_placed` counts this total, so near the ceiling with
+        templates present the pre-check allowed a placement the engine then
+        refused with a bare ``ValueError`` out of a key handler. One number for
+        both, read here, so the two cannot drift apart a second time.
+        """
+        return self._node_count + self._template_nodes()
+
     def _template_nodes(self, skip: str | None = None) -> int:
         """The node count of every prefab template (except ``skip``), the half
         of the reader's total :attr:`_node_count` does not hold.
@@ -531,6 +593,20 @@ class MasonDoc:
         # second full walk of the same subtree.
         walks = [list(nd.walk([node])) for node in added]
         self._check_max_placed(sum(len(w) for w in walks))
+        # The 2026-10-14 audit, finding mason-mode-02: unlike ``set_transform``,
+        # this door never looked at the numbers it attached, so the Array tool
+        # with a typed ``1e999`` offset (imgui hands back +inf) stored nodes
+        # whose translation ``serialize`` refuses on read -- a scene that saved
+        # and journalled normally and then would not reopen. Refused before
+        # anything is attached, with the others.
+        for walk in walks:
+            for entry, _parent, _index, _depth in walk:
+                for field in ("translation", "rotation", "scale"):
+                    if not np.isfinite(np.asarray(getattr(entry, field), dtype="f8")).all():
+                        raise ValueError(
+                            f"a node's {field} is not finite; refusing rather than "
+                            "saving a scene this build could not reopen"
+                        )
         # The 2026-09-23 audit's docs-01: the tree-side check above undercounts
         # a prefab instance among ``added`` the same way ``add_node``'s own
         # did -- see :meth:`_check_resolved_placed`'s docstring.
@@ -727,6 +803,7 @@ class MasonDoc:
             elif key == "kind" and isinstance(node, nd.LightNode):
                 if value not in nd.LIGHT_KINDS:
                     raise ValueError(f"a light's kind must be one of {nd.LIGHT_KINDS}.")
+        _check_gltf_ranges(node, props)
         source = {} if was is None else was
         before = {key: source.get(key, getattr(node, key)) for key in props}
         if before == props:
@@ -893,6 +970,20 @@ class MasonDoc:
         template.translation = m3.vec3()
         template.rotation = m3.quat_identity()
         template.scale = m3.vec3(1.0, 1.0, 1.0)
+        # The 2026-10-14 audit, findings mason-engine-09 and mason-mode-06: the
+        # same argument one field over. ``scene.walk`` ANDs ``visible`` and ORs
+        # ``locked``/``static`` from the template root into every instance, and
+        # ``unpack_instance`` overwrites the copy root with the *instance's*
+        # flags, so a template root that kept a hidden node's flags made an
+        # instance whose own Visible toggle read ON, drew nothing and could not
+        # override the template -- and Unpack then revealed the hidden prop and
+        # dropped its static flag. The flags and the user properties are the
+        # instance's to carry (``mode.define_prefab_from_selection`` copies them
+        # on), so the template root is the neutral one, exactly as with its TRS.
+        template.visible = True
+        template.locked = False
+        template.static = False
+        template.properties = {}
         before = self.prefabs.get(name)
         # Charge this template against the same MAX_PLACED ceiling
         # ``read_rscn`` will check it against on reopen (roots plus every
@@ -904,10 +995,48 @@ class MasonDoc:
         self._check_max_placed(
             len(list(nd.walk([template]))), base=self._node_count + other_prefabs
         )
+        self._check_resolved_redefinition(name, template)
         self.history.push(ed.PrefabEdit(name, before, template))
         self._apply_prefab(name, template)
         self.touch()
         return template
+
+    def _check_resolved_redefinition(self, name: str, template: Node) -> None:
+        """Refuse a template swap that would push what the scene *resolves to*
+        past :data:`sc.MAX_PLACED`, with ``name``'s live instances expanding
+        into ``template``.
+
+        The 2026-10-14 audit's mason-engine-05: :meth:`define_prefab` charged
+        the tree plus every template's own node count and never the growth of
+        the instances already placed -- 20 instances of a one-node template
+        redefined as a ten-node one were accepted at 30 nodes against a ceiling
+        of 100, and the scene then resolved to 200 and ``resolve`` refused for
+        good until the user undid it. :meth:`_check_resolved_placed` is the same
+        charge for the attach doors; this is the template-swap door the 2026-09
+        audits never reached (the UI refuses an existing name, so only an engine
+        or agent caller gets here). The swap is made for the count and always
+        undone, because the real one is pushed as an edit only after this passes.
+        A scene with no prefab instance at all has nothing to expand into the
+        new template, so it skips the walk.
+        """
+        if not any(isinstance(entry, nd.PrefabNode) for entry in self.all_nodes()):
+            return
+        had = self.prefabs.get(name)
+        self.prefabs[name] = template
+        try:
+            self.resolved_total()
+        except ValueError as exc:
+            raise ValueError(
+                f"redefining the prefab {name!r} this way would bring this "
+                f"document's resolved size past the {sc.MAX_PLACED} MAX_PLACED "
+                "ceiling; refusing rather than leaving the scene unable to ever "
+                "resolve, draw or export again"
+            ) from exc
+        finally:
+            if had is None:
+                self.prefabs.pop(name, None)
+            else:
+                self.prefabs[name] = had
 
     def _prefab_refers_to(self, node: Node, target: str, visited: frozenset[str]) -> bool:
         """Whether ``node`` places ``target`` -- directly, or through a chain
@@ -1149,9 +1278,16 @@ class MasonDoc:
             raise RuntimeError("no sculpt session is open")
         assert self.terrain is not None
         x0, y0, x1, y1 = rect
-        block = np.ascontiguousarray(sub, dtype=np.float32)
+        with np.errstate(over="ignore", invalid="ignore"):
+            block = np.ascontiguousarray(sub, dtype=np.float32)
         if block.shape != (y1 - y0, x1 - x0):
             raise ValueError("sub does not match rect's shape")
+        if not np.isfinite(block).all():
+            # The 2026-10-14 audit's mason-engine-03: the brushes now refuse a
+            # result that is not finite, but this is the door every caller (an
+            # agent, a future brush) writes through, and a non-finite block is
+            # a scene that saves and then cannot be reopened.
+            raise ValueError("a sculpt block must be finite")
         if np.array_equal(self.terrain.heights[y0:y1, x0:x1], block):
             return False
         self._blit_terrain(rect, block)
@@ -1255,8 +1391,16 @@ class MasonDoc:
         siblings = self.children_of(parent_uid)
         del siblings[index]
         self._reindex_from(siblings, index, -1)
+        # The 2026-10-14 audit's mason-engine-04: only ``uid`` was dropped, so a
+        # selected *descendant* of a detached group stayed in ``selection`` (and
+        # as ``selection_active``) with ``node(uid)`` now ``None`` -- the exact
+        # uid this docstring promises no panel is ever handed. Every uid of the
+        # detached subtree goes, collected before the index forgets them.
+        gone = {entry.uid for entry, _p, _i, _d in nd.walk([node])}
         self._deindex_subtree(node)
-        self.selection.discard(uid)
+        self.selection -= gone
+        if self.selection_active in gone:
+            self.selection_active = None
         return node
 
     def _relocate(self, uid: int, target: tuple[int | None, int]) -> None:

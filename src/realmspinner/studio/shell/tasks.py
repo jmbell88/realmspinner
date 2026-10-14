@@ -51,6 +51,10 @@ from .. import jobs_cache as jobs_cache_mod
 
 log = logging.getLogger(__name__)
 
+#: The off-thread read of ``ctx.pack_rows``/``ctx.packs_to_restore`` that
+#: ``App._refresh_model_answers`` requests; landed in ``_on_task_done``.
+PACK_ANSWERS_KEY = "pack-answers"
+
 
 def _compare_key() -> str:
     """``library.COMPARE_KEY``, looked up lazily.
@@ -62,6 +66,64 @@ def _compare_key() -> str:
     from ..modes.library.ui.panes import library
 
     return library.COMPARE_KEY
+
+
+def _familiar_says_its_own_failure(key: str) -> bool:
+    """Whether *key* is a Familiar task whose failure the dock words itself.
+
+    ``assistant.ui.on_task_done`` toasts the refusal through ``_say`` (and adds
+    the transcript turn), so the failure chain's generic corner toast would put
+    the same sentence up twice. The 2026-10-14 audit, finding
+    shell-shell-pkg-01, routed those failures to the handler.
+    """
+    from ..assistant import ui as familiar_ui
+
+    return key in (
+        familiar_ui.CHAT_KEY,
+        familiar_ui.BUILD_KEY,
+        familiar_ui.CHARACTER_KEY,
+        familiar_ui.LAND_KEY,
+    )
+
+
+def _pose_save_matches_editor(viewer: Any, key: str, saved: Any) -> bool:
+    """Whether the editor still holds exactly what a ``pose-save:`` wrote.
+
+    *saved* is the ``{"bones", "root_translation"}`` snapshot the pose
+    panel recorded at accept time (``pose_panel.take_save``). A landing with no
+    snapshot has nothing to compare against (the pose panel is the only
+    submitter and always files one), so it keeps the rule the landing had
+    before the 2026-10-14 audit: the save landing is itself the proof.
+    """
+    if not isinstance(saved, dict):
+        return True
+    job_id = key.split(":", 1)[1]
+    if getattr(viewer, "pose_job_id", None) != job_id:
+        return False
+    return viewer.get_pose() == saved.get("bones") and list(
+        viewer.editor.root_translation()
+    ) == list(saved.get("root_translation") or [])
+
+
+def _read_rig_side_data(svc: Any, job_id: str) -> dict[str, Any]:
+    """``list_poses`` plus what authored the rig (``rig.json``'s ``source``), off-thread.
+
+    The 2026-10-14 audit, finding create-panes-06: "Rig this mesh again" confirms
+    before it replaces a rig Clay wrote, but it knew that only for a rig the Pose
+    editor had been entered on, so a Clay rig the user never opened there was
+    replaced by a template fit with no warning. This landing is the one place that
+    runs for every selected rigged job, so it carries the source with the poses.
+    """
+    from ...service import rig as svc_rig
+
+    data = dict(svc_rig.list_poses(svc, job_id))
+    try:
+        rig = svc_rig.get_rig(svc, job_id)
+    except Exception:  # a rig.json that cannot be read costs the guard, not the list
+        log.warning("could not read rig.json for %s", job_id, exc_info=True)
+        rig = None
+    data["source"] = str((rig or {}).get("source") or "")
+    return data
 
 
 def _import_mesh_key() -> str:
@@ -204,7 +266,8 @@ class TasksMixin:
                         "work somewhere you choose."
                     )
                     action = "log"
-                ctx.toast(message, "error", action)
+                if not _familiar_says_its_own_failure(done.key):
+                    ctx.toast(message, "error", action)
                 # A failed save must not leave the document locked: saving
                 # disables every editing control, so without this one bad
                 # write makes the tab read-only until it is closed. Each
@@ -305,6 +368,26 @@ class TasksMixin:
                     # every frame -- so a failure that left no note behind was
                     # re-submitted, re-failed and re-toasted at the frame rate.
                     matte_preview.on_task_failed(ctx, done)
+                elif done.key.startswith("familiar/"):
+                    from ..assistant import ui as familiar_ui
+
+                    # The 2026-10-14 audit, finding shell-shell-pkg-01: this
+                    # chain had no arm for Familiar, and ``on_task_done`` was
+                    # reached on success only -- yet the ``ui.thinking = ""``
+                    # reset, the transcript turn and the reason all live in the
+                    # *failure* branches of that handler. A lease refusal or a
+                    # missing weight (the routine outcome whenever the card is
+                    # busy) left the dock on "Thinking..." with Send and Build
+                    # disabled for the rest of the session.
+                    familiar_ui.on_task_done(ctx, done)
+                elif done.key == _compare_key():
+                    # The 2026-10-14 audit, finding shell-shell-pkg-02:
+                    # ``_adopt_compare`` is the only place that cleared
+                    # ``comparing``/``compare_pending`` and it ran on success
+                    # only, so a corrupt GLB left the viewport in split mode
+                    # with an empty half (and Compare toggled *off* on the next
+                    # press instead of retrying).
+                    self._compare_failed(done)
                 continue
             try:
                 self._on_task_done(done)
@@ -365,6 +448,15 @@ class TasksMixin:
                     from ...service import rig as svc_rig
 
                     ctx.submit("rig-templates", svc_rig.rig_templates, self.svc)
+            return
+        if key == PACK_ANSWERS_KEY:
+            if isinstance(done.result, tuple) and len(done.result) == 2:
+                self._adopt_pack_answers(done.result)
+            if getattr(self, "_pack_answers_stale", False):
+                # Asked again while this read was in flight: its answer may
+                # predate the change that asked.
+                self._pack_answers_stale = False
+                self._request_pack_answers()
             return
         if key == "model-storage":
             if isinstance(done.result, dict):
@@ -528,6 +620,10 @@ class TasksMixin:
             if name == "poses" and isinstance(done.result, dict):
                 ctx.state.preview["poses"] = done.result.get("poses") or []
                 ctx.state.preview["bones"] = done.result.get("bones") or []
+                if "source" in done.result:
+                    from ..panes import pose_panel
+
+                    pose_panel.note_rig_source(job_id, done.result["source"])
             elif name == "presets" and isinstance(done.result, dict):
                 ctx.state.preview["presets"] = done.result.get("poses") or []
             return
@@ -908,7 +1004,18 @@ class TasksMixin:
             # the next click is always on it -- the same reasoning ``create``
             # follows when a job it queued lands.
             ctx.state.select(done.result["id"])
-            ctx.toast("Mesh imported. It is an ordinary asset now.", "success")
+            refused = done.result.get("refused") or []
+            imported = done.result.get("imported", 1)
+            if refused:
+                # A multi-file drop (``library.import_mesh_paths``): the rows
+                # that were made stand, and each file that was not is named.
+                names = ", ".join(name for name, _ in refused[:3])
+                more = f" and {len(refused) - 3} more" if len(refused) > 3 else ""
+                ctx.toast(f"Could not import {names}{more}: {refused[0][1]}", "error")
+            if imported > 1:
+                ctx.toast(f"{imported} meshes imported. They are ordinary assets now.", "success")
+            else:
+                ctx.toast("Mesh imported. It is an ordinary asset now.", "success")
             return
         if key.startswith("retarget:"):
             # model.glb was rewritten under the viewer, and the params it is
@@ -984,11 +1091,26 @@ class TasksMixin:
             ctx.model_picks -= present
             return
         if key.startswith("pose-"):
-            if key.startswith("pose-save:") and self.viewer.pose_mode:
+            if key.startswith("pose-save:"):
+                from ..panes import pose_panel
+
+                # Taken whether or not pose mode is still on: the record is
+                # this landing's and must not outlive it.
+                written = pose_panel.take_save(key.split(":", 1)[1])
                 # Only now is the pose actually on disk. A failed save leaves
                 # the flag set, so the guard still stops the user walking away
                 # from work that was never written.
-                self.viewer.editor.dirty = False
+                #
+                # The 2026-10-14 audit, finding shell-shell-pkg-07: only if
+                # the viewer is still on the job that was saved and still
+                # holds the pose that was written -- the save can queue
+                # behind a bake, and an edit made meanwhile (or another
+                # asset's pose mode) would otherwise be marked saved and the
+                # leave/quit guards would go quiet over it.
+                if self.viewer.pose_mode and _pose_save_matches_editor(
+                    self.viewer, key, written
+                ):
+                    self.viewer.editor.dirty = False
             self._refresh_rig_side_data()
             ctx.cache.invalidate()
             return
@@ -1292,9 +1414,9 @@ class TasksMixin:
     def _dispatch_character_preview(self, path: Any) -> None:
         """Queue a just-built character preview's parse, off the frame thread.
 
-        create-02 (2026-09-11 audit): this used to call ``viewer.load_model``
-        directly here -- the blocking glTF parse plus a PNG texture decode per
-        slot -- on the very frame the "character-preview" build task lands,
+        create-02 (2026-09-11 audit): this used to parse the glTF (plus a PNG
+        texture decode per slot) inline on the very frame the
+        "character-preview" build task lands,
         which is exactly the T2-class stall the 2026-09-02 review already
         fixed for the reference-PNG and mesh-load paths (see
         ``_sync_viewer``/``_adopt_model``). The build itself
@@ -1311,7 +1433,7 @@ class TasksMixin:
         # the task's tag and compared again at landing in
         # ``_adopt_character_preview`` -- the same way ``viewer.pending``
         # gates ``_adopt_model`` -- so a build that lands after the user has
-        # selected a different asset, entered Poser, or left Create's
+        # selected a different asset, changed mode, or left Create's
         # Reference stage cannot silently replace whatever the viewport shows
         # by then.
         token = str(getattr(ctx.state, "selected", "") or "")
@@ -1383,9 +1505,6 @@ class TasksMixin:
         viewer = self.viewer
         if viewer is None or ctx.state.mode not in modes.VIEWPORT_MODES:
             return
-        # A strip renders off the mesh that is about to go; finishing it would
-        # spend frames on an image of something no longer on screen.
-        viewer.cancel_sheet_strip()
         if ctx.state.comparing:
             ctx.state.comparing = None
             viewer.exit_compare()
@@ -1467,6 +1586,22 @@ class TasksMixin:
             # ``pending`` before it is adopted, so this one is simply retried
             # on the next tick rather than queued.
             self.viewer.pending = None
+
+    def _compare_failed(self, done: Any) -> None:
+        """A comparison mesh that would not parse: leave compare mode.
+
+        The failure-side twin of :meth:`_adopt_compare`, with the same
+        staleness rule -- a failure for a path that is no longer the one
+        awaited (a newer compare is in flight) must not cancel that newer one.
+        """
+        state = self.app_ctx.state
+        if done.tag is None or state.compare_pending != done.tag:
+            return
+        state.compare_pending = None
+        state.comparing = None
+        viewer = getattr(self, "viewer", None)
+        if viewer is not None:
+            viewer.exit_compare()
 
     def _adopt_compare(self, done: Any) -> None:
         """Take a parsed comparison mesh. Frame thread only, and contained.
@@ -1572,8 +1707,6 @@ class TasksMixin:
         poses on screen while the new one's are read would offer a list that
         applies to nothing.
         """
-        from ...service import rig as svc_rig
-
         ctx = self.app_ctx
         job = ctx.job()
         for key in (
@@ -1591,7 +1724,7 @@ class TasksMixin:
             return
         job_id = job["id"]
         if "rig.glb" in (job.get("files") or []):
-            ctx.submit(f"poses:{job_id}", svc_rig.list_poses, ctx.svc, job_id)
+            ctx.submit(f"poses:{job_id}", _read_rig_side_data, ctx.svc, job_id)
 
     def load_presets(self, template: str | None) -> None:
         """The shipped pose library for a skeleton.

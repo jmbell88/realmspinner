@@ -8,6 +8,7 @@ returns the VRAM exactly as it claims and the host figure does not move, because
 what holds it is the allocator's arenas rather than a live object -- the same
 finding ``dev/measurements/2026-08-08-load-probe-memory.md`` made for BiRefNet,
 where dropping every reference plus ``gc.collect()`` left 71% resident.
+(Document lost with the 2026-09-20 backup; re-measure before changing this.)
 
 That session ended with the app refusing its own sprite-sheet follow-up at 94%
 commit, which is the correct behaviour and the wrong outcome. This is the fourth
@@ -17,6 +18,7 @@ unreturnable (``loadprobe``) -- and the t2i loader was the one path paying it in
 the process that has to keep running, where nothing but exit reclaims it.
 ``dev/measurements/2026-08-22-trampoline-child-pids.md`` carries the figures
 and the two options not taken.
+(Document lost with the 2026-09-20 backup; re-measure before changing this.)
 
 **Why persistent, and not one-shot.** A reroll, a sprite sheet and a tile sheet
 are three generates against the same checkpoint, and a one-shot child would pay

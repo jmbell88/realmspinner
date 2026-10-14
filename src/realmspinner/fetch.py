@@ -350,6 +350,7 @@ def download_text(config: Config, kind: str, spec: Any) -> str:
 # An int rather than an mtime: directory mtimes are not a reliable change signal
 # on Windows (dev/measurements/2026-08-07-directory-mtime-granularity.md), and
 # this needs no persistence -- a fresh process has a fresh pipe.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 _store_generation = 0
 
 
@@ -456,6 +457,17 @@ def _merge(into: Job, one: models.Fetch) -> Job:
             f"destination ({into.revision} and {one.revision}); a directory "
             f"cannot hold both snapshots"
         )
+    # The 2026-10-14 audit, findings pipelines-install-01 / service-gates-01:
+    # ``into.url or one.url`` below kept the first archive and silently dropped
+    # the second -- which is how Familiar's CUDA redistributable zip was planned
+    # (and charged for) and never fetched. ``plan`` keys URL records on the URL
+    # now so two archives never meet here; if one ever does, it is a registry
+    # bug to be loud about, not a download to shrink.
+    if one.url and into.url and one.url != into.url:
+        raise ValueError(
+            f"two different archives ({into.url} and {one.url}) were planned as one "
+            f"fetch into {into.dest}; one of them would never be downloaded"
+        )
 
     def _union(a: tuple[str, ...], b: tuple[str, ...]) -> tuple[str, ...]:
         out = list(a)
@@ -486,24 +498,31 @@ def _merge(into: Job, one: models.Fetch) -> Job:
 def plan(config: Config, chosen: list[Entry]) -> list[Job]:
     """Resolve entries into the set of fetches that actually has to run.
 
-    Deduped on ``(repo_id, destination)``. Two entries naming the same
+    Deduped on ``(repo_id, destination, url)``. Two entries naming the same
     repository into the same directory are one download, and the size is
     counted once -- which is the difference between "this needs 7 GB" and "this
     needs 28 GB" for the five SDXL 1.0 recipes.
+
+    ``url`` is in the key because a URL record has ``repo_id`` "" by
+    convention, so two archives into one directory (Familiar's server zip and
+    its CUDA redistributable zip) were one key and ``_merge`` kept only the
+    first (the 2026-10-14 audit, findings pipelines-install-01 and
+    service-gates-01). Every Hub record has ``url`` "" and keys exactly as
+    before.
     """
-    order: list[tuple[str, Path]] = []
-    jobs: dict[tuple[str, Path], Job] = {}
+    order: list[tuple[str, Path, str]] = []
+    jobs: dict[tuple[str, Path, str], Job] = {}
     # Which records have already been folded into each job. The same *record*
     # arriving again is the four-SDXL-recipes case and must change nothing --
     # merging it would union patterns that are already there and, worse, add
     # its size a second time, so ticking all four would claim 28 GB. A
     # genuinely different record against the same destination (the IP-Adapter's
     # two halves) still merges.
-    seen: dict[tuple[str, Path], set[models.Fetch]] = {}
+    seen: dict[tuple[str, Path, str], set[models.Fetch]] = {}
     for entry in chosen:
         for one in entry.fetch:
             dest = destination(config, entry, one)
-            key = (one.repo_id, dest)
+            key = (one.repo_id, dest, one.url)
             if key in jobs:
                 if one in seen[key]:
                     continue
@@ -673,7 +692,19 @@ def claims(config: Config, entry: Entry) -> tuple[Path, ...]:
     if entry.kind == "engine":
         return (engine_dir(config, spec),)
     if entry.kind == "familiar":
-        return (familiar_dir(config, spec),)
+        if spec.runtime:
+            # Two archives that really do share one directory of binaries: it
+            # goes when both rows are chosen, as ``sdxl``'s does.
+            return (familiar_dir(config, spec),)
+        # The weights rows are distinct files in one shared directory, like
+        # ``loras/``: per-file claims, never the directory. The 2026-10-14
+        # audit, findings pipelines-install-02 and service-gates-04: all three
+        # claimed ``models/familiar`` whole, each found a sibling claiming it,
+        # and none was removable -- so there was no Remove button and no reason,
+        # and 6.5 GiB of weights (or the optional vision and retrieval rows)
+        # could not be dropped one at a time.
+        base = familiar_dir(config, spec)
+        return tuple(base / name for name in spec.probe)
     if entry.kind == "base":
         out = [base_model_dir(config, spec)]
         if spec.base_lora:
@@ -1146,17 +1177,27 @@ def outdated(config: Config, kind: str, spec: Any) -> tuple[str, ...]:
     replace the copy being run and would offer 0.7 GB of work that changes nothing.
 
     -> the file names (a runtime) or ``repo@commit`` pins (weights) that differ,
-    empty when the row is current, unknown, or not an engine row. A row that is
-    not ``present`` is not asked: it has nothing to be stale.
+    empty when the row is current, unknown, or not an engine or Familiar row. A
+    row that is not ``present`` is not asked: it has nothing to be stale.
     """
-    if kind != "engine":
+    if kind not in ("engine", "familiar"):
         return ()
-    dest = engine_dir(config, spec)
-    try:
-        if engine_probe_dir(config, spec).resolve() != Path(dest).resolve():
+    if kind == "familiar":
+        # The 2026-10-14 audit, findings pipelines-install-03 and
+        # service-gates-05: this used to answer () for everything but the
+        # engine, so a Familiar runtime installed at the earlier b10948 pin
+        # (same filenames as b11457) read present, verified clean against its
+        # own manifest, and was never offered the update -- while the embedder
+        # needs b11457 or later. Familiar has no resolver or checkout fallback,
+        # so the directory it landed in is always the one it runs from.
+        dest = familiar_dir(config, spec)
+    else:
+        dest = engine_dir(config, spec)
+        try:
+            if engine_probe_dir(config, spec).resolve() != Path(dest).resolve():
+                return ()
+        except OSError:
             return ()
-    except OSError:
-        return ()
     repos = (read_manifest(dest) or {}).get("repos")
     if not isinstance(repos, dict) or not repos:
         return ()
@@ -1173,7 +1214,19 @@ def outdated(config: Config, kind: str, spec: Any) -> tuple[str, ...]:
     # A pinned file the manifest never recorded counts once it recorded
     # anything at all: a re-pin that adds a library is as stale as one that
     # changes a library.
-    if recorded:
+    if kind == "familiar":
+        # Narrower than the engine's rule, because Familiar's two runtime rows
+        # share one directory and one manifest, and two separate installs each
+        # overwrote the other's record (both keyed ""), as did a weights row
+        # installed beside its sibling in the same repository. A name this
+        # manifest never recorded says nothing about *this* row, so only a
+        # recorded digest that differs from the pin counts.
+        differs.extend(
+            name
+            for name, digest in spec.digests
+            if name in recorded and recorded[name] != digest
+        )
+    elif recorded:
         differs.extend(
             name for name, digest in spec.digests if recorded.get(name) != digest
         )

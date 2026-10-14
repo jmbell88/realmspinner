@@ -171,14 +171,19 @@ BATCH_EXCLUDED = frozenset(
         # Tranche 3: a checkpoint restore moves the history head exactly the
         # way clay_undo/clay_redo do (ClayDoc.restore_checkpoint is
         # step_history under the hood) -- the identical incoherence, for the
-        # identical reason. clay_checkpoint itself pushes no step and reads
-        # nothing live, but it is NOT in this set and is still refused inside a
-        # batch: ``tools_batch._resolve_and_call`` rejects it at run time (the
-        # 2026-10-10 audit's clay-29 -- the fold buries a serial minted mid-run,
-        # so ``clay_restore`` could never reach it). It stays out of the set
-        # because the set is published into ``clay_batch``'s description and the
-        # frozen Familiar card; moving it needs a card re-freeze.
+        # identical reason.
         "clay_restore",
+        # A checkpoint names the history serial current when it is set, but the
+        # fold collapses every step pushed since its mark into one compound, so a
+        # serial minted mid-run is buried and ``clay_restore`` could never reach it
+        # (the 2026-10-10 audit's clay-29). ``tools_batch._resolve_and_call`` still
+        # refuses it at run time as a backstop. It joined this set only on
+        # 2026-10-14 (the audit's clay-agent-tools-04): the 2026-10-10 audit left it
+        # out because the set is published into ``clay_batch``'s description and
+        # the frozen Familiar card and said the next re-freeze should take it in;
+        # five re-freezes later it was still in the published enum, offering a
+        # batchable name that always failed.
+        "clay_checkpoint",
     }
 )
 """Tools ``clay_batch`` refuses to run -- see ``agent/tools_batch._h_batch``'s
@@ -688,6 +693,11 @@ def _op_catalog() -> str:
     """
     parts = []
     for op in clay_ops.OPS:
+        # The 2026-10-14 audit, finding clay-12: ``clay_op`` does not offer the Pose-mode
+        # ops (no agent tool switches Pose on), so describing them here taught an
+        # agent four names it can only be refused for.
+        if op.name in clay_ops.POSE_OPS:
+            continue
         modes = "/".join(op.modes)
         if op.params:
             fields = ", ".join(_param_prose(p) for p in op.params)

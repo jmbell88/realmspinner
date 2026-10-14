@@ -132,6 +132,12 @@ SAMPLE_PREFIX = "sirens-sample:"
 #: What a sample dropped on a song that is being written is told.
 SAMPLE_WHILE_SAVING = "Still saving -- add the sample once the save lands."
 
+#: What a sample is told when the same song is already decoding one. The task key
+#: is the tab's uid (see :data:`SAMPLE_PREFIX`), so ``ctx.submit`` turns the
+#: second away -- the 2026-10-14 audit, finding muse-mode-12: it did so without a
+#: word, so a second "Open in Sirens" (or a second drop) was a dead click.
+SAMPLE_IN_FLIGHT = "That song is still loading a sample -- try again in a moment."
+
 
 def _sample_ceiling(path: Path) -> bytes:
     """Refuse and read a file too big to be a sample, in one bounded call.
@@ -213,9 +219,12 @@ def import_sample(
     if tab.busy:
         docmodes.refuse(ctx, SAMPLE_WHILE_SAVING)
         return False
-    return bool(
+    started = bool(
         ctx.submit(f"{SAMPLE_PREFIX}{tab.uid}", _decode_sample, Path(path), instrument, switch)
     )
+    if not started:
+        docmodes.refuse(ctx, SAMPLE_IN_FLIGHT)
+    return started
 
 
 def ask_sample(ctx: Any, tab: SongTab, instrument: int | None = None) -> None:
@@ -240,7 +249,8 @@ def ask_sample(ctx: Any, tab: SongTab, instrument: int | None = None) -> None:
         path = dialogs.open_file("Add a sample", SAMPLE_FILTER)
         return None if path is None else _decode_sample(path, instrument)
 
-    ctx.submit(f"{SAMPLE_PREFIX}{tab.uid}", run)
+    if not ctx.submit(f"{SAMPLE_PREFIX}{tab.uid}", run):
+        docmodes.refuse(ctx, SAMPLE_IN_FLIGHT)
 
 
 def free_sample_key(doc: Any, name: str) -> str:
@@ -310,7 +320,22 @@ def save(ctx: Any, tab: SongTab | None = None) -> None:
     )
 
 
+def _with_rsng_suffix(path: Path) -> Path:
+    """*path* ending in ``.rsng``: kept when it already does (any case), appended
+    otherwise.
+
+    The 2026-10-14 audit, finding sirens-playback-03: ``with_suffix`` *replaces*
+    everything after the last dot, so a typed "Song 1.5" was written as
+    "Song 1.rsng" -- a name the picker never offered. Plotter's
+    ``_with_required_suffix`` and Clay's ``_with_extension`` are the same rule.
+    """
+    if path.suffix.lower() == sirens_state.RSNG_SUFFIX:
+        return path.with_suffix(sirens_state.RSNG_SUFFIX)
+    return path.with_name(path.name + sirens_state.RSNG_SUFFIX)
+
+
 def save_as(ctx: Any, tab: SongTab | None = None) -> None:
+    from ....service.errors import Conflict
     from .engine import rsng
 
     tab = tab or active(ctx)
@@ -319,6 +344,7 @@ def save_as(ctx: Any, tab: SongTab | None = None) -> None:
     head = tab.doc.history.head
     data = rsng.rsng_bytes(tab.doc)
     stem = Path(tab.title).stem or "song"
+    state = ensure(ctx)
 
     def run() -> dict[str, Any] | None:
         picked = dialogs.save_file(
@@ -326,7 +352,22 @@ def save_as(ctx: Any, tab: SongTab | None = None) -> None:
         )
         if picked is None:
             return None
-        path = picked.with_suffix(sirens_state.RSNG_SUFFIX)
+        path = _with_rsng_suffix(picked)
+        # The 2026-10-14 audit, finding sirens-playback-06: ``open_path`` focuses
+        # a song that is already open ("two tabs over one path would race on
+        # save") and Clay's Save As refuses this (clay-49), but a Save As here
+        # retitled onto such a path and the two tabs' later saves silently
+        # replaced each other's. Refused before the write -- by the time the
+        # result lands the other tab's file is already replaced. A read of
+        # ``state.docs`` from the task thread, the same one ``find_path`` does on
+        # the frame thread.
+        other = state.find_path(path)
+        if other is not None and other is not tab:
+            raise Conflict(
+                f"{other.title} is already open on {path.name}. Pick another file "
+                "name, or close that tab first.",
+                field="save",
+            )
         # The 2026-09-26 audit, finding sirens-playback-05: the OS dialog's own
         # overwrite prompt was asked about whatever name the user actually
         # typed (``song.txt``, say, if the filter did not stop them) -- not

@@ -154,6 +154,21 @@ MUSIC_ROWS: tuple[str, ...] = (f"music:{models.DEFAULT_MUSIC_MODEL}",)
 SEPARATION_ROWS: tuple[str, ...] = (f"separation:{models.DEFAULT_SEPARATION}",)
 
 
+def _blank_lyrics_to_empty(lyrics: str | None) -> str:
+    """Lyrics that are blank after ``strip()`` are the instrumental request: ``""``.
+
+    The 2026-10-14 audit, finding muse-jobs-06. The brief's tooltip says an empty
+    field means instrumental, but a stray space or a lone newline passed the door
+    as written and reached the sampler as *has lyrics* (``len > 0`` tokenises to
+    ``[261, 2, ...]`` under an all-ones mask, not the instrumental ``[0]`` under a
+    zero one) -- a different conditioning from the one asked for, with a stored
+    row claiming words that are blank. Only a *blank* block is normalised: a real
+    lyric keeps its own whitespace, since line breaks are markup the model reads.
+    """
+    text = lyrics or ""
+    return text if text.strip() else ""
+
+
 def _check_ref_strength(strength: float, steps: int) -> float:
     """The two refusals an ``audio2audio`` strength owes. -> the value, as a float.
 
@@ -238,6 +253,7 @@ def create_music_job(
         raise Invalid("describe the music you want -- style tags, comma separated",
                       field="prompt")
     check_prompt(prompt)
+    lyrics = _blank_lyrics_to_empty(lyrics)
     if len(lyrics) > MAX_LYRICS:
         raise Invalid(f"lyrics must be at most {MAX_LYRICS} characters",
                       field="lyrics")
@@ -385,7 +401,7 @@ TASKS = ("retake", "extend", "repaint", "edit", "loop", "audio2audio")
 #:
 #: **Deliberately not added to ``DERIVED_PARAMS``**, and the reason matters: the
 #: task block is *the request normalised* -- ``duration``'s and ``lyrics``'
-#: case, and ``subset``/``base_sheet``'s. A reroll of a repaint means "repaint
+#: case. A reroll of a repaint means "repaint
 #: that window again with a new seed", so it must keep the window; a reroll that
 #: stripped it would silently become a plain generation wearing a repaint's
 #: provenance.
@@ -491,9 +507,19 @@ def derive_music_job(
     if parent.get("kind") != "music":
         raise Invalid("only a track can be derived from", field="parent_id")
     if parent.get("status") != "done":
+        status = str(parent.get("status"))
+        # "yet" is only true of a take that is still on its way: a failed or
+        # cancelled one is over, and "cannot be derived from yet" promised a
+        # retry that will never work. Both halves are the 2026-10-14 audit,
+        # finding muse-jobs-03 -- the door also said "image" for a track.
+        waiting = status in ("queued", "running")
         raise Invalid(
             not_done_message(
-                "this take cannot be derived from yet: it", str(parent.get("status"))
+                "this take cannot be derived from yet: it"
+                if waiting
+                else "this take cannot be derived from: it",
+                status,
+                noun="audio",
             ),
             field="parent_id",
         )
@@ -616,7 +642,9 @@ def derive_music_job(
         was_prompt = (parent["prompt"] or "").strip()
         was_lyrics = parent["params"].get("lyrics") or ""
         new_prompt = (edit_prompt if edit_prompt is not None else was_prompt).strip()
-        new_lyrics = edit_lyrics if edit_lyrics is not None else was_lyrics
+        new_lyrics = _blank_lyrics_to_empty(
+            edit_lyrics if edit_lyrics is not None else was_lyrics
+        )
         if not new_prompt:
             raise Invalid(
                 "an edit still needs style tags -- clear the lyrics instead to"

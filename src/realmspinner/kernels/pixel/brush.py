@@ -261,7 +261,18 @@ def clamp_brush(size: int) -> int:
     return max(MIN_BRUSH, min(MAX_BRUSH, int(size)))
 
 
-@lru_cache(maxsize=256)
+# The 2026-10-14 audit, finding inker-paint-04: this cache is bounded by entry
+# count while one entry is up to 256x256 float32 (256 KB), and its key used to
+# carry the raw hardness float, so dragging the hardness slider at a large brush
+# size filled all 256 slots -- ~64 MB of write-locked stamps held for the
+# session and never asked for again. ``StrokeState._stamp`` now quantises the
+# hardness into the key (``HARDNESS_STEPS``, the way it already does the angle),
+# which caps that axis at 101 values, and the entry count is halved so the worst
+# case is ~32 MB.
+HARDNESS_STEPS = 100
+
+
+@lru_cache(maxsize=128)
 def make_stamp(
     diameter: int, hardness: float, nib: str = "soft", angle: float = 0.0
 ) -> np.ndarray:
@@ -341,12 +352,25 @@ def _stamp(diameter: int, hardness: float, nib: str, angle: float = 0.0) -> np.n
 def default_axis(size: tuple[int, int]) -> tuple[float, float]:
     """The centre of the canvas, in the coordinates ``_mirror`` reflects about.
 
-    ``(width - 1) / 2`` rather than ``width / 2``: a reflection about it sends
-    column 0 to column ``width - 1``, which is what the fixed formula this
-    replaced did and is the only placement where a symmetric drawing is
-    symmetric to the pixel.
+    ``width / 2``, in **continuous image coordinates**, where pixel ``i`` spans
+    ``[i, i + 1)`` and its centre is ``i + 0.5`` -- the coordinates every real
+    stroke arrives in (``paintview.to_image``) and the ones ``_centre`` hands
+    back. A reflection about ``width / 2`` sends the centre of column ``i`` to
+    the centre of column ``width - 1 - i``, so a symmetric drawing is
+    symmetric to the pixel, and the middle column of an odd canvas maps to
+    itself.
+
+    The 2026-10-14 audit, finding inker-paint-01: this used to be
+    ``(width - 1) / 2``, an *index*-space number, which only a caller holding
+    integer pixel indices could use. A mouse never does: it arrives at
+    ``i + 0.5``, so with the default axis pixel ``i`` was mirrored onto
+    ``width - 2 - i`` (a width-10 canvas pressed at pixel 0 painted columns 0
+    and 8, and column 9 was never a mirror target), while the cursor's twin
+    preview fed the integer index and promised ``width - 1 - i``. The tests
+    that pinned the old number all used integer points, which is exactly the
+    input no mouse produces.
     """
-    return ((size[0] - 1) / 2.0, (size[1] - 1) / 2.0)
+    return (size[0] / 2.0, size[1] / 2.0)
 
 
 def axis_or_default(
@@ -489,7 +513,7 @@ def _centre(pixel: tuple[int, int]) -> tuple[float, float]:
 
 
 def footprint(
-    point: tuple[float, float], diameter: int, nib: str, *, stamp: bool = False
+    point: tuple[float, float], diameter: int, nib: str
 ) -> tuple[int, int, int, int]:
     """The half-open pixel box one dab at ``point`` covers.
 
@@ -503,13 +527,17 @@ def footprint(
     rounding form a soft rim hides), and drawing one rule for both would put
     the cursor half a pixel off exactly where it matters.
 
-    ``stamp`` is for an image brush, which is placed by ``_image_dab`` and is
-    not round: the caller passes the tip's own size as ``diameter`` per axis
-    instead, so this takes the pixel-nib branch, which is that placement.
+    An image brush is not round and is placed by :func:`stamp_rect`, which
+    ``_image_dab`` and the cursor share. The 2026-10-14 audit, finding
+    inker-paint-02: this function used to take a ``stamp`` flag for it and
+    anchor at ``floor(p) - (d - 1) // 2``, where ``_image_dab`` anchors a free dab
+    at ``floor(p) - d // 2`` and an aligned one on a lattice of the tip's own
+    size, so the outline sat a pixel right and down of the pixels an even tip
+    painted, and in another cell altogether for an aligned stamp.
     """
 
     diameter = max(1, int(diameter))
-    if stamp or nib in PIXEL_NIBS:
+    if nib in PIXEL_NIBS:
         left = int(math.floor(point[0])) - (diameter - 1) // 2
         top = int(math.floor(point[1])) - (diameter - 1) // 2
     else:
@@ -517,6 +545,30 @@ def footprint(
         left = int(math.floor(point[0] - radius + 0.5))
         top = int(math.floor(point[1] - radius + 0.5))
     return (left, top, left + diameter, top + diameter)
+
+
+def stamp_rect(
+    point: tuple[float, float], size: tuple[int, int], align: str = "free"
+) -> tuple[int, int, int, int]:
+    """The half-open pixel box an image-brush dab at ``point`` covers.
+
+    One function for ``StrokeState._image_dab`` and the canvas's cursor outline,
+    so the two cannot differ.
+
+    *Free* floors to the pixel the dab is on, then grows left and up by half the
+    tip: an even tip has no centre pixel, so the extra pixel lands on the
+    left/up side (``p - width // 2``). *Aligned* snaps to a lattice of the tip's
+    own size, phased on the canvas origin, so every position inside one cell
+    gives the same rectangle.
+    """
+    width, height = int(size[0]), int(size[1])
+    if align == "aligned":
+        left = math.floor(math.floor(point[0]) / width) * width
+        top = math.floor(math.floor(point[1]) / height) * height
+    else:
+        left = int(math.floor(point[0])) - width // 2
+        top = int(math.floor(point[1])) - height // 2
+    return (left, top, left + width, top + height)
 
 
 def line_pixels(a: tuple[int, int], b: tuple[int, int]) -> list[tuple[int, int]]:
@@ -1079,7 +1131,10 @@ class StrokeState:
         # that cannot change the answer.
         stamp = make_stamp(
             diameter,
-            1.0 if self.pixel else self.hardness,
+            1.0
+            if self.pixel
+            else round(min(1.0, max(0.0, float(self.hardness))) * HARDNESS_STEPS)
+            / HARDNESS_STEPS,
             self.nib,
             # Quantised into the cache key on purpose: a stamp per tenth of a
             # degree is a cache miss per dab of a rotating stroke, and half a
@@ -1149,22 +1204,16 @@ class StrokeState:
         if stamp is None:
             raise ValueError("a dab needs a stamp")
         width, height = stamp.size
+        # ``stamp_rect`` is the placement arithmetic, shared with the cursor
+        # outline: ``p - width // 2`` puts more of an even tip before the anchor
+        # than after it, which is what ``test_image_brush`` pins -- a half-pixel
+        # choice that a picture with a hard edge would otherwise make visible as
+        # a one-pixel jitter along a stroke.
+        left, top, _right, _bottom = stamp_rect(point, (width, height), self.stamp_align)
         if self.stamp_align == "aligned":
-            left = math.floor(math.floor(point[0]) / width) * width
-            top = math.floor(math.floor(point[1]) / height) * height
             if (left, top) in self._cells:
                 return
             self._cells.add((left, top))
-        else:
-            # The same anchoring the pixel nib uses: floor to the pixel the dab
-            # is on, then grow left and up by half the tip. An even tip has no
-            # centre pixel, so the extra pixel lands on the left/up side --
-            # ``p - width // 2`` puts more of an even tip before the anchor
-            # than after it, which is what ``test_image_brush`` pins -- and it
-            # is a half-pixel choice that a picture with a hard edge would
-            # otherwise make visible as a one-pixel jitter along a stroke.
-            left = int(math.floor(point[0])) - width // 2
-            top = int(math.floor(point[1])) - height // 2
         for rect, (sx, sy) in tiling.pieces(
             (left, top, left + width, top + height), self.size, self._axes
         ):
@@ -1549,6 +1598,7 @@ class StrokeState:
         Both are the same defect -- a union standing in for a set -- and both go
         away by keeping the pieces. See
         ``dev/measurements/2026-08-20-stroke-invalidation.md``.
+        (Document lost with the 2026-09-20 backup; re-measure before changing this.)
         """
         rects, self.touched = self.touched, []
         if len(rects) < 2:

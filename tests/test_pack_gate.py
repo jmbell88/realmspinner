@@ -51,7 +51,7 @@ def _model(row_key, *, present, gib=7.0):
 BASE_INSTALL = dict(
     packs=[_pack("text2image", modes=["create"], present=False, gib=2.4,
                  label="Image generation")],
-    models_=[_model("engine:trellis_gguf", present=False, gib=16.1),
+    models_=[_model("engine:trellis_gguf", present=False, gib=15.34),
              _model("base:sdxl_cfg", present=False, gib=7.0)],
 )
 

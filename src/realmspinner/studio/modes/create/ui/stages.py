@@ -64,10 +64,10 @@ ICONS: dict[str, str] = {
     "reference": icons.IMAGE,
     "mesh": icons.BOX,
     "rig": icons.BONE,
-    # The glyph the Poser wears in the shell rail. The stage is not the Poser
-    # -- it is the inspector's editor over the shared viewer -- but a skeleton
-    # in a stance is what both are about, and two pictures for one idea is how
-    # a user comes to believe they are two.
+    # The stage is the inspector's pose editor over the shared viewer. Its glyph
+    # was the one the shell rail's Poser mode wore, so that a skeleton in a stance
+    # was one picture for one idea; the mode left with eed32549 (the 2026-10-14
+    # audit, finding create-brief-06) and the glyph stays.
     "pose": icons.PERSON_STANDING,
     "export": icons.DOWNLOAD,
 }
@@ -511,8 +511,8 @@ def at(state: Any, stage: str) -> bool:
 
     Two questions, and both halves matter: the panes ask this to decide what to
     draw, and a stage is only the thing being drawn while Create is the mode.
-    Without the mode half, the inspector in Poser would grow the mesh stage's
-    quality section because ``state.create.stage`` still said ``mesh``.
+    Without the mode half, the inspector in any other mode would grow the mesh
+    stage's quality section because ``state.create.stage`` still said ``mesh``.
     """
     return state.mode == MODE and state.create.stage == stage
 

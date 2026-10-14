@@ -15,6 +15,7 @@ about to be keyed has a row to key it on.
 from __future__ import annotations
 
 import math
+import weakref
 from dataclasses import dataclass
 from typing import Any
 
@@ -89,6 +90,27 @@ def length(doc: Any) -> float:
     return 0.0 if animation is None else float(animation.duration)
 
 
+def play_reason(doc: Any) -> str:
+    """Why Play is greyed, or ``""`` when there is something to play.
+
+    Play needs a key *after* 0 s (:func:`length`). The 2026-10-14 audit, finding clay-rig-14:
+    the strip said "Key a bone first" even when the bone was keyed, because every key sat at 0 s;
+    the two causes read differently, so a clip with only a first key is told what it lacks.
+    """
+    if length(doc) > 0.0:
+        return ""
+    animation = doc.animation()
+    keyed = animation is not None and any(
+        len(channel.times) for props in animation.channels.values() for channel in props.values()
+    )
+    if keyed:
+        return (
+            "Every key is at 0 s: key a bone a second time, further along, to have something "
+            "to play."
+        )
+    return "Key a bone first: there is nothing to play yet."
+
+
 def span(doc: Any) -> float:
     """The seconds the ruler shows: the animation's length rounded up to a whole second, never
     less than :data:`MIN_SPAN`, and never short of the playhead."""
@@ -110,6 +132,30 @@ def snap(doc: Any, time: float) -> float:
     return min(max(time_of(doc, frame_of(doc, time)), 0.0), anim.MAX_ANIMATION_SECONDS)
 
 
+#: Each bone's key times, per animation. An ``Animation`` is frozen and replaced whole by every
+#: edit, so its identity is a sound memo key (the weak key lets a dropped clip take its entry
+#: with it), and the times of one bone only ever change with it.
+_TIMES: weakref.WeakKeyDictionary[Any, dict[int, tuple[float, ...]]] = weakref.WeakKeyDictionary()
+
+
+def _times_of(animation: Any, uid: int) -> tuple[float, ...]:
+    """*uid*'s key times in *animation*, computed once for that animation object.
+
+    The 2026-10-14 audit, finding clay-rig-03: the dope sheet called ``key_times`` for every bone
+    on every frame, rounding each key of each channel in a Python generator, so a 60 s, 30 fps,
+    52-bone clip (what a Mixamo import is) cost 107 ms a frame in Pose mode -- about 9 fps, and
+    during playback too. Edited, an animation is a new object and misses; unedited, the frame
+    costs one dict lookup per bone.
+    """
+    memo = _TIMES.get(animation)
+    if memo is None:
+        memo = _TIMES[animation] = {}
+    times = memo.get(uid)
+    if times is None:
+        times = memo[uid] = tuple(animation.key_times(uid))
+    return times
+
+
 def rows(doc: Any) -> list[Row]:
     """The bones the strip lists, in document order."""
     animation = doc.animation()
@@ -118,7 +164,7 @@ def rows(doc: Any) -> list[Row]:
         if not obj.bone:
             continue
         selected = obj.uid in doc.selection
-        times = tuple(animation.key_times(obj.uid)) if animation is not None else ()
+        times = _times_of(animation, obj.uid) if animation is not None else ()
         if times or selected:
             out.append(Row(obj.uid, obj.name, times, selected))
     return out
@@ -173,6 +219,19 @@ def go_to(doc: Any, time: float) -> None:
     doc.set_rig_time(snap(doc, time))
 
 
+def go_to_key(doc: Any, time: float) -> None:
+    """Park the playhead exactly on a key's own time, on the frame grid or not.
+
+    The 2026-10-14 audit, finding clay-rig-04: Go to End and a click on a diamond went through
+    :func:`snap`, but a key is only on the document's frame grid if its clip was authored at the
+    document's rate -- an imported 30 fps clip in a 24 fps document is not, so End landed at
+    1.0417 s for a last key at 1.0333 s, the pose shown was not the key's, and an auto-keyed edit
+    there made a second key a few milliseconds from the diamond instead of editing it. A jump
+    *to a key* lands on the key; scrubbing, which has no key to land on, still snaps.
+    """
+    doc.set_rig_time(min(max(float(time), 0.0), anim.MAX_ANIMATION_SECONDS))
+
+
 def go_start(doc: Any) -> None:
     doc.playing = False
     go_to(doc, 0.0)
@@ -180,7 +239,7 @@ def go_start(doc: Any) -> None:
 
 def go_end(doc: Any) -> None:
     doc.playing = False
-    go_to(doc, length(doc))
+    go_to_key(doc, length(doc))
 
 
 def step(doc: Any, frames: int) -> None:

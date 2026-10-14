@@ -55,10 +55,20 @@ def draw(ctx: Any, view: Any) -> None:
     params_popup(ctx, state, tab)
 
 
+def heading(doc: Any) -> str:
+    """The menu's first line: the mode the header's switch is in.
+
+    The header's word (Shape, Points, Edges, Faces, Pose), not the stored name: the
+    2026-10-11 audit's clay-43 found "vertex mode" over a menu whose switch says Points. Pose
+    is not an element mode (``element_mode`` stays "object" under it), so the 2026-10-14
+    audit, finding clay-panes-06, found the heading reading "Shape mode" over a menu whose
+    Rig group offers different ops in Pose mode.
+    """
+    return f"{clay_ops.mode_word('pose' if doc.pose_mode else doc.element_mode)} mode"
+
+
 def _rows(ctx: Any, state: Any, tab: Any, doc: Any) -> None:
-    # The header's word (Shape, Points, Edges, Faces), not the stored name: the
-    # 2026-10-11 audit's clay-43 found "vertex mode" over a menu whose switch says Points.
-    widgets.secondary(f"{clay_ops.mode_word(doc.element_mode)} mode")
+    widgets.secondary(heading(doc))
     controls.menu_separator()
     if tab.saving:
         # The gate every other control in the app has, and the one this menu

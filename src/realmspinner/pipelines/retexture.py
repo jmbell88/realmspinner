@@ -70,6 +70,7 @@ log = logging.getLogger(__name__)
 # their upside-down cousins have to earn a place in the next measurement
 # rather than being presumed. The set is data so a caller can ask for fewer
 # without this module learning about it.
+# (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 VIEWS: tuple[tuple[float, float], ...] = (
     (0.0, 0.0),  # front
     (180.0, 0.0),  # back
@@ -325,6 +326,7 @@ def floor_weights(weights: Any, vis: Any | None = None) -> Any:
     and leaves the zero everywhere else -- one masked pass instead of two,
     computed once per call (dev/measurements/2026-09-06-native-batch-9-
     facing-floor.md).
+    (Document lost with the 2026-09-20 backup; re-measure before changing this.)
 
     Identical to the two-pass form in both regimes: where the floor fails,
     the shipped path multiplies ``0.0`` by a ``vis`` in 0..1 (never negative)
@@ -363,6 +365,7 @@ def combine_floored(colours: Any, w: Any, base: Any) -> Any:
     # native-batch-8-retexture.md). Bit-identity holds because einsum
     # contracts the view axis with the same in-order accumulation per output
     # element that `.sum(axis=0)` already uses on a C-contiguous stack.
+    # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     mixed = np.einsum("nhwc,nhw->hwc", colours, w) / safe[..., None]
     return np.where((total > 0.0)[..., None], mixed, base).astype(np.float32)
 
@@ -715,11 +718,10 @@ def atlas_size(glb_path: Path) -> int | None:
 
     What a re-texture should bake at unless told otherwise, and the measurement
     is the reason it is asked rather than assumed
-    (``dev/measurements/2026-08-08-retexture-bake.md``). A trellis mesh's
-    atlas is 2048; baking at a fixed 1024 made no visible difference to the
-    parts a view covered -- and quietly halved the resolution of the ~63% that
-    no view covered and therefore *kept its old colour*, which is the half a
-    re-texture is supposed to leave alone.
+    (``dev/measurements/2026-08-08-retexture-bake.md`` [lost; re-measure to change]). A trellis
+    mesh's atlas is 2048; baking at a fixed 1024 made no visible difference to the parts a view
+    covered -- and quietly halved the resolution of the ~63% that no view covered and therefore
+    *kept its old colour*, which is the half a re-texture is supposed to leave alone.
 
     Non-square or unreadable gives None: the whole pipeline is square, and a
     caller falling back to ``TEXTURE_PX`` is a better answer than one atlas
@@ -820,6 +822,47 @@ def extract_base_colour(glb_path: Path, dest: Path, *, size: int) -> bool:
         log.exception("could not extract the base colour of %s", glb_path)
         return False
     return True
+
+
+class BaseColourUnreadable(RuntimeError):
+    """The mesh has an albedo and it cannot be read back, so re-texturing it would
+    throw its old skin away."""
+
+
+def has_base_colour(glb_path: Path) -> bool:
+    """Whether a material of the mesh points at an albedo texture at all."""
+    from ..kernels.geom3d import glbio
+
+    try:
+        gltf, _buffer = glbio.read_glb(glb_path)
+    except Exception:
+        log.exception("could not read %s to look for an albedo", glb_path)
+        return False
+    return _first_base_colour(gltf) is not None
+
+
+def require_base_colour(glb_path: Path, dest: Path, *, size: int) -> bool:
+    """:func:`extract_base_colour`, told apart from "there was none to extract".
+
+    ``True`` when the albedo was written, ``False`` for a mesh with no albedo slot
+    (an untextured mesh, which ``assemble`` fills with an honest mid grey), and
+    ``BaseColourUnreadable`` for one that has a slot the reader cannot open -- an
+    ``EXT_texture_webp``-only texture, a URI image, a GLB over the decompression-bomb
+    limit. The 2026-10-14 audit, finding pipelines-mesh-02: all of them returned
+    ``False`` exactly as an untextured mesh does, so every texel no view could see
+    (about 63% of a typical atlas, by this module's own figure) came out mid grey,
+    the documented rule that such a texel keeps its old colour was broken, and the
+    job still ended ``done`` with nothing in its report to say the skin was lost.
+    """
+    if extract_base_colour(glb_path, dest, size=size):
+        return True
+    if has_base_colour(glb_path):
+        raise BaseColourUnreadable(
+            "this mesh's current albedo cannot be read back (it may be a WebP or "
+            "linked image, or larger than the image reader allows), so re-texturing "
+            "would replace every part no view can see with grey"
+        )
+    return False
 
 
 def swap_base_colour(glb_path: Path, atlas_png: Path, dest: Path) -> bool:

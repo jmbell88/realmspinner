@@ -241,7 +241,7 @@ class LayerStack:
         #: everything that reads ``layer.visible`` -- including the panel's own
         #: eye checkbox, which must go on showing what the *layer* is set to.
         #: The document refreshes it in ``invalidate_all``, which is what every
-        #: structural change ends with. See ``inker/groups.py``.
+        #: structural change ends with. See ``kernels/pixel/groups.py``.
         self.group_fold: list[tuple[bool, float]] | None = None
         #: Per-row **z offset** from ``Animation.cel_z``, parallel to
         #: ``self.layers``, or None on every stack that does not use the
@@ -460,8 +460,9 @@ class LayerStack:
         feature out of the compositor entirely: by the time
         ``composite.stack_region`` sees a row it is an ordinary
         ``(pixels, opacity, blend)`` triple and knows nothing about a tree.
-        Pass-through, so each layer still blends against everything beneath it
-        -- see ``inker/groups.py`` for why isolated compositing is a v1 gap.
+        Pass-through, so each layer still blends against everything beneath it;
+        a group with an isolating mode is handled by :meth:`_isolated_entries`
+        below -- see ``kernels/pixel/groups.py`` for the tree.
 
         **Per-cel z-index is applied here too, and for the same reason**: by
         the time ``composite.stack_region`` or the native stack kernel sees this
@@ -530,7 +531,7 @@ class LayerStack:
         lo: int,
         hi: int,
         rect: tuple[int, int, int, int],
-        inside: int | None = None,
+        inside: frozenset[int] = frozenset(),
     ) -> list[tuple[Any, float, str]]:
         """``[lo, hi)`` as entries, with each isolated group folded to one.
 
@@ -585,7 +586,12 @@ class LayerStack:
                 continue
             if span.opacity <= 0.0:
                 continue
-            inner = self._isolated_entries(span.lo, span.hi, rect, span.guid)
+            # Every group entered so far, not just this one: a group with the
+            # same extents as its parent is still in ``spans`` while the
+            # parent's inside is walked, and naming only the innermost handed
+            # the enclosing one back forever (the 2026-10-14 audit, finding
+            # inker-document-01).
+            inner = self._isolated_entries(span.lo, span.hi, rect, inside | {span.guid})
             if not inner:
                 # An empty group contributes a transparent plane, which ``over``
                 # would spend a full-region pass discovering is a no-op.

@@ -10,6 +10,8 @@ as a broken asset rather than as a 2D one.
 
 from __future__ import annotations
 
+import time
+import weakref
 from contextlib import ExitStack, nullcontext
 from typing import Any
 
@@ -218,6 +220,17 @@ def draw(ctx: Any) -> None:
             widgets.muted_wrapped(retired_note)
             _meta(ctx, job)
             return
+        if job.get("deleted_at"):
+            # A trashed asset is identity plus the two things the trash serves,
+            # the narrowing the Library card and its overflow menu already got
+            # (the 2026-10-14 audit, finding shell-home-library-05). The services
+            # accept a trashed row -- ``require_job`` and ``create_rig`` check no
+            # ``deleted_at`` -- so every live section below was a way to queue a
+            # rig or a rebuild whose output lands in a directory the next Empty
+            # trash deletes, or to mint a live row derived from a trashed one.
+            _meta(ctx, job)
+            _trashed_actions(ctx, job)
+            return
         if in_create:
             from ..modes.create.ui import workspace
 
@@ -265,6 +278,27 @@ def draw(ctx: Any) -> None:
             tabs.append(("Rig & Pose", lambda: _rig_tab(ctx, job)))
         tabs.append(("Export", lambda: downloads(ctx, job)))
         widgets.tab_bar("inspector-tabs", tabs)
+
+
+def _trashed_actions(ctx: Any, job: Any) -> None:
+    """What a trashed asset's inspector offers: Restore, and Delete permanently.
+
+    Both go through the Library's own functions rather than a second copy of the
+    trash menu's door: ``restore_asset`` clears the tick and submits
+    ``restore_job``, and the confirm is the one the trash menu and the Delete key
+    already share. A function-scope reach into the Library mode, by name, which
+    ``tests/test_layering.py`` documents as the escape hatch.
+    """
+    from ..modes.library.ui.panes import library
+
+    job_id = str(job["id"])
+    widgets.muted_wrapped(
+        "This asset is in the trash. Restore it to work with it, or delete it permanently."
+    )
+    if controls.button(f"Restore##trashed-restore-{job_id}", (-1, 0)):
+        library.restore_asset(ctx, job_id)
+    if controls.button(f"Delete permanently...##trashed-purge-{job_id}", (-1, 0)):
+        ctx.confirms.ask(library._purge_confirm(ctx, job_id))
 
 
 def can_edit_in_clay(job: Any) -> bool:
@@ -344,10 +378,10 @@ def _edit_actions(ctx: Any, job: Any) -> None:
     exits = asset_exits.exits_for(ctx, job)
     if not exits:
         return
-    # The one heading every mode's exits are under -- Clay, Packwright and
-    # Troupe's bridges say it over the same verbs, and this pane said nothing,
-    # so the same buttons were a titled group in three places and a loose run
-    # of buttons in the fourth (2026-09-05).
+    # The one heading every mode's exits are under -- Clay's and Packwright's
+    # bridges say it over the same verbs, and this pane said nothing, so the
+    # same buttons were a titled group in two places and a loose run of buttons
+    # in the third (2026-09-05).
     widgets.section("Take it somewhere")
     for exit_ in exits:
         icon = asset_exits.icon_for(exit_.mode)
@@ -1192,6 +1226,7 @@ def seam_verdict(report: Any) -> tuple[int, str] | None:
     # predates that change and was judged by the edge-against-mean-grain ratio,
     # and describing it in the new vocabulary would be stating a number the row
     # does not contain. dev/measurements/2026-08-30-seam-dominance.md R8.
+    # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     if report.get("metric") == "dominance":
         worst = float(report.get("dominance") or 0.0)
         wording = "seam/worst join"
@@ -1201,17 +1236,14 @@ def seam_verdict(report: Any) -> tuple[int, str] | None:
     if report.get("seamless"):
         # "likely", not "seamless", and the hedge is measured rather than
         # cautious. It was introduced because
-        # ``dev/measurements/2026-08-09-seam-threshold-cfg.md`` found the
-        # edge-energy ratio does not separate seamless tiles from seamed ones
-        # on a CFG base, and it *stays* under the dominance statistic for a
-        # narrower and better-measured reason:
-        # ``2026-08-30-seam-dominance.md`` records dominance missing 4 of 44
-        # visibly seamed control units -- a picture whose interior already
-        # contains a step as hard as its seam ties at 1.0 and passes. The
-        # false-alarm direction is what improved (0 of 72 confirmed-seamless
-        # tiles flagged, against the ratio's 18); the miss direction is why
-        # this still says "likely" and still sends the reader to the wrapped
-        # view below, which is the real check.
+        # ``dev/measurements/2026-08-09-seam-threshold-cfg.md`` [lost; re-measure to change] found
+        # the edge-energy ratio does not separate seamless tiles from seamed ones on a CFG base, and
+        # it *stays* under the dominance statistic for a narrower and better-measured reason:
+        # ``2026-08-30-seam-dominance.md`` records dominance missing 4 of 44 visibly seamed control
+        # units -- a picture whose interior already contains a step as hard as its seam ties at 1.0
+        # and passes. The false-alarm direction is what improved (0 of 72 confirmed-seamless tiles
+        # flagged, against the ratio's 18); the miss direction is why this still says "likely" and
+        # still sends the reader to the wrapped view below, which is the real check.
         return (theme.OK, f"likely seamless -- {wording} {worst:.2f}; check the wrap")
     threshold = float(report.get("threshold") or 0.0)
     return (theme.WARN, f"visible seam -- {wording} {worst:.2f}, over {threshold:.2f}")
@@ -1577,6 +1609,7 @@ def _quality(ctx: Any, job: Any) -> None:
         # re-baselined to 0.756 once the matte was fixed -- see
         # ``dev/measurements/2026-08-09-rebaseline.md``, whose "`hole_worst`
         # is no longer inverted, and the matte is why" section is the authority.
+        # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
         # The caveat below stays through both readings, because what it warns
         # about is reading *any* single figure as a grade.
         #
@@ -1858,6 +1891,7 @@ def _verdict(ctx: Any, job: Any) -> None:
     # threshold worthless -- so it has to grow from ordinary use, and behind a
     # collapsed header it did not grow at all. Closed again the moment a
     # verdict is filed, because then there is nothing left to ask.
+    # (Document lost with the 2026-09-20 backup; re-measure before changing this.)
     #
     # The id carries the job, because imgui's ``default_open`` applies the
     # first time an id is drawn and never again: under one shared id the flag
@@ -2150,6 +2184,36 @@ def _why_blocked(ctx: Any, job: Any, name: str, ready: bool, derivable: bool) ->
     return "not available for this asset"
 
 
+#: How long ``_matte_note`` trusts its last answer about the matting weights.
+#: ``matting.available`` walks the model directory (``rglob("*.safetensors")``),
+#: and this pane draws sixty times a second on the frame thread -- the 2026-10-14
+#: audit, finding pipelines-image-08. A download finishing is noticed within the
+#: interval, which is far below anything a user can tell from instant.
+_MATTE_AVAILABLE_TTL = 2.0
+#: Keyed by the service object, so the memo lives exactly as long as the
+#: session it describes (and a test's throwaway service never inherits an
+#: answer from another's): ``svc -> (when, answer)``.
+_matte_available_memo: weakref.WeakKeyDictionary[Any, tuple[float, bool]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _matte_available(ctx: Any) -> bool:
+    from ...pipelines import matting
+
+    svc = ctx.svc
+    now = time.monotonic()
+    try:
+        cached = _matte_available_memo.get(svc)
+    except TypeError:  # a service that cannot be weakly referenced is simply not memoised
+        return bool(matting.available(svc.config))
+    if cached is not None and 0.0 <= now - cached[0] < _MATTE_AVAILABLE_TTL:
+        return cached[1]
+    answer = bool(matting.available(svc.config))
+    _matte_available_memo[svc] = (now, answer)
+    return answer
+
+
 def _matte_note(ctx: Any, manifest: Any) -> None:
     """Why the cutouts will look the way they do, before any of them exist.
 
@@ -2166,11 +2230,9 @@ def _matte_note(ctx: Any, manifest: Any) -> None:
     fill before the weights were installed would, on this note alone, claim
     nothing at all the moment they were.
     """
-    from ...pipelines import matting
-
     if manifest is not None and (manifest.get("artifacts") or {}):
         return
-    if matting.available(ctx.svc.config):
+    if _matte_available(ctx):
         return
     widgets.muted_wrapped(
         "Cutouts use the corner fill -- edges are rougher than the matting "

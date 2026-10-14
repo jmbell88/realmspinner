@@ -524,8 +524,13 @@ class Layout:
     def bind_workspace(self, library: Any, workspace: str) -> None:
         """Route vertical split reads/writes through the active arrangement."""
 
+        global _SHARES_LOCKED
+
         self._workspace_library = library
         self._workspace = str(workspace)
+        # Re-read every frame (this is called once per frame), so choosing a
+        # readable layout in Settings frees the splitters on the next one.
+        _SHARES_LOCKED = library is not None and not library.current().readable
 
     def set_rail(self, key: str) -> None:
         self.rail = "labels" if key == "labels" else "icons"
@@ -818,6 +823,14 @@ def splitter(split_id: str, *, vertical: bool = True, length: float = 0.0) -> fl
         length = max(length, 1.0)
     size = (grip, length) if vertical else (length, grip)
     pos = imgui.get_cursor_screen_pos()
+    if _SHARES_LOCKED:
+        # **Inert, not live-and-reverting** (the 2026-10-14 audit, finding
+        # shell-documents-12): with a newer build's layout active
+        # ``layouts.Library.set_share`` discards every write, so a live handle
+        # followed the pointer and snapped back on release with no reason given.
+        # A dummy of the same size keeps the geometry the handle reserved.
+        imgui.dummy(size)
+        return 0.0
     imgui.invisible_button(f"##split/{split_id}", size)
     active = imgui.is_item_active()
     hovered = imgui.is_item_hovered()
@@ -862,6 +875,11 @@ FRAME_PANES: dict[str, tuple[float, float, float, float]] = {}
 #: threaded through eleven call sites, because it is a property of the *frame*
 #: and every splitter in it answers the same way.
 _EDITING = False
+
+#: Whether the active layout is one this build may not write to (a newer
+#: version's), so every splitter is drawn inert. Written once a frame by
+#: :meth:`Layout.bind_workspace`, like :data:`_EDITING` and for the same reason.
+_SHARES_LOCKED = False
 
 
 def begin_frame(editing: bool = False) -> None:

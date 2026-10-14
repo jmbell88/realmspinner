@@ -751,27 +751,38 @@ def _nvml() -> tuple[Any, Any, str] | None:
         # init while this one was waiting for it.
         if _NVML_SESSION is not _UNSET:
             return _NVML_SESSION
-        _NVML_SESSION = None
-        if sys.platform != "win32":
-            return None
-        try:
-            nvml = ctypes.CDLL("nvml.dll")
-            if nvml.nvmlInit_v2() != _NVML_SUCCESS:
-                return None
-            handle = ctypes.c_void_p()
-            if (
-                nvml.nvmlDeviceGetHandleByIndex_v2(0, ctypes.byref(handle))
-                != _NVML_SUCCESS
-            ):
-                nvml.nvmlShutdown()
-                return None
-            buffer = ctypes.create_string_buffer(96)
-            if nvml.nvmlDeviceGetName(handle, buffer, len(buffer)) != _NVML_SUCCESS:
-                buffer.value = b""
-        except (OSError, AttributeError, ValueError):
-            return None
-        _NVML_SESSION = (nvml, handle, buffer.value.decode("utf-8", "replace"))
+        # Published only once the init has finished (the 2026-10-14 audit,
+        # finding service-27). The cache used to be set to ``None`` *before*
+        # ``nvmlInit_v2`` ran, so the unlocked fast path above handed that
+        # in-progress ``None`` to a thread arriving mid-init: ``live_memory``
+        # said "no NVIDIA device", ``familiar_admission(None)`` refused Familiar
+        # and a dispatch check skipped admission, all on a card that was fine.
+        _NVML_SESSION = _open_nvml()
         return _NVML_SESSION
+
+
+def _open_nvml() -> tuple[Any, Any, str] | None:
+    """One attempt at the NVML session; ``None`` is the negative answer.
+
+    Side-effect free on the cache, so ``_nvml`` can publish the result in a
+    single assignment and no reader can see a half-finished init.
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        nvml = ctypes.CDLL("nvml.dll")
+        if nvml.nvmlInit_v2() != _NVML_SUCCESS:
+            return None
+        handle = ctypes.c_void_p()
+        if nvml.nvmlDeviceGetHandleByIndex_v2(0, ctypes.byref(handle)) != _NVML_SUCCESS:
+            nvml.nvmlShutdown()
+            return None
+        buffer = ctypes.create_string_buffer(96)
+        if nvml.nvmlDeviceGetName(handle, buffer, len(buffer)) != _NVML_SUCCESS:
+            buffer.value = b""
+    except (OSError, AttributeError, ValueError):
+        return None
+    return (nvml, handle, buffer.value.decode("utf-8", "replace"))
 
 
 def probe() -> DeviceMemory | None:

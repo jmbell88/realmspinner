@@ -255,7 +255,8 @@ identical mesh twice. Lock it when you want exactly that.
 
 **Centre and enlarge the reference** (in **Advanced**) recentres the subject and scales it to fill the
 frame before the engine sees it. It is off by default: the engine does its own cropping, and whether
-doing it twice helps or hurts has not been measured. Treat it as an experiment rather than an improvement.
+doing it twice helps or hurts has not been measured. Treat it as an experiment rather than an improvement. A
+subject the source image's frame has cut off is still refused, whether or not this is on.
 
 The **Rig** section holds **Rig when the mesh lands** and a skeleton picker. Without Blender it stays on
 screen, greyed, and its tooltip gives the same reason as the Rig segment in the stage rail. Without
@@ -321,15 +322,15 @@ time. It does not offer the Game-ready rungs; those are [Game-ready remesh](#gam
 own control, further down this same stage.
 
 Two things the panel will not hide from you. A retarget refuses to run on a job that is still queued
-or running, because its write would collide with the worker's. And a retarget makes a rig, its saved
-poses and its rendered sheets describe a mesh that no longer exists — those are minutes of your
+or running, because its write would collide with the worker's. And a retarget makes a rig and its saved
+poses describe a mesh that no longer exists — those are minutes of your
 work, so they are reported rather than deleted, and the warning is shown *before* the button rather
 than after. Everything else derived from the mesh (STL, OBJ, FBX, collision, textures) is deleted,
 because those describe the old geometry exactly. A retarget rebuilds from the original
 reconstruction, so it also undoes a remesh: the warning says so beforehand, and the Remesh panel's
 "Last remesh" line is cleared once it lands — but the mesh a retarget replaces is not gone. It is
 kept under [Earlier meshes](#earlier-meshes), and a Restore there puts it back. The button also
-greys pre-emptively when a rig, a sheet, or a sibling remesh or re-texture is already queued or
+greys pre-emptively when a rig, or a sibling remesh or re-texture, is already queued or
 running against this same mesh — the same collision the service refuses, now stated before the
 press rather than after it.
 
@@ -372,7 +373,7 @@ job's `model.glb`; `source.glb` is never touched. Two things follow. A later **R
 triangle budget rebuilds from the reconstruction, which replaces the remesh — `model.glb` is derived
 and `source.glb` is the authority, always — but the remeshed mesh is kept under
 [Earlier meshes](#earlier-meshes) rather than lost, and a Restore there brings it back. And a remesh
-changes geometry, so every derived export is deleted and a rig, its poses and its sheets are
+changes geometry, so every derived export is deleted and a rig and its poses are
 reported stale before the button, exactly as a retarget reports them.
 
 Coincident vertices are welded before the remesh runs, and that is not a detail. glTF stores one
@@ -413,7 +414,9 @@ weighted mean.
 
 Unlike a retarget, this is a queued job rather than a couple of seconds of processing — ten image
 generations is a real amount of GPU — so it takes its turn behind whatever else is running, and it
-is refused outright on a job that is still queued or running.
+is refused outright on a job that is still queued or running. It is also refused on a mesh whose current skin
+cannot be read back (a WebP or linked image, or one larger than the image reader allows), because re-texturing it
+would turn every part no view can see to grey.
 
 **Restyle strength** is how far each view is taken from the mesh's current look. Low keeps the
 shapes and recolours them; high reinterprets them. Un-anchored, past about two-thirds the views
@@ -436,8 +439,8 @@ and shrinks everything no view does, which keeps its old colour.
 
 Three things the panel tells you rather than letting you find out.
 
-**Your rig is safe.** A rig, its saved poses and its rendered sheets reference geometry, and a
-re-texture changes no geometry — so unlike a retarget, none of them is invalidated. The exports that
+**Your rig is safe.** A rig and its saved poses reference geometry, and a
+re-texture changes no geometry — so unlike a retarget, neither is invalidated. The exports that
 *do* carry the skin (OBJ, FBX, the texture zip) are deleted and rebuilt on next request. STL and the
 collision hull are geometry with no material in them and are left alone.
 
@@ -469,8 +472,8 @@ they are.
 **Size (m)** scales the model so its longest side is that many metres, and **Ground** centres it on
 the origin and puts its lowest point on the floor. **Apply size and ground** does both; leaving the
 size at what it already is just re-grounds. It is allowed on a rigged asset, because it changes the
-geometry rather than turning it, and the panel and the result both say that the rig, its poses and
-its sheets now describe the old mesh.
+geometry rather than turning it, and the panel and the result both say that the rig and its poses
+now describe the old mesh.
 
 **Make current front the model's front** appears only on an asset that already carries a recorded front
 (one set in an earlier version of the app; the viewport control that set it is gone, and a new front
@@ -499,7 +502,7 @@ Each row names what replaced that version (triangle budget, game-ready remesh, s
 resize or front change, or an earlier restore), when, and a one-line detail — a quad count, a view
 count, a file size. Press
 **Restore** on a row to put that mesh back. The panel names what goes stale first: restoring across
-a triangle budget or a remesh changes geometry, so the rig, its poses and its sheets describe the
+a triangle budget or a remesh changes geometry, so the rig and its poses describe the
 old mesh again, the same warning a retarget gives; restoring only across a re-texture changes
 nothing but the surface. A restore is itself kept, so restoring is not a one-way trip either — you
 can always go back to what you had before pressing it.
@@ -606,12 +609,11 @@ second press while one is running is refused rather than queueing a second rig o
 
 For a mesh none of the eight templates fit — a shape none of them was built for, or one you would
 simply rather build yourself — the **Rig** stage, the **Pose** stage and a library card's right-click
-menu each offer **Rig by hand in Clay**. It opens the mesh in [Clay](27-clay.md), where you add bones
-(**Add Bone**, or mark any shape as a bone), place them where the joints are, and either bind the
-shapes under them or have Blender weight the mesh to them: see
-[Bones and rigs](27-clay.md#bones-and-rigs) and
-[Rigging with Blender weights](27-clay.md#rigging-with-blender-weights). **Export to the library** from
-Clay writes the finished rig beside the mesh it makes, as a new library entry.
+menu each offer **Rig by hand in Clay** (on a machine without Blender only the library card's menu does). It opens
+the mesh in [Clay](27-clay.md), where you add bones (**Add Bone**, or mark any shape as a bone), place them where
+the joints are, and either bind the shapes under them or have Blender weight the mesh to them: see [Bones and
+rigs](27-clay.md#bones-and-rigs) and [Rigging with Blender weights](27-clay.md#rigging-with-blender-weights).
+**Export to the library** from Clay writes the finished rig beside the mesh it makes, as a new library entry.
 
 Nothing about the rig changes because you built it by hand: it is the same `rig.glb` and `rig.json`
 every other rig is, with `"skeleton": "custom"`, and Create's Pose stage, the exports and the
@@ -709,6 +711,10 @@ Saved poses are listed below, each with three actions:
   should not have to wait behind a two-minute reconstruction.
 - **Delete** removes the pose, and its cached GLB with it.
 
+A pose saved before you re-rigged onto a different skeleton (a humanoid pose on a quadruped rig,
+say) is no longer listed, because it names bones the new rig does not have. Pose the new rig and
+save a new one.
+
 A pose lives only in the viewer until it is saved. Every route out of pose mode — leaving edit mode,
 switching to another asset, starting a comparison, closing the window — asks before discarding
 unsaved changes. The banner at the top of the panel says "unsaved changes" whenever there are any.
@@ -717,12 +723,13 @@ unsaved changes. The banner at the top of the panel says "unsaved changes" whene
 approximate. It shows the rest skeleton, lets you drag joints to where they should actually be,
 counts how many you have moved, and **Apply joint positions** re-rigs the mesh with the corrected
 skeleton. That is a real re-rig — minutes of CPU, queued like the first one — not an edit of the
-existing rig. **Revert** undoes your unapplied moves; **Back to posing** returns. Entering joints
-mode asks first if you have an unsaved pose, since a leftover rotation would put the markers where
-the posed bones are rather than where the rest skeleton is.
+existing rig. If the rig was built by hand in Clay, **Apply joint positions** asks first, because it re-rigs the
+static mesh with Blender's automatic weights and replaces the binding you made. **Revert** undoes your unapplied
+moves; **Back to posing** returns. Entering joints mode asks first if you have an unsaved pose, since a leftover
+rotation would put the markers where the posed bones are rather than where the rest skeleton is.
 
 Changing the skeleton's actual *shape* — adding or removing bones — is Clay's job: open the
-rigged mesh there (**Edit in Clay** opens its rig, with the bones, the weights and any animations),
+rigged mesh there (**Open in Clay** opens its rig, with the bones, the weights and any animations),
 and see [Bones and rigs](27-clay.md#bones-and-rigs).
 
 ### When rigging is unavailable
@@ -741,8 +748,9 @@ installs nothing at all. When that happens:
   [Mesh parameters](#mesh-parameters).
 - Others are replaced by a sentence rather than greyed: the Rig stage's column says "Rigging needs
   Blender, which is not installed", and the **Pose** panel says "Posing needs Blender, which is not
-  installed" instead of telling you to press a button that is not on screen. The Rig rows in a
-  Library card's right-click menu are simply absent.
+  installed" instead of telling you to press a button that is not on screen. The **Rig** row in a
+  Library card's right-click menu is simply absent; **Rig by hand in Clay** stays, because Clay holds bones, poses
+  and animations itself and only its Weight with Blender needs Blender.
 - The FBX export button explains itself with "needs Blender".
 
 Everything else in the app works unchanged. Nothing about generating references or meshes depends

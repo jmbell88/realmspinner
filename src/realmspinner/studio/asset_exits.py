@@ -28,9 +28,11 @@ builder gated on the row in hand and that row has no ``model.glb``.
 :func:`_mesh_for` resolves ``source_job`` through ``ctx.cache.get`` -- still a
 cached-row read, not a filesystem call -- for exactly the kinds
 ``asset_open.FOLLOWUP_STAGES`` already names as a mesh's own product, never on
-``source_job`` alone: a character sheet (a retired kind) carries that same field
-but is not one of them, and hopping for it too resolved it straight back to the
-mesh it was rendered from, offering Clay on a row that has no mesh of its own.
+``source_job`` alone: a character sheet (``retired.RETIRED_KINDS`` owns that
+exclusion now; ``asset_open.FOLLOWUP_STAGES`` deliberately omits the retired
+kinds) carries that same field but is not one of them, and hopping for it too
+resolved it straight back to the mesh it was rendered from, offering Clay on a
+row that has no mesh of its own.
 The mesh-shaped builders (Clay and the Mason add door) read every gate off the
 *resolved* mesh, closing their door over it rather than over the selected row.
 A source that has fallen off the loaded page, or a kind the hop does not cover, answers None,
@@ -179,9 +181,10 @@ def _is_mesh(job: Any) -> bool:
     # The 2026-10-10 audit, finding create-14: a ``lora_train`` row is minted
     # with no stage, so it takes the column default ``model``, and it carries
     # no ``source_job`` -- both halves of this test passed, and a finished LoRA
-    # was offered Clay, Mason and two Poser doors dimmed with "This mesh has no
-    # model yet.", a reason that is false of a LoRA. ``OPENS_ELSEWHERE`` is
-    # the one place that already names the kinds whose row is not a mesh.
+    # was offered Clay, Mason and two doors of the since-removed Poser mode,
+    # dimmed with "This mesh has no model yet.", a reason that is false of a
+    # LoRA. ``OPENS_ELSEWHERE`` is the one place that already names the kinds
+    # whose row is not a mesh.
     from .asset_open import OPENS_ELSEWHERE
 
     if job.get("kind") in OPENS_ELSEWHERE:
@@ -195,8 +198,9 @@ def _mesh_for(ctx: Any, job: Any) -> Any:
     ``job`` when :func:`_is_mesh` already agrees. Otherwise the hop is gated
     on membership of ``asset_open.FOLLOWUP_STAGES`` -- **kind-scoped, not
     ``source_job``-scoped** -- because a bare "carries a ``source_job``" test
-    also matches ``charsheet``, a retired kind whose row is not a mesh follow-up
-    at all. Gating on ``source_job`` alone hopped for one too and resolved it
+    also matches ``charsheet``, a retired kind (``retired.RETIRED_KINDS``, absent
+    from ``FOLLOWUP_STAGES`` by design) whose row is not a mesh follow-up at all.
+    Gating on ``source_job`` alone hopped for one too and resolved it
     straight back to the mesh it was rendered from, so a charsheet row offered
     Clay it has no business offering -- exactly the outcome ``_is_mesh``'s
     docstring already names as the trap this module exists to avoid,

@@ -179,10 +179,22 @@ class LibraryIndexer:
             backfill_due = (
                 self._phase != DONE and not self._live and now >= self._next_batch_at
             )
-        if ids and runner.submit(ONE_KEY, self._run_ids, ids):
+        if ids:
+            # Taken off ``_pending`` *before* the submit, and put back if the
+            # runner refuses (the 2026-10-14 audit, finding familiar-host-04).
+            # The pop used to follow a successful submit, but a task that fails
+            # fast with ``EmbedUnavailable`` re-queues its own ids from the
+            # runner's thread before ``submit`` has even returned, so the pop
+            # then erased that retry and a job embedded while the embedder was
+            # in back-off was never retried this session.
             with self._lock:
                 for job_id in ids:
                     self._pending.pop(job_id, None)
+            if not runner.submit(ONE_KEY, self._run_ids, ids):
+                with self._lock:
+                    for job_id in ids:
+                        if len(self._pending) < MAX_PENDING and not self._stopped:
+                            self._pending.setdefault(job_id, None)
         if backfill_due:
             runner.submit(BACKFILL_KEY, self._run_backfill)
 

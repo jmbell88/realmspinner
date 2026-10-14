@@ -1,7 +1,7 @@
 """Crash recovery for authored documents, for every mode rather than one.
 
 UX-05. Inker has had a crash-safe autosave since it shipped and nothing else
-did: a Clay model, a Plotter map, a Packwright atlas and a pose being authored
+did: a Clay model, a Plotter map, a Packwright atlas and a song being authored
 were all one power cut away from gone. The mechanism Inker proved is right,
 and the whole of what was wrong was that it was written into one mode.
 
@@ -27,7 +27,7 @@ rather than renamed, because a rename would strand every crash copy sitting in
 it right now behind a version that no longer looks there.
 
 Two files per slot: the **payload** (``.ora``, ``.rblk``, ``.rmap``, ``.rpack``,
-``.rsng``, ``.rscn``, ``.pose.json`` -- each mode's own format, so a recovered file
+``.rsng``, ``.rscn`` -- each mode's own format, so a recovered file
 is openable by hand and by the mode's ordinary reader) and a ``<stem>.meta.json``
 sidecar naming the kind, the title and when it was taken.
 
@@ -104,9 +104,21 @@ JOURNAL_SECONDS = 120.0
 MAX_RECOVERY = 8
 
 #: The sidecar's suffix. A full second suffix rather than a replacement, so a
-#: payload's own extension survives in the stem and ``foo.pose.json`` and
-#: ``foo.ora`` cannot collide on one sidecar.
+#: payload's own extension survives in the stem and a two-part suffix such as
+#: ``foo.tar.json`` and ``foo.ora`` cannot collide on one sidecar.
 META_SUFFIX = ".meta.json"
+
+#: Kinds a **retired** feature owned, which no build will ever adopt again.
+#: The 2026-10-14 audit, finding shell-documents-05: a crash copy whose kind has
+#: no provider is listed on Home as "unavailable" with its files left alone, on
+#: purpose, because a *newer* build may own the kind -- but the pose editor's
+#: removal made ``pose`` (``.pose.json``) a kind nothing ever will, and a copy an older build
+#: left produced an "Unsaved work" row on every launch that no button could
+#: clear (Discard all skips unavailable rows), while ``status_line`` promised it
+#: "will be offered back". :func:`recoverable` does not list these and
+#: :func:`snapshot`'s one-shot scan sweeps them. Add a kind here the day its
+#: mode is deleted, not before.
+RETIRED_KINDS: frozenset[str] = frozenset({"pose"})
 
 #: Sidecar schema. Bumped only for a change a reader cannot ignore; a version
 #: it has never heard of is skipped rather than guessed at.
@@ -123,12 +135,12 @@ class Provider:
 
     ``head_of`` returns anything comparable with ``==``. An undo stack's serial
     is the good answer where there is one; a small document with no history --
-    a pose, say -- passes its encoded payload, so "has it changed" is payload
+    a settings blob, say -- passes its encoded payload, so "has it changed" is payload
     equality. Both are the same question and neither needs a flag.
     """
 
     kind: str
-    #: The payload's suffix, including the dot. ``.pose.json`` is legal.
+    #: The payload's suffix, including the dot. A two-part suffix such as ``.tar.json`` is legal.
     ext: str
     #: What one of these is called in a sentence: "two drawings have...".
     label: str
@@ -165,7 +177,7 @@ def tab_provider(
     ext: str,
     label: str,
     *,
-    encode: Callable[[Any], bytes],
+    encode: Callable[[Any], bytes | Callable[[], bytes]],
     adopt: Callable[[Any, Path, dict[str, Any]], bool],
 ) -> Provider:
     """Register a tabbed document mode, whose tabs live on ``ctx.state.<kind>``.
@@ -514,19 +526,30 @@ def write(ctx: Any, provider: Provider, slot: Any, stamp: float | None = None) -
         gen = _drop_gen.get(name, 0)
 
     def run() -> Any:
+        with _drop_lock:
+            if _drop_gen.get(name, 0) != gen:
+                # Dropped between submit and execution: the document was saved
+                # or closed, and a deferred encode for it is not worth paying.
+                return None
+        # A deferred encode runs here, on the task, **before** the name's lock
+        # is taken. The 2026-10-14 audit, finding shell-documents-06: it ran
+        # inside ``hold``, and ``drop`` takes that same lock on the frame
+        # thread, so saving or closing an atlas tab while that tick's encode
+        # was running (0.7 to 2.5 s, more for a big atlas) froze the window
+        # until the encode finished -- the very freeze the deferral exists to
+        # move off the frame thread. The lock now covers only the two writes
+        # and the renames.
+        body = data() if callable(data) else data
         # This name's lock is held across the whole write, so a ``drop`` for
         # this document waits for the pair to be on disk before it unlinks --
         # and only a drop for *this* document does; see the tombstone comment.
         with hold:
             with _drop_lock:
                 if _drop_gen.get(name, 0) != gen:
-                    # Dropped between submit and execution: the document was
-                    # saved or closed, and writing now would resurrect the
-                    # deleted pair.
+                    # Dropped while the encode ran: writing now would
+                    # resurrect the deleted pair.
                     return None
-            # A deferred encode runs here, on the task, and only for a write
-            # that is going ahead -- a dropped slot never pays for it.
-            _write_pair(payload, data() if callable(data) else data, meta)
+            _write_pair(payload, body, meta)
         # **The mark is handed back, not written here** (the review's theme
         # T3). This is a task thread and the three attributes are UI state on
         # a slot the frame loop reads sixty times a second, unlocked: a reader
@@ -754,6 +777,8 @@ def recoverable(ctx: Any) -> list[Recovered]:
         payload = side.with_name(side.name[: -len(META_SUFFIX)])
         if not payload.is_file():
             continue
+        if str(meta.get("kind") or "") in RETIRED_KINDS:
+            continue
         out.append(
             Recovered(
                 path=payload,
@@ -788,7 +813,7 @@ def adopt(ctx: Any, found: list[Recovered]) -> int:
             log.exception("journal: %s could not adopt %s", one.kind, one.path)
             # The provider raised before it could say why, so this is the one
             # place that can. Home used to add its own generic toast on every
-            # declined press, which doubled the pose provider's specific one
+            # declined press, which doubled the provider's own specific one
             # (shell-06); a False return now means "has said so" and this is
             # how a raise meets the same contract.
             adopt_failed(ctx, provider.label)
@@ -824,6 +849,28 @@ def _sweep_staging(root: Path) -> None:
             log.warning("journal: could not sweep staging file %s", path, exc_info=True)
 
 
+def _sweep_retired(root: Path) -> None:
+    """Delete the crash copies of a retired kind (:data:`RETIRED_KINDS`).
+
+    Sidecar first, for :func:`drop`'s reason. Never raises: it is housekeeping,
+    and the copies it removes are ones no build can open, so leaving them would
+    only leave files nothing lists, offers or sweeps."""
+    try:
+        sides = [p for p in root.glob(f"*{META_SUFFIX}") if p.is_file()]
+    except OSError:
+        return
+    for side in sides:
+        meta = _read_meta(side)
+        if meta is None or str(meta.get("kind") or "") not in RETIRED_KINDS:
+            continue
+        payload = side.with_name(side.name[: -len(META_SUFFIX)])
+        for path in (side, payload):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                log.warning("journal: could not remove %s", path, exc_info=True)
+
+
 def snapshot(ctx: Any) -> list[Recovered]:
     """What a previous session left, read **once** and remembered on the state.
 
@@ -855,6 +902,7 @@ def snapshot(ctx: Any) -> list[Recovered]:
         ensure_providers()
         # Once, with the scan, and before this session writes anything of its own.
         _sweep_staging(directory(ctx))
+        _sweep_retired(directory(ctx))
         ctx.state.recovery = recoverable(ctx)
     return ctx.state.recovery
 

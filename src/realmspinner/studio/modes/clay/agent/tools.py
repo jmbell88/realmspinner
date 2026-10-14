@@ -164,6 +164,16 @@ def _h_scene(ctx: Any, session: Session, args: dict) -> dict:
     return _json(payload)
 
 
+def _unwind_add(doc: Any, mark: Any, head_before: Any, error: Exception) -> dict:
+    """Undo a half-made ``clay_add_primitive``/``clay_add_mesh``: close the gesture ``mark()``
+    opened, take back every step pushed since (the object, and anything after it), and refuse
+    with *error* -- so the ``changed: false`` the refusal carries is true."""
+    doc.history.collapse_since(mark)
+    if doc.history.head != head_before:
+        doc.undo_unrecorded()
+    return fail(str(error), changed=False)
+
+
 def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
     """Place one primitive, with everything validated before the first
     mutation so a refused call places nothing -- see the tool's own
@@ -346,17 +356,23 @@ def _h_add_primitive(ctx: Any, session: Session, args: dict) -> dict:
             if doc.history.head != head_before:
                 doc.undo_unrecorded()
             return fail(str(error), field="params", changed=False)
-    if translation is not None or rotation_deg is not None or scale is not None:
-        doc.set_transform(
-            obj.uid,
-            translation=translation,
-            rotation=None if rotation_deg is None else _quat_from_euler_xyz(rotation_deg),
-            scale=scale,
-        )
-    if obj_name is not None:
-        doc.set_props(obj.uid, name=obj_name)
-    if material_index is not None:
-        _repaint(doc, [obj.uid], material_index)
+    try:
+        if translation is not None or rotation_deg is not None or scale is not None:
+            doc.set_transform(
+                obj.uid,
+                translation=translation,
+                rotation=None if rotation_deg is None else _quat_from_euler_xyz(rotation_deg),
+                scale=scale,
+            )
+        if obj_name is not None:
+            doc.set_props(obj.uid, name=obj_name)
+        if material_index is not None:
+            _repaint(doc, [obj.uid], material_index)
+    except (OpError, ValueError) as error:
+        # The 2026-10-14 audit, finding clay-agent-tools-01: whatever refuses after the object is
+        # in the document would answer ``changed: false`` over an object, a history step and an
+        # open gesture. Closed, taken back out, and refused as the tool error it is.
+        return _unwind_add(doc, mark, head_before, error)
     doc.history.collapse_since(mark)
     _label_top(doc, mark, f"Add {obj.name}")
     return _json(_scene_row(doc, obj))
@@ -568,6 +584,7 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
         taken = {o.name for o in doc.objects}
         obj_name = "Mesh" if "Mesh" not in taken else clay_geom_ops.next_name("Mesh", taken)
 
+    head_before = doc.history.head
     mark = doc.history.mark()
     obj = bd.Obj(uid=bd.new_uid(), name=obj_name, mesh=mesh, generator=None, params={})
     try:
@@ -580,17 +597,22 @@ def _h_add_mesh(ctx: Any, session: Session, args: dict) -> dict:
     # Object mode only (the 2026-09-13 audit's clay-03) -- see
     # ``ClayDoc.add_objects``'s own comment for why selecting unconditionally
     # leaves the Properties panel naming one object while editing another.
-    if doc.element_mode == "object":
-        doc.select([obj.uid])
-    if translation is not None or rotation_deg is not None or scale is not None:
-        doc.set_transform(
-            obj.uid,
-            translation=translation,
-            rotation=None if rotation_deg is None else _quat_from_euler_xyz(rotation_deg),
-            scale=scale,
-        )
-    if material_index is not None:
-        _repaint(doc, [obj.uid], material_index)
+    try:
+        if doc.element_mode == "object":
+            doc.select([obj.uid])
+        if translation is not None or rotation_deg is not None or scale is not None:
+            doc.set_transform(
+                obj.uid,
+                translation=translation,
+                rotation=None if rotation_deg is None else _quat_from_euler_xyz(rotation_deg),
+                scale=scale,
+            )
+        if material_index is not None:
+            _repaint(doc, [obj.uid], material_index)
+    except (OpError, ValueError) as error:
+        # See ``_h_add_primitive``'s identical unwind (the 2026-10-14 audit, finding
+        # clay-agent-tools-01).
+        return _unwind_add(doc, mark, head_before, error)
     doc.history.collapse_since(mark)
     _label_top(doc, mark, f"Add {obj.name}")
 

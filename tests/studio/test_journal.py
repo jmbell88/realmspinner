@@ -1183,4 +1183,5 @@ def test_journal_docstring_and_kind_modes_comment_name_no_deleted_profile_kind()
     )[0]
     comment_tail = kind_modes_comment[kind_modes_comment.rindex("#: Journal kind") :]
     assert "profile" not in comment_tail.lower()
-    assert "pose" in comment_tail.lower()
+    # No ``"pose"`` assertion any more: Poser's removal retired that kind, and the
+    # 2026-10-14 audit (shell-documents-05) took it out of this comment too.

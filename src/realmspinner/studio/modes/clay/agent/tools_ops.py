@@ -141,6 +141,15 @@ def _h_select(ctx: Any, session: Session, args: dict) -> dict:
         return fail(
             "give uids -- an empty list clears the selection.", field="uids"
         )
+    # The 2026-10-14 audit, finding clay-agent-tools-05: an explicit ``null``
+    # got past the check above and ``_resolve_uids`` read it as the empty list,
+    # so a client that serialises a missing value as null wiped a selection
+    # that is not undoable. The schema declares an array; null is a type error.
+    if args["uids"] is None:
+        return fail(
+            "uids must be a list of uids, not null -- an empty list clears the selection.",
+            field="uids",
+        )
     uids, failure = _resolve_uids(doc, args.get("uids"), field="uids")
     if failure:
         return failure
@@ -666,6 +675,17 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
             op=op.name,
             recovery="switch_mode",
         )
+    # The 2026-10-14 audit's clay-12: named, not left to ``enabled`` below, which would answer a
+    # bare "Switch to Pose mode first." with no field -- advice an agent cannot act on, since no
+    # tool of its own switches Pose mode on. The enum no longer lists these; this is the backstop.
+    if op.name in clay_ops.POSE_OPS:
+        return fail(
+            f"{op.name!r} is a Pose mode op, which belongs to the person at the keyboard: "
+            "Clay's agent surface has no Pose mode and no playhead.",
+            field="name",
+            recovery="fix_arguments",
+            op=op.name,
+        )
     # ``run`` itself returns False, silently, for a disabled op -- exactly the
     # answer that is useless to an agent with no menu to look at and read the
     # greyed row's tooltip from. Checked here, once, so the refusal names the
@@ -1169,7 +1189,12 @@ def _h_export(ctx: Any, session: Session, args: dict) -> dict:
         return failure
     doc = tab.doc
     if tab.saving:
-        return fail("A save for this document is already in progress.")
+        # The 2026-10-14 audit, finding clay-agent-tools-07: this tool is in
+        # ``SAVE_SAFE_TOOLS`` so ``dispatch.call`` does not gate it, and this
+        # refusal alone carried no ``recovery``; ``_saving_refusal`` gives every
+        # other tool refused during a save ``retry``, and the identical call is
+        # just as safe to repeat here once the save has finished.
+        return fail("A save for this document is already in progress.", recovery="retry")
     if not any(obj.visible for obj in doc.objects):
         return fail("There is nothing visible to export.")
 

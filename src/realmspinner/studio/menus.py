@@ -330,17 +330,20 @@ def _clay_file_specs(
         )
     # The way in that is not Open: a .glb, .obj, .stl or .ply, as a new document. It was
     # a row of the Add menu in the menu strip, which is gone. Like Open it needs no
-    # document (the import adopts a tab of its own), so it is never greyed.
+    # document (the import adopts a tab of its own), so it is greyed only while the
+    # tab in front is saving -- the palette row and the Inspector button grey for that
+    # and this row did not (the 2026-10-14 audit, finding shell-chrome-07).
+    import_busy = tab is not None and bool(tab.saving)
     out.append(
         MenuSpec(
             identity="clay:import-mesh",
             path=("File",),
             order=new_at,
             label="Import Mesh...",
-            enabled=True,
+            enabled=not import_busy,
             checked=False,
             shortcut="",
-            disabled_reason="",
+            disabled_reason="Saving..." if import_busy else "",
             callback=lambda: clay_mode.ask_import_mesh(ctx),
         )
     )
@@ -353,7 +356,8 @@ def _clay_file_specs(
             path=("File",),
             order=new_at,
             label="Import Animation...",
-            enabled=has_bones and not (tab is not None and tab.saving),
+            enabled=has_bones
+            and not (tab is not None and (tab.saving or clay_mode._gesture_live(ctx, tab))),
             checked=False,
             shortcut="",
             disabled_reason=(
@@ -362,6 +366,8 @@ def _clay_file_specs(
                 else "Mark some shapes as bones first."
                 if not has_bones
                 else "Saving..."
+                if tab.saving
+                else doc_io.GESTURE_WHY
             ),
             callback=lambda: clay_mode.import_animation(ctx, tab),
         )

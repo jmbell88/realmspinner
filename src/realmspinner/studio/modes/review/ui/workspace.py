@@ -214,7 +214,7 @@ class ReviewPanes:
 
         **One thumbnail upload per frame.** ``review_mode.next_thumbnail`` hands
         back at most one row per call, and the rest draw a placeholder until
-        their turn comes -- ``viewer/sheet.StripRender``'s rule at a larger scale,
+        their turn comes -- the retired direction-strip preview's rule at a larger scale,
         because a synchronous upload per cell over a hundred cells is a freeze
         measured in seconds rather than frames.
         """
@@ -368,8 +368,8 @@ class ReviewPanes:
             # responses.
             widgets.empty_state(
                 icons.LIST,
-                "No sweep runs found",
-                "Launch one below, or check that the bench directory is where you expect.",
+                "No sweep runs yet.",
+                "Launch one below.",
             )
         # **Above the filter on purpose.** Below it, a button naming a count
         # sitting under a search box reads as "remove the ones I have filtered
@@ -618,6 +618,10 @@ class ReviewPanes:
             "Delete this sweep's jobs and meshes",
             danger=True,
             enabled=not state.scanning,
+            # The 2026-10-14 audit, finding shell-review-settings-09: this greyed
+            # during a scan with only the generic tooltip, where Rescan and
+            # Remove on the same pane say why.
+            reason="A scan is already running.",
         ):
             state.drop_retained = False
             # Blinded, through ``_delete_confirm_message``: the 2026-09-11
@@ -643,7 +647,7 @@ class ReviewPanes:
         from imgui_bundle import imgui
 
         from .....service import sweeps as sweeps_mod
-        from .... import controls, forms, widgets
+        from .... import controls, forms, theme, widgets
 
         # The label table for every guidance field, which is where a param's
         # human name already lives. Resolved here rather than in ``review_mode``
@@ -692,7 +696,7 @@ class ReviewPanes:
             # "what to vary", not "vary": the old label was a verb with no
             # object, over a combo of thirty raw param names. ``axes`` is a
             # composite of several rows, not one control, so a refusal against
-            # it prints above the block the way Poser's "layout" note does
+            # it prints above the block the way a layout note does
             # rather than ringing an arbitrary row.
             widgets.field_label("what to vary")
             form_ui.note("axes")
@@ -711,6 +715,20 @@ class ReviewPanes:
                 imgui.same_line()
                 if controls.button("Remove axis", role=controls.ButtonRole.GHOST):
                     form.axes.pop()
+
+        # Under the form's refusal: the Install button for a missing model or
+        # pack. The form draws no control for those fields, so the message is
+        # drawn here with its offer (the 2026-10-14 audit, finding
+        # shell-review-settings-10).
+        from ....panes import model_gate
+
+        for offered in form.offer_fields:
+            message = ctx.state.field_errors.get(offered)
+            if message:
+                imgui.push_text_wrap_pos(0.0)
+                widgets.text_colored(theme.ERR, message)
+                imgui.pop_text_wrap_pos()
+                model_gate.install_offer(ctx, offered)
 
         planned = review_mode.preview_units(state)
         problem = ""
@@ -1030,7 +1048,9 @@ class ReviewPanes:
             with form_ui.field(
                 "grade",
                 "Grade",
-                help_text="A digit grades; press R first for a negative grade.",
+                # A function of the pass (the 2026-10-14 audit, finding
+                # shell-review-settings-06): R is Reject inside one.
+                help_text=review_mode.grade_help(state.judging is not None),
                 helper="+5 ships as-is, +3 is usable, and -5 is unusable.",
             ):
                 grade = widgets.grade_buttons("review", enabled, reason=blocker)

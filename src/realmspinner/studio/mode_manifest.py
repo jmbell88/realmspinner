@@ -50,11 +50,14 @@ and a table that restates it is a table that can disagree with it.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from importlib import import_module
 from typing import Any
 
 from . import verbs
+
+log = logging.getLogger(__name__)
 
 #: Every document-mode module already lives nested, under
 #: ``studio.modes.<name>`` (see the ``module=`` entries below, each spelled
@@ -76,8 +79,8 @@ class ModeManifest:
     #: that owns ``active``, ``JOURNAL`` and ``persist``.
     module: str
     #: The journal/document kind string. Equal to ``key`` for every mode today;
-    #: a mode whose document is not what the app calls the mode (Poser's was
-    #: ``"pose"``) is why this is a field and not derived.
+    #: a mode whose document is not what the app calls the mode is why this
+    #: is a field and not derived.
     kind: str
     #: ``palette._DOC_MODES``'s export command label, character for
     #: character. Empty suppresses the command instead of forcing a fake one
@@ -150,6 +153,19 @@ def _import(module_name: str) -> Any:
     return import_module(f"{_PACKAGE}.{module_name}")
 
 
+def import_named(module_name: str) -> Any:
+    """Import one of the manifest's module strings (``entry.module`` or
+    ``entry.opener``, both spelled relative to :data:`_PACKAGE`).
+
+    The public door Home's Resume rows go through. The 2026-10-14 audit, finding
+    shell-02, found ``landing._open_with`` resolving ``"modes.inker.mode"`` with
+    a relative import from inside ``studio/modes/home/ui/panes``, which is not
+    ``studio``: every document row raised ``ModuleNotFoundError``. These strings
+    are only ever true against :data:`_PACKAGE`, so only this module resolves them.
+    """
+    return _import(module_name)
+
+
 def module_of(entry: ModeManifest) -> Any:
     """The module that owns one mode's document -- ``active``, ``persist`` and
     its ``JOURNAL``.
@@ -170,10 +186,23 @@ def persisting_modes() -> tuple[ModeManifest, ...]:
     ``persist`` is a fact the module can answer for itself, through
     ``getattr``, and a table that copies the answer into a sixth place is a
     table that can (and did) forget one.
+
+    **A module that will not import is skipped and logged**, as
+    ``journal.ensure_providers`` already does for the same reason (the
+    2026-10-14 audit, finding shell-documents-10): this runs from teardown
+    outside any per-step guard, so one unimportable mode used to skip every
+    persist, the settings flush, the texture release and ``runtime.shutdown``.
     """
-    return tuple(
-        m for m in DOC_MODES if callable(getattr(_import(m.module), "persist", None))
-    )
+    out: list[ModeManifest] = []
+    for m in DOC_MODES:
+        try:
+            module = _import(m.module)
+        except Exception:
+            log.exception("persist: %s could not be imported; skipping it", m.key)
+            continue
+        if callable(getattr(module, "persist", None)):
+            out.append(m)
+    return tuple(out)
 
 
 def call_persist(ctx: Any, entry: ModeManifest) -> None:

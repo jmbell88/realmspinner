@@ -3,9 +3,17 @@ retrieval design was accepted against (2026-10-06): the fused BM25 + dense
 ranking must beat BM25 alone, on a fixed question set, with the real
 EmbeddingGemma 2 child embedding the real Manual.
 
-``data/manual_questions.json`` is 80 questions the stock Gemma 4 12B wrote from
-sampled Manual passages (one short question a reader who had never seen the
-chapter might type), each with the chapter and section its passage came from.
+``data/manual_questions.json`` is 71 questions (this text and the
+invariants ledger once said 80; the file has held 71 since before the 2026-10-14
+audit) the stock Gemma 4 12B wrote from sampled Manual passages (one short question a
+reader who had never seen the chapter might type), each with the chapter and
+section its passage came from. A section title begins with its chapter's
+*number*, so a Manual renumbering moves every title in the set: the 2026-10-14
+audit, finding familiar-core-01, found 46 of the 71 stale and the leading
+numbers were refreshed by hand. ``tests/familiar/test_audit_2026_10_14_f62_familiar.py``
+counts the survivors on the CPU lane so the next renumbering fails there rather
+than here, on a lane that skips without the retrieval row.
+
 The set is *synthetic*: paraphrased questions favour a meaning-based ranker over
 a keyword one, so the margin below is the margin on that set, not on what
 people type. A question whose section heading no longer exists in the Manual

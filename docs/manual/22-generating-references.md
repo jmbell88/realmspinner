@@ -104,8 +104,7 @@ but clears the selected result and source. Both preserve prior attempts.
 
 Tilesets can show the exported sheet or an individual cell, and blob terrain has a small assembled
 terrain preview. Sprite sheets show the exported sheet, cells or animation tags, with pause and restart
-controls. Playback uses the exported frame durations. Character meshes can switch between the model
-and exported sheets once those sheets exist.
+controls. Playback uses the exported frame durations.
 
 Under those, in amber rather than red, the plan may also draw one or more lines starting **Worth
 knowing**. These are *advisories*, and the difference from the red ones is the whole point: an
@@ -306,12 +305,13 @@ the same export as **Settings → Advanced → Export generation log**.
 ### Which candidate to look at first
 
 A fan-out of eight arrives in the order the seeds happened to be drawn in, which is no order at all.
-Each finished reference therefore carries a **rank**, shown as a percentage on its library card, and
-it exists to answer one question: which of these is worth opening first. It is labelled *rank* and
-nothing else, because that is all it claims — where this candidate sits in its own strip, not whether
-it is any good. (Through v0.0.38 the same figure was drawn as "judge: N% likely a keeper", which named
-the wrong instrument: the trained probe in [Review](34-review.md) is a different thing and is never
-consulted here.)
+Each finished reference therefore carries an **order hint**, shown as a bare percentage on its library
+card and, on its card in Create's tray, only when you hover it ("Order hint N% - a sorting aid, not a
+quality score"). It exists to answer one question: which of these is worth opening first. It is called
+an *order hint* and nothing more, because that is all it claims — where this candidate sits in its own
+strip, not whether it is any good, which is why the tray does not draw it as a number. (Through v0.0.38
+the same figure was drawn as "judge: N% likely a keeper", which named the wrong instrument: the trained
+probe in [Review](34-review.md) is a different thing and is never consulted here.)
 
 Three things go into it, and each is absent-changes-nothing — a term that could not be measured
 leaves the score exactly what it would have been without it:
@@ -320,7 +320,7 @@ leaves the score exactly what it would have been without it:
   one term that predicts whether the mesh stage can succeed at all: a subject cropped at the edge of
   the frame reconstructs badly however handsome it is. It counts *subjects* — a stray speck of noise
   beside the silhouette is not a second object. (Before v0.0.39 it counted every speck, which floored
-  this term to zero on every real image and left the rank deciding nothing.)
+  this term to zero on every real image and left the order hint deciding nothing.)
 - **Style anchor** — how close the image looks to the reference image attached under *Conditioning*,
   when there is one.
 - **Human preference** — how likely a person is to pick this image for this prompt, from PickScore.
@@ -363,13 +363,16 @@ image.
 
 ### Starting from the image
 
-Beside *appearance* and *structure* there is a third way to use the reference: **Start from this
-image (img2img)**. The drawing then begins from the reference's pixels rather than from noise, and
-**Strength** says how far it may go — at 0.30 the layout and most of the surface survive and the
-model repaints the rest; at 0.65 only the gist does. It is the control for "this, but cleaner",
-"this, but in the style LoRA", or "this, but with the prompt's changes", and it costs nothing
-extra on the card. It needs an SDXL-family model, like the other two halves, and it can be combined
-with either of them. The inspector records *start image* and *start strength* on the job.
+Beside *appearance* and *structure* there is a third way to use the reference: **Start from this image
+(img2img)**. The drawing then begins from the reference's pixels rather than from noise, and
+**Strength** says how far it may go — at 0.30 the layout and most of the surface survive and the model
+repaints the rest; at 0.65 only the gist does. It is the control for "this, but cleaner", "this, but in
+the style LoRA", or "this, but with the prompt's changes", and it costs nothing extra on the card: the
+start picture is fitted to between 512 and 1024 pixels on its long side (aspect kept) before drawing, so
+a very large or very small reference is scaled into that range, and a structure lock combined with it
+traces the picture at that same size. It needs an SDXL-family model, like the other two halves, and it
+can be combined with either of them. The inspector records *start image* and *start strength* on the
+job.
 
 All four strengths above — Appearance, Structure's two, and this one — carry the same findings
 machinery as the Model and Style LoRA pickers once enough verdicts exist behind a value: a muted line
@@ -764,9 +767,11 @@ slashed spelling reads the same as a spaced one: `ogre-king` finds the species
 exactly as `ogre king` does. Everything the
 brief did not mention keeps its default, and anything it said that Realmspinner did not understand is
 listed under **Not interpreted** so you can see what was ignored rather than wonder. That line also
-names an action: Realmspinner understands "a running wolf", but a character is a rigged mesh with
-no pose of its own, so *run* is listed there instead of silently disappearing — you animate the
-character afterwards in [Clay](27-clay.md#bones-and-rigs).
+names an action, a camera word and a sheet word: Realmspinner understands "a running wolf" or
+"isometric view", but a character is a rigged mesh with no pose or camera of its own, so *run* and
+*isometric view* are listed there instead of silently disappearing, and so are "sprite sheet" and
+"8 directions", which belong to the other asset type. You animate the character afterwards in
+[Clay](27-clay.md#bones-and-rigs).
 
 Change a control and it becomes yours. From then on editing the prompt leaves that control alone —
 otherwise every keystroke would undo the species you just picked. **Reset to prompt** forgets those
@@ -800,11 +805,8 @@ on the Look control itself.
 Below them is one slider per appearance channel the species' body plan declares — an ogre and a wolf
 do not have the same ones — and a **Name**, which is what the library will call it.
 
-The same **Seed** row as every other type closes the column, with its **Reroll** and **Lock seed**.
-Here the seed is the recipe's own: it is stored with the character, and it feeds what the build
-leaves to chance, such as the flame on a socket, so the same recipe and seed build the same character.
-**Reroll** replaces it with a fresh random number. Unlocked, every Generate draws a fresh seed; with
-**Lock seed** on, the seed is reused, so an unchanged recipe builds the same character again.
+A character has no Seed: the build leaves nothing to chance, so the same recipe always builds the
+same character.
 
 **Preview character** builds the body on its own and shows it in the viewport. It makes no library
 row and never blocks Generate, so it is safe to press while you are still deciding.

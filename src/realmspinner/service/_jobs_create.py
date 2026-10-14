@@ -93,7 +93,8 @@ def resolve_profile(
 
     ``profile is None`` means "no tier named" -- an omitted API field, a form
     that has not touched its Budget control -- and is resolved here to
-    ``svc.config.mesh_profile`` (dev/measurements/2026-09-23-default-mesh-budget.md:
+    ``svc.config.mesh_profile`` (dev/measurements/2026-09-23-default-mesh-budget.md [lost;
+    re-measure to change]:
     the default moved from ``raw`` to ``standard``). Resolving it *here*,
     rather than leaving ``None`` to mean "no reduction" as it used to, is what
     lets ``params["profile"]`` always say what the job actually ran --
@@ -174,7 +175,7 @@ def resolve_lowpoly(
     no reason, and a rung the user never asked for must not sit in
     ``params["profile"]`` looking like a request that ran.
 
-    Four cases (dev/measurements/2026-09-23-default-mesh-budget.md):
+    Four cases (dev/measurements/2026-09-23-default-mesh-budget.md [lost; re-measure to change]):
 
     * Neither ``profile`` nor ``lowpoly_triangles`` named: defaults to
       ``svc.config.lowpoly_triangles`` (0 means off) *when Blender is
@@ -617,7 +618,7 @@ def create_job(
 
     def _decode(raw: bytes, field: str) -> bytes:
         if len(raw) > MAX_UPLOAD_BYTES:
-            raise TooLarge(f"{field} upload is over 20 MB")
+            raise TooLarge(f"{field} upload is over 20 MB", field=field)
         try:
             return to_png(raw)
         except ImageTooLarge as exc:

@@ -248,6 +248,21 @@ def backup(
         raise Invalid("the backup destination is a file, not a folder", field="dest")
     dest.mkdir(parents=True, exist_ok=True)
     store_path = dest / Path(svc.config.db_path).name
+    # The 2026-10-14 audit (finding service-queue-05): the data directory is the
+    # most natural wrong folder to pick, and the copy would then be a replace
+    # over the live store -- refused by the open connection as a raw
+    # ``PermissionError [WinError 5]`` naming a temp path. Compared before
+    # anything is written, by file identity where both exist so a spelling
+    # difference (case, a short name, a junction) cannot slip past.
+    live = Path(svc.config.db_path)
+    if store_path == live or (
+        store_path.exists() and live.exists() and store_path.samefile(live)
+    ):
+        raise Invalid(
+            "that folder holds the live library database -- choose a different "
+            "folder for the backup",
+            field="dest",
+        )
     written = svc.store.backup_to(store_path)
     out: dict[str, Any] = {
         "dir": str(dest),
