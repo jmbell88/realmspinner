@@ -111,6 +111,7 @@ class ClayViewport:
         # stamps its hover against this count and ``clay_mode.handle_key`` reads it
         # back (``ClayState.frame_serial``).
         clay_mode.ensure(ctx).frame_serial += 1
+        clay_mode.pump_rig(ctx)
         self._clay_tabs(ctx, clay_mode)
         tab = clay_mode.active(ctx)
         if tab is None:

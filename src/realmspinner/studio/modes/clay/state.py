@@ -169,6 +169,11 @@ class ClayTab(docmodes.HistoryTab):
     # ``(bone uid, time)``, the gesture in hand (a scrub, or a diamond drag previewed as ghosts
     # until release), and how many bone rows the strip is scrolled. Session state like the
     # playhead: a saved ``.rblk`` carries none of it.
+    # A Blender weighting run in flight for this document (``clay_mode.rig_with_blender``): the
+    # library row it was made from, the rig job, the placement that row was given, the bones'
+    # export names, and what the weights will replace. Session state: a closed document forgets
+    # it, the run still finishes in the library.
+    pending_rig: dict[str, Any] | None = None
     key_sel: list[tuple[int, float]] = field(default_factory=list)
     key_drag: dict[str, Any] | None = None
     timeline_scroll: int = 0

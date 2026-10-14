@@ -990,6 +990,31 @@ Playing moves the playhead and nothing else: it is never an undo step, and an un
 The strip shows up to the animation's length rounded up to a whole second, with at least one second to put a first
 key in.
 
+## Rigging with Blender weights
+
+A model built from boxes is **rigid**: each shape follows the bone it sits under, and nothing bends. A smooth
+character, or a model imported as one mesh, has to be **weighted**: each point follows several bones by an amount, so
+an elbow bends instead of hinging. Clay does not paint weights, but Blender can work them out, and the **Weight with
+Blender...** button on the Inspector's **Bone & rig** card (also in `Ctrl`+`K`) does it for this document's own bones.
+It is available once the document has some bones, there is a visible shape that is not a bone, and Blender is
+installed.
+
+Press it and Clay merges the visible shapes that are not bones into one mesh, adds it to the Library as its own entry
+named after the document with "(weights)", and queues Blender to weight it against your bones. That takes a few
+minutes and does not lock anything: keep working. When Blender is done the weights land as **one undo step**: the
+shapes it weighted are replaced by one weighted mesh, wearing a link glyph in the outliner, and the bones are brought
+to the frames Blender weighted them in. A bone that Blender named the same as yours *is* yours and keeps everything
+under it where it stands; a joint of Blender's that matches none of yours is added as a new bone. Undo puts your
+shapes and the bones' old rest poses back.
+
+Things to know. A skeleton has **one root**: if the document has two bones with no bone above them, the button names
+them and refuses until you parent one under the other. Blender welds points that coincide before it weights, so the
+weighted mesh can have fewer points than the shapes you merged. A shape you change or delete while Blender is working
+is noticed at the end, and the weights are **not** applied then (the weighted mesh is still in the Library, and
+pressing the button again weights the new shapes). If the run fails or is cancelled the document is untouched and the
+merged mesh stays in the Library for you to delete. A weighted mesh cannot have points added or taken away (see
+[Bones and rigs](#bones-and-rigs)); **Unbind Skin** is the way back to a plain mesh.
+
 ## Importing an animation
 
 **Import Animation...** (in the File menu, in `Ctrl`+`K` and as **Import** on the timeline strip) lays the motion of

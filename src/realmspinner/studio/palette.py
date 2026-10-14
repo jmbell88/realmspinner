@@ -741,6 +741,24 @@ def _clay_build(doc: Any, tab: Any, gesture: bool = False) -> list[Command]:
         )
     )
 
+    # Blender's automatic weights for this document's bones: the Rig card's button, here too.
+    def weight_with_blender(ctx: Any, _state: Any, live: Any) -> None:
+        clay_mode.rig_with_blender(ctx, live)
+
+    def can_weight(ctx: Any) -> bool:
+        return not clay_mode.rig_blocked_why(ctx, _clay_tab(ctx))
+
+    out.append(
+        Command(
+            key="clay-rig:weights",
+            label="Weight with Blender...",
+            group=_CLAY_GROUP,
+            run=_clay_run(weight_with_blender),
+            enabled=can_weight,
+            why="Needs Blender, some bones, and a visible shape that is not a bone.",
+        )
+    )
+
     # The ways out, greyed with the one sentence every output button uses.
     def can_export(ctx: Any) -> bool:
         live = _clay_tab(ctx)

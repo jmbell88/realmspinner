@@ -633,6 +633,187 @@ def ask_import_mesh(ctx: Any) -> None:
     ctx.submit("clay-import", run)
 
 
+def rig_blocked_why(ctx: Any, tab: Any) -> str:
+    """Why "Weight with Blender" cannot start, or ``""``. One sentence for the button, the
+    palette and the entry point, so they refuse for the same reason."""
+    from ....kernels.rig import clayrig
+
+    if tab is None:
+        return "Open or start a document first."
+    if not getattr(ctx, "rigging_available", False):
+        return "Weighting needs Blender, which is not installed."
+    if tab.saving:
+        return "Saving..."
+    if tab.pending_rig is not None:
+        return "Blender is already weighting this document."
+    if not any(obj.bone for obj in tab.doc.objects):
+        return "Mark the joints as bones first."
+    if not clayrig.weight_sources(tab.doc):
+        return "There is nothing to weight: no visible shape that is not a bone."
+    return ""
+
+
+def rig_with_blender(ctx: Any, tab: ClayTab | None = None) -> None:
+    """Weight this document's shapes against its bones with Blender's automatic weights.
+
+    The visible shapes that are not bones are merged into one mesh and made a library row; a rig
+    job is queued against it with the document's bones as the skeleton (Blender's frames, in the
+    row's placement); the result is read back when the job is done (:func:`pump_rig`) and
+    adopted as one undo step. The merge, the row and the queueing run on one task thread with the
+    tab ``saving``; the minutes in Blender after that do not lock anything, and a shape edited
+    meanwhile is noticed at the end rather than silently replaced.
+    """
+    tab = tab or active(ctx)
+    why = rig_blocked_why(ctx, tab)
+    if why or _gesture_live(ctx, tab):
+        if why:
+            ctx.toast(why, "error")
+        return
+    doc = tab.doc
+    title = tab.title
+
+    def run() -> dict[str, Any]:
+        import numpy as np
+
+        from ....kernels.geom3d import glbwrite
+        from ....kernels.mesh import document as bd
+        from ....kernels.mesh import rig
+        from ....kernels.rig import clayrig
+        from ....service import jobs as svc_jobs
+        from ....service import rig as svc_rig
+
+        sources = clayrig.weight_sources(doc)
+        by_uid = doc._uid_map()
+        # What the weights will replace, pinned: a shape edited before they land is stale.
+        snapshot = {
+            o.uid: (o.mesh, doc._world_in(o.uid, by_uid).copy()) for o in sources
+        }
+        names = dict(rig.export_names(doc.objects))
+        glb = glbwrite.write_glb(bd.to_model(clayrig.weight_source_doc(doc), skinned=False))
+        row = svc_jobs.import_mesh(ctx.svc, glb, name=f"{title} (weights)", prompt=title)
+        source_job = row["id"]
+        try:
+            moved = ((ctx.svc.store.get(source_job) or {}).get("params") or {}).get("transform")
+            if not isinstance(moved, dict):
+                raise ValueError("the library could not ground the merged mesh")
+            factor = float(moved.get("scale") or 1.0)
+            place = np.diag([factor, factor, factor, 1.0])
+            place[:3, 3] = [float(v) for v in (moved.get("translation") or (0.0, 0.0, 0.0))]
+            skeleton = clayrig.heat_skeleton(doc, place)
+            queued = svc_rig.rig_with_skeleton(
+                ctx.svc,
+                source_job,
+                bones=skeleton["bones"],
+                bounds=skeleton["bounds"],
+                mirror_pairs=skeleton["mirror_pairs"],
+            )
+        except BaseException:
+            # The row exists only to be weighted; with no run behind it, it is clutter.
+            with contextlib.suppress(Exception):
+                svc_jobs.delete_job(ctx.svc, source_job)
+            raise
+        return {
+            "rigging": {
+                "source_job": source_job,
+                "rig_job": queued["id"],
+                "place": place,
+                "names": names,
+                "sources": snapshot,
+            }
+        }
+
+    _start(ctx, tab, f"clay-rigweights:{tab.uid}", run)
+
+
+def pump_rig(ctx: Any) -> None:
+    """Notice a weighting run finishing, every frame: a couple of dict lookups against the
+    live job cache for each tab that has one, as Poser's ``pump_rerig`` did.
+
+    A finished run reads ``rig.glb`` back on a task thread (:func:`_read_rig`); an errored or
+    cancelled one just stops being tracked, the generic job toast having said why.
+    """
+    state = getattr(ctx.state, "clay", None)
+    if state is None:
+        return
+    for tab in list(state.docs):
+        pending = tab.pending_rig
+        if pending is None or pending.get("reading"):
+            continue
+        job = ctx.job(pending["rig_job"])
+        if job is None:
+            continue
+        status = job.get("status")
+        if status == "done":
+            pending["reading"] = True
+            _read_rig(ctx, tab, pending)
+        elif status in ("error", "cancelled"):
+            tab.pending_rig = None
+            ctx.toast(
+                "Blender's weighting run did not finish, so the shapes are as they were. "
+                "The merged mesh is in the Library.",
+                "error",
+            )
+
+
+def _read_rig(ctx: Any, tab: ClayTab, pending: dict[str, Any]) -> None:
+    """Parse the finished rig off the frame thread; :func:`on_task_done` adopts it."""
+
+    def run() -> dict[str, Any]:
+        from ....kernels.mesh import glbimport
+
+        path = ctx.svc.job_dir(pending["source_job"]) / "rig.glb"
+        imported, _skipped = glbimport.glb_to_claydoc_report(_within_mesh_ceiling(path), name="rig")
+        return {"rig_read": imported}
+
+    if not ctx.submit(f"clay-rigimport:{tab.uid}", run):
+        pending["reading"] = False
+
+
+def _adopt_rig(ctx: Any, tab: ClayTab, imported: Any) -> None:
+    """The weights landed: put them in the document as one undo step, unless it moved on."""
+    import numpy as np
+
+    from ....kernels.mesh.elements import OpError
+
+    pending, tab.pending_rig = tab.pending_rig, None
+    if pending is None:
+        return
+    doc = tab.doc
+    by_uid = doc._uid_map()
+    stale = [
+        by_uid[uid].name if uid in by_uid else "a deleted shape"
+        for uid, (mesh, world) in pending["sources"].items()
+        if uid not in by_uid
+        or by_uid[uid].mesh is not mesh
+        or not np.allclose(doc._world_in(uid, by_uid), world)
+    ]
+    if stale:
+        ctx.toast(
+            "These shapes changed while Blender was working, so its weights were not applied: "
+            + ", ".join(sorted(set(stale))[:5])
+            + ". The weighted mesh is in the Library; weight again to use the new shapes.",
+            "error",
+        )
+        return
+    names = {uid: name for uid, name in pending["names"].items() if uid in by_uid}
+    try:
+        counts = doc.adopt_rig(
+            imported,
+            bone_names=names,
+            to_doc=np.linalg.inv(pending["place"]),
+            remove=list(pending["sources"]),
+        )
+    except OpError as error:
+        ctx.toast(f"Weight with Blender: {error}", "error")
+        return
+    ctx.toast(
+        f"Weighted {counts['removed']} shape{'s' if counts['removed'] != 1 else ''} to "
+        f"{counts['matched'] + counts['added']} bones"
+        + (f" ({counts['added']} new)" if counts["added"] else "")
+        + ". Undo puts the shapes back."
+    )
+
+
 def import_animation(ctx: Any, tab: ClayTab | None = None, path: Path | None = None) -> None:
     """Import the animations of a ``.glb`` onto this document's bones, matched by name.
 
@@ -1603,6 +1784,18 @@ def on_task_done(ctx: Any, done: Any) -> None:
         _adopt_animations(ctx, tab, result["imported"], Path(result["path"]).name)
         return
 
+    if result.get("rigging") is not None:
+        tab.pending_rig = dict(result["rigging"])
+        ctx.toast(
+            "Weighting in Blender. This takes a few minutes; keep working and the weights "
+            "land when it is done."
+        )
+        return
+
+    if result.get("rig_read") is not None:
+        _adopt_rig(ctx, tab, result["rig_read"])
+        return
+
     if result.get("exported_file"):
         # A plain mesh file on disk, not the ``.rblk`` that makes the tab
         # clean -- unlike ``exported`` (the library asset) and the save
@@ -1689,6 +1882,11 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     name = done.key.split(":", 1)[0]
     tab = state.get(done.key.split(":", 1)[1])
     if tab is None:
+        return
+    if name in ("clay-rigimport", "clay-rigweights"):
+        tab.saving = False
+        if name == "clay-rigimport":
+            tab.pending_rig = None
         return
     if name in ("clay-save", "clay-saveas", "clay-export", "clay-exportfile", "clay-animport"):
         tab.saving = False

@@ -314,6 +314,61 @@ def edit_skeleton(svc: RealmspinnerService, job_id: str, payload: dict[str, Any]
     return {"id": new_id, "source_job": job_id, "skeleton": result["skeleton"]}
 
 
+def rig_with_skeleton(
+    svc: RealmspinnerService,
+    job_id: str,
+    *,
+    bones: list[dict[str, Any]],
+    bounds: dict[str, Any],
+    mirror_pairs: list[list[str]] | None = None,
+) -> dict[str, Any]:
+    """Queue a rig whose skeleton the caller built, for a mesh that has no rig yet.
+
+    ``edit_skeleton``'s tail without its head: that door re-rigs a mesh the library already
+    rigged and reads the box it validates against out of the existing ``rig.json``; Clay's
+    "Rig with Blender weights" has a mesh and a skeleton it drew itself and no rig at all, so it
+    brings its own *bounds* (the mesh's box in Blender axes, in the frame the library row
+    stands in) and the skeleton is validated against the hidden ``blank`` template, which
+    imposes no shape. Everything else -- the lock, the in-flight refusal, Blender's presence,
+    the job row -- is the same door's, so a rig minted here cannot race one minted there.
+
+    ``bones`` are ``{name, parent, head, tail}`` in Blender's axes with exactly one root;
+    ``mirror_pairs`` are recorded in ``rig.json`` for the pose tools. The rig lands beside the
+    row's ``model.glb`` as ``rig.glb`` and ``rig.json`` once the queue has run it, which is
+    minutes later and out of process.
+    """
+    source = svc.require_job(job_id)
+    if source["kind"] == "rig":
+        raise Invalid("cannot rig a rig job; rig its source mesh")
+    if source["status"] != "done" or not (svc.job_dir(job_id) / "model.glb").exists():
+        raise Invalid("job has no finished mesh to rig")
+    base = templates.get_template("blank")
+    try:
+        payload: dict[str, Any] = {"bones": bones}
+        if mirror_pairs is not None:
+            payload["mirror_pairs"] = mirror_pairs
+        result = skeleton.validate_skeleton(payload, base=base, bounds=bounds)
+    except ValueError as exc:
+        raise invalid_from(exc, "That skeleton cannot be used") from exc
+    with svc.convert_lock(job_id, "rig"):
+        if rig_in_flight(svc, job_id) is not None:
+            raise Conflict("a rig for this mesh is already running", field="job_id")
+        if not doctor.blender_check().ok:
+            raise Invalid("Rigging needs Blender, which is not installed.")
+        params = {
+            "source_job": job_id,
+            "template": base.key,
+            "bones": result["bones"],
+            "root": result["root"],
+            "mirror_pairs": [list(p) for p in result["mirror_pairs"]],
+            "skeleton": result["skeleton"],
+            "adjusted": True,
+        }
+        new_id = svc.store.create("rig", source["prompt"], params, uuid.uuid4().hex[:12])
+    svc.wake_worker()
+    return {"id": new_id, "source_job": job_id, "skeleton": result["skeleton"]}
+
+
 def limb_presets() -> list[dict[str, Any]]:
     """The shipped limb presets the skeleton editor can graft onto a bone.
 

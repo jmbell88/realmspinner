@@ -556,6 +556,25 @@ def _rig(ctx: Any, doc: Any, obj: Any) -> None:
             tooltip=unbind.hint,
         ):
             clay_ops.run(ctx, doc, unbind)
+    if any(o.bone for o in doc.objects):
+        _weight_button(ctx, doc)
+
+
+def _weight_button(ctx: Any, doc: Any) -> None:
+    """The document-level door to Blender's automatic weights, under the Rig card."""
+    tab = clay_mode.active(ctx)
+    why = clay_mode.rig_blocked_why(ctx, tab) if tab is not None and tab.doc is doc else (
+        "Open or start a document first."
+    )
+    if widgets.disabled_button(
+        f"{icons.LINK} Weight with Blender...##rigweights",
+        not why,
+        reason=why,
+        tooltip="Skin the visible shapes that are not bones to these bones with Blender's "
+        "automatic weights, so the shapes bend with them. It merges the shapes into one mesh and "
+        "takes a few minutes; Undo puts them back.",
+    ):
+        clay_mode.rig_with_blender(ctx, tab)
 
 
 #: What a bare ``_transform(doc, obj)`` -- no pane, no ``ClayState`` -- shows its

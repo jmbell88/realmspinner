@@ -2043,6 +2043,148 @@ class ClayDoc:
         self.pose_rev += 1
         return changed
 
+    # -- adopting a rig that something else weighted --------------------------------------------
+
+    def _rest_to_world(self, uid: int, world: np.ndarray) -> None:
+        """Give bone *uid* the rest transform that puts it at *world*, leaving everything that
+        sits under it where it was: each child is re-expressed against the bone's new frame. A
+        weighted mesh's own transform is ignored by every reader, so it is left alone."""
+        by_uid = self._uid_map()
+        kids = [o.uid for o in self.objects if o.parent == uid and o.skin is None]
+        kept = {c: self._world_in(c, by_uid) for c in kids}
+        t, r, s = self.local_from_world(uid, world)
+        self.set_transform(uid, translation=t, rotation=r, scale=s)
+        for c in kids:
+            t, r, s = self.local_from_world(c, kept[c])
+            self.set_transform(c, translation=t, rotation=r, scale=s)
+
+    def adopt_rig(
+        self,
+        imported: ClayDoc,
+        *,
+        bone_names: Mapping[int, str],
+        to_doc: np.ndarray,
+        remove: Iterable[int] = (),
+    ) -> dict[str, int]:
+        """Take the bones and the weighted meshes of *imported* into this document, as **one**
+        step. -> ``{"matched", "added", "meshes", "removed"}`` counts.
+
+        *imported* is a rigged file read as a document (what Blender wrote after weighting a
+        mesh against this document's bones). *bone_names* maps this document's bone uids to the
+        names they were exported under; an imported bone with one of those names **is** that
+        bone, and takes the imported rest transform (the weights are relative to Blender's
+        frames, so the bone has to agree with them), keeping every shape under it where it
+        stands. An imported bone matching nothing becomes a new bone under its imported
+        parent's counterpart. *to_doc* carries the imported file's world into this document's.
+
+        Each weighted mesh is added at the identity with its weights and a skin naming the
+        counterpart bones, and its materials are matched into the palette by name and colour
+        (an unmatched one is appended). *remove* are the shapes the weights replace, deleted
+        last. Refused (:class:`~.elements.OpError`, nothing pushed) when the file carries no
+        bones or no weights.
+        """
+        imp_by = imported._uid_map()
+        imp_bones = [o for o in imported.objects if o.bone]
+        skinned = [o for o in imported.objects if o.skin is not None and o.mesh.joints is not None]
+        if not imp_bones:
+            raise el.OpError("The rig Blender returned has no bones.")
+        if not skinned:
+            raise el.OpError("The rig Blender returned carries no weights to adopt.")
+        to_doc = np.asarray(to_doc, dtype="f8")
+        by_name = {name: uid for uid, name in bone_names.items()}
+        taken = {o.name for o in self.objects}
+
+        def unique(name: str) -> str:
+            candidate, n = name, 0
+            while candidate in taken:
+                n += 1
+                candidate = f"{name}.{n:03d}"
+            taken.add(candidate)
+            return candidate
+
+        # Parents first, so a new bone's parent exists by the time it is placed.
+        depth: dict[int, int] = {}
+        for b in imp_bones:
+            d, cursor = 0, rig.bone_parent(imp_by, b.uid)
+            while cursor is not None and d < len(imp_bones):
+                d, cursor = d + 1, rig.bone_parent(imp_by, cursor)
+            depth[b.uid] = d
+        ordered = sorted(imp_bones, key=lambda b: depth[b.uid])
+
+        counts = {"matched": 0, "added": 0, "meshes": 0, "removed": 0}
+        mapping: dict[int, int] = {}
+        doomed = [int(u) for u in remove]
+        for uid in doomed:
+            self.by_uid(uid)  # a shape that is not here is a KeyError before anything changes
+        head = self.history.head
+        mark = self.history.mark()
+        failed = True
+        try:
+            for b in ordered:
+                world = to_doc @ imported._world_in(b.uid, imp_by)
+                existing = by_name.get(b.name)
+                if existing is not None and existing not in mapping.values():
+                    mapping[b.uid] = existing
+                    self._rest_to_world(existing, world)
+                    counts["matched"] += 1
+                    continue
+                above = rig.bone_parent(imp_by, b.uid)
+                parent = mapping.get(above) if above is not None else None
+                fresh = Obj(uid=new_uid(), name=unique(b.name), mesh=_empty_mesh(), bone=True,
+                            parent=parent)
+                self.add_object(fresh)
+                t, r, s = self.local_from_world(fresh.uid, world)
+                self.set_transform(fresh.uid, translation=t, rotation=r, scale=s)
+                mapping[b.uid] = fresh.uid
+                counts["added"] += 1
+
+            slots = self._match_palette(imported.materials)
+            by_uid = self._uid_map()
+            for o in skinned:
+                mesh = bm.transformed(o.mesh, to_doc @ imported._world_in(o.uid, imp_by))
+                mesh = replace(
+                    mesh, material=np.array([slots[int(i)] for i in mesh.material], dtype="i4")
+                )
+                joints = tuple(mapping[j] for j in o.skin.joints)
+                skin = rig.Skin(
+                    joints, np.array([np.linalg.inv(self._world_in(j, by_uid)) for j in joints])
+                )
+                body = Obj(uid=new_uid(), name=unique(o.name), mesh=mesh, skin=skin,
+                           material=slots.get(int(o.material), 0))
+                self.add_object(body)
+                counts["meshes"] += 1
+            if doomed:
+                refusals = self.remove_objects(doomed)
+                if refusals:
+                    raise el.OpError(" ".join(refusals))
+                counts["removed"] = len(doomed)
+            failed = False
+        finally:
+            self.history.collapse_since(mark)
+            if failed and self.history.head != head:
+                # Whatever was done before the refusal is taken back and forgotten: a document
+                # half-adopted into a rig is a state nobody asked for and there is no redo of.
+                self.undo_unrecorded()
+        self.pose_rev += 1
+        return counts
+
+    def _match_palette(self, materials: Sequence[gltf.Material]) -> dict[int, int]:
+        """``{index in materials: index in this palette}``: an entry with the same name and base
+        colour is the one already here, anything else is appended."""
+        out: dict[int, int] = {}
+        for i, m in enumerate(materials):
+            key = (m.name, tuple(round(float(v), 4) for v in m.base_color_factor))
+            found = next(
+                (
+                    j
+                    for j, own in enumerate(self.materials)
+                    if (own.name, tuple(round(float(v), 4) for v in own.base_color_factor)) == key
+                ),
+                None,
+            )
+            out[i] = found if found is not None else self.add_material(m)
+        return out
+
     def move_bone_keys(self, keys: Iterable[tuple[int, float]], delta: float) -> bool:
         """Slide every key of each ``(bone, time)`` by *delta* seconds, as **one** step.
 
