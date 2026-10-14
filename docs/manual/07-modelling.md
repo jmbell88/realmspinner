@@ -68,10 +68,10 @@ orthographic.
 The mesh operations live in one registry, which is why the context menu, the Inspector, `Ctrl+K` and the
 keyboard always offer exactly the same list. Right-click is the easiest way in.
 
-The ones you will use: **Extrude** (`E`), **Inset Faces** (`I`), **Bevel Edges** (`Ctrl+B`, edge mode),
-**Subdivide**, **Merge Faces**, **Weld**, **Triangulate Faces**, **Flip Normals** and **Delete**. It is a short
-list on purpose: a low-poly model is made of a few hundred faces you can see, and a `Shift`-drag box, `L` for
-everything joined and these nine reach all of them.
+The ones you will use: **Extrude** (`E`), **Inset Faces** (`I`), **Bevel Edges** (`Ctrl+B`, edge mode), **Loop Cut**
+(`Ctrl+R`, edge mode), **Subdivide**, **Merge Faces**, **Weld**, **Triangulate Faces**, **Flip Normals** and
+**Delete**. It is a short list on purpose: a low-poly model is made of a few hundred faces you can see, and a
+`Shift`-drag box, `L` for everything joined and these ten reach all of them.
 
 ## Merging objects
 

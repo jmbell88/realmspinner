@@ -4719,3 +4719,33 @@ def test_clay_op_smooth_runs_on_the_agents_tab_with_a_levels_param_as_one_undo_s
     assert _payload(result)["ran"] is True
     assert len(tab.doc.by_uid(uid).mesh.starts) - 1 == 96
     assert _history_len(ctx, session) == steps + 1, "one tool call, one undo step"
+
+
+def test_clay_op_loop_cut_cuts_a_ring_through_one_picked_edge_with_a_position_param() -> None:
+    """Tranche 1 landing 3 restored Loop Cut, so ``clay_op``'s enum gains ``loop-cut``.
+    Fails before the restore: the enum has no ``loop-cut`` and the call is a schema refusal."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    uid = _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+
+    refused = agent_clay.call(ctx, session, "clay_op", {"name": "loop-cut"})
+    assert refused["isError"] is True
+    assert refused["content"][0]["text"] == clay_ops.reason_for(
+        clay_ops.get("loop-cut"), tab.doc
+    )
+
+    assert agent_clay.call(ctx, session, "clay_element_mode", {"mode": "edge"})["isError"] is False
+    picked = agent_clay.call(
+        ctx, session, "clay_select_elements", {"uid": uid, "edges": [[0, 1]]}
+    )
+    assert picked["isError"] is False, picked
+    faces = len(tab.doc.by_uid(uid).mesh.starts) - 1
+    steps = _history_len(ctx, session)
+    result = agent_clay.call(
+        ctx, session, "clay_op", {"name": "loop-cut", "params": {"t": 0.25}}
+    )
+    assert result["isError"] is False, result
+    assert _payload(result)["ran"] is True
+    assert len(tab.doc.by_uid(uid).mesh.starts) - 1 == faces + 4
+    assert _history_len(ctx, session) == steps + 1, "one tool call, one undo step"

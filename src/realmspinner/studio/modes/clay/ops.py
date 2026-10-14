@@ -2799,6 +2799,26 @@ def _register_defaults() -> None:
             params=(Param("width", "width (m)", 0.05, 0.01, low=0.001),),
         )
     )
+    # Restored with the 2026-10-13 Clay rig plan (Tranche 1, landing 3). The kernel
+    # came back from 112c69e2^ into ``ops_bevel``; ``t`` is where along each rung the
+    # new loop falls, found with the pointer like Inset's thickness.
+    register(
+        Op(
+            name="loop-cut",
+            label="Loop Cut...",
+            modes=("edge",),
+            run=_element("ops_bevel.loop_cut"),
+            key="Ctrl+R",
+            drag=DragSpec("t", "fraction", "ops_bevel.loop_cut"),
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+            hint="Pick one edge and a new ring of edges is cut across the strip of quads "
+            "it belongs to. The ring stops at the first triangle, n-gon or open "
+            "border it meets, so a partial ring is normal. 0.5 is the middle of "
+            "each rung.",
+            params=(Param("t", "position (0-1)", 0.5, 0.05, low=0.01, high=0.99),),
+        )
+    )
     # ``ops_dissolve.dissolve_faces`` merges a connected block of faces into
     # one n-gon; "Merge Faces" is the word a user searches for.
     #

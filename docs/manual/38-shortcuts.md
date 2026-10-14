@@ -187,6 +187,7 @@ one loop at a time, so a keypress about a picture can never be filed as a verdic
 | E | Extrude, then drag it out at once — along the face normal in face mode, free in edge and vertex mode; click or `Enter` commits, `Esc` undoes the extrude too. Element modes only: in object mode it does nothing |
 | I | Inset faces — move the pointer, or type a value, then `Enter` (face mode) |
 | Ctrl+B | Bevel edges — move the pointer, or type a value, then `Enter` (edge mode) |
+| Ctrl+R | Loop cut — with one edge picked, move the pointer along it, or type a value from 0 to 1, then `Enter` (edge mode) |
 | Shift+R | Repeat the last operation that had numbers (inset, bevel, weld…), at the same values, on what is selected now — element modes |
 | Alt+Z | Toggle X-ray, so an element behind the surface can be picked |
 | P | Separate Selection — splits the selected faces into a new object, in face mode |

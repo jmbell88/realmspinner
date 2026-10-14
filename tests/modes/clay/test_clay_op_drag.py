@@ -87,9 +87,9 @@ def _type(view, doc: bd.ClayDoc, text: str) -> None:
 def test_the_drag_ops_name_a_real_param_and_the_kernel_their_run_wraps() -> None:
     names = {op.name for op in clay_ops.OPS if op.drag is not None}
     # Inset since the picoCAD cut, and Bevel again since Landing 12 of the 2026-10 UI
-    # rebuild restored it: the two ops whose first number is a distance the pointer
-    # finds. Loop cut and edge slide (fractions) stay cut.
-    assert names == {"inset", "bevel"}
+    # rebuild restored it: the ops whose first number is a distance the pointer finds.
+    # Loop cut (2026-10-13) is the first fraction; edge slide joins it with landing 4.
+    assert names == {"inset", "bevel", "loop-cut"}
     for op in clay_ops.OPS:
         if op.drag is None:
             continue
@@ -472,5 +472,68 @@ def test_a_bevel_drag_commits_as_one_undo_step_equal_to_running_it_at_that_width
     assert len(doc.history) == steps + 1, "one drag, one undo step"
     assert doc.history.top.label == "Bevel Edges"
     assert doc.recent_op is not None and doc.recent_op.params["width"] == 0.1
+    assert doc.undo()
+    assert bm.face_count(doc.by_uid(uid).mesh) == faces
+
+
+
+# --- Loop Cut, restored 2026-10-13: the first ``fraction`` drag ---------------------------------
+
+
+def test_ctrl_r_starts_a_loop_cut_drag_at_the_middle_and_a_menu_click_keeps_the_dialog(
+    view, ctx
+) -> None:
+    doc, uid = _edge_doc()
+    _ready(view, doc)
+    cut = clay_ops.get("loop-cut")
+    assert cut.key == "Ctrl+R" and clay_ops.by_key("edge", "Ctrl+R") is cut
+    assert cut.drag is not None and cut.drag.kind == "fraction"
+
+    assert clay_mode._fire_op(ctx, doc, cut, interactive=True) is True
+    assert view._grab == "opdrag" and view._op_drag.op.name == "loop-cut"
+    assert view._op_drag.value == pytest.approx(0.5), "the pointer starts the cut at the middle"
+    view.cancel_drag(doc)
+
+    state = ctx.state.clay
+    assert clay_mode.fire_op(ctx, doc, cut) is True, "the menu's door"
+    assert view._grab is None and state.pending_op == "loop-cut", "a dialog, not a drag"
+
+
+def test_a_loop_cut_drag_slides_the_position_with_the_pointer_and_never_leaves_its_range(
+    view, ctx
+) -> None:
+    doc, uid = _edge_doc()
+    _ready(view, doc)
+    rev, mesh, steps = doc.rev, doc.by_uid(uid).mesh, len(doc.history)
+
+    assert view.begin_op_drag(doc, clay_ops.get("loop-cut"))
+    view._motion(doc, (100.0, 48.0))
+    view.flush_drag_preview(doc)
+    right = view._op_drag.value
+    view._motion(doc, (20.0, 48.0))
+    view.flush_drag_preview(doc)
+    left = view._op_drag.value
+    assert left < 0.5 < right, "sideways travel moves the cut either way"
+    view._motion(doc, (4000.0, 48.0))
+    view.flush_drag_preview(doc)
+    assert view._op_drag.value == pytest.approx(0.99), "clamped to the Param's high"
+    assert view.drag_hud.startswith("Loop cut position ")
+    assert doc.rev == rev and doc.by_uid(uid).mesh is mesh and len(doc.history) == steps
+    view.cancel_drag(doc)
+
+
+def test_a_loop_cut_drag_commits_one_undo_step_at_the_typed_position(view, ctx) -> None:
+    doc, uid = _edge_doc()
+    _ready(view, doc)
+    faces = bm.face_count(doc.by_uid(uid).mesh)
+    steps = len(doc.history)
+    view.begin_op_drag(doc, clay_ops.get("loop-cut"))
+    _type(view, doc, "0.25")
+    assert view._release_drag(doc)
+
+    assert bm.face_count(doc.by_uid(uid).mesh) > faces, "the ring splits the strip"
+    assert len(doc.history) == steps + 1, "one drag, one undo step"
+    assert doc.history.top.label == "Loop Cut"
+    assert doc.recent_op is not None and doc.recent_op.params["t"] == 0.25
     assert doc.undo()
     assert bm.face_count(doc.by_uid(uid).mesh) == faces
