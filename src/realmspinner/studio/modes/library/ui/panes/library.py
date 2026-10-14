@@ -1524,7 +1524,7 @@ def pick_and_import_mesh(ctx: Any) -> None:
     exactly two ways -- reconstructed by the pipeline, or built in Clay -- and a
     mesh a user already had could not enter at all. The only file-open path for
     a ``.glb`` was a drop onto Clay, which converts it into an editable Clay
-    *document* and refuses a rigged one outright, because Clay has no skinning.
+    *document* (and, until 2026-10-13, refused a rigged one outright because Clay had no skinning).
     So the supplied-base-mesh path that Poser's character-sheet stage (built
     as Troupe, folded in by P9 2026-09-18) whole intake assumes had no door:
     ``jobs.import_mesh`` was written, tested and reachable only from Clay

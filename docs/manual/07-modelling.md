@@ -17,8 +17,8 @@ Two limits on import, both about memory rather than taste: past about 200,000 tr
 first, and past two million it refuses. The editor holds two copies of a mesh per undo step, so a
 model that fits comfortably in a viewer does not necessarily fit comfortably in an editor.
 
-A rigged `.glb` is refused outright. Clay has no skinning, and silently dropping the rig on import
-would be worse than saying so.
+A rigged `.glb` opens rigged: its joints become bones and its skinned meshes keep their weights
+(see [Importing an asset](30-clay.md#importing-an-asset) for the limits).
 
 ## Primitives
 

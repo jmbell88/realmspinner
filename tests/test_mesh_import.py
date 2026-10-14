@@ -108,10 +108,13 @@ def test_clay_sends_a_rigged_mesh_somewhere_that_can_take_it():
     than by driving the UI because the words *are* the interface here, which is
     what ``OpError``'s docstring says.
     """
-    from realmspinner.kernels.mesh import glbimport
 
-    source = Path(glbimport.__file__).read_text(encoding="utf-8")
-    refusal = source.split("model.skins", 1)[1].split(")", 1)[0]
+    # Clay opens a rigged file itself now; what it still refuses is a skeleton past its
+    # 64-bone cap, and that refusal must name a door that exists.
+    from realmspinner.kernels.mesh import rigimport
+
+    source = Path(rigimport.__file__).read_text(encoding="utf-8")
+    refusal = source.split("skeleton has", 1)[1][:300]
     assert "Library" in refusal
     assert "Create" not in refusal, "Create accepts images, not meshes"
 

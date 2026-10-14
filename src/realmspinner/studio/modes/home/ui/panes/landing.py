@@ -1032,7 +1032,7 @@ def _start(ctx: Any) -> None:
     # errand somebody with a mesh arrives *with*, and until 2026-08-30 there
     # was no way to do it at all: geometry entered the library only by being
     # reconstructed or built in Clay, and a dropped ``.glb`` reached Clay
-    # alone, which refuses a rigged one because it has no skinning.
+    # alone (which refused a rigged one until 2026-10-13, when Clay learned to hold a rig).
     imgui.same_line()
     if widgets.ghost_button(f"{icons.FOLDER_OPEN} Import mesh..."):
         from ....library.ui.panes import library

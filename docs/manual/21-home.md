@@ -94,8 +94,9 @@ An imported mesh keeps whatever rig it arrived with only as far as the library. 
 own skeleton when you rig it, because a supplied rig rarely maps onto the one the clips are
 authored against — so a mesh that arrives unrigged is no worse off than one that does not.
 
-Clay is the exception, and it is not a way in: dropping a `.glb` there opens it for *editing*, and
-it refuses a rigged one outright, because Clay has no skinning and opening it would drop the rig.
+Clay is the exception, and it is not a way in: dropping a `.glb` there opens it for *editing*. A rigged
+one opens with its own skeleton as bones, so the rig it arrived with is the one you edit, not the one
+Realmspinner would fit.
 
 ## Status
 

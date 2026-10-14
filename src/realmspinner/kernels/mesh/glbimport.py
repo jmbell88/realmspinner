@@ -34,6 +34,10 @@ normal was flat-shaded, and one where they do not was smooth -- measured against
 a cosine of 0.999, which is about 2.5 degrees. A mesh with no normals at all is
 taken as smooth, because that is what a reader that computes its own normals
 will do with it.
+
+**A rigged file opens rigged** (Tranche 2 of the 2026-10-13 Clay rig plan; it used to be
+refused for dropping the rig): :mod:`.rigimport` turns the joints into bones and keeps the
+weights of a skinned mesh, and everything above applies to the meshes it builds.
 """
 
 from __future__ import annotations
@@ -448,12 +452,6 @@ def glb_to_claydoc_report(data: bytes, name: str = "Imported") -> tuple[ClayDoc,
     except Exception as exc:  # noqa: BLE001 - the loader raises several types
         raise OpError(f"This file could not be read as a GLB. {exc}") from exc
 
-    if model.skins:
-        raise OpError(
-            "This GLB is rigged, and Clay has no skinning -- editing it here "
-            "would drop the rig. Import it from the Library instead "
-            "(Home > Import mesh..., or drop it on Home or the Library)."
-        )
     total, objects_wanted = _instanced_budget(model)
     if _instanced_vertices(model) > MAX_VERTICES:
         raise OpError(
@@ -485,11 +483,35 @@ def glb_to_claydoc_report(data: bytes, name: str = "Imported") -> tuple[ClayDoc,
     # it a few thousand times. ``Mesh`` is frozen with read-only arrays, so
     # sharing one between objects is safe -- every edit builds a new one.
     built: dict[tuple[int, int], Any] = {}
-    for node in _placed_nodes(model):
-        for prim in model.meshes[node.mesh]:
-            obj = _object_for(prim, node, name, materials, palette, taken, built)
-            if obj is not None:
-                objects.append(obj)
+    if model.skins:
+        # A rigged file: its joints become bones and its skinned meshes keep their weights
+        # (``rigimport``), where this module used to refuse it for dropping the rig.
+        from .rigimport import import_rigged
+
+        objects = import_rigged(
+            model,
+            name,
+            materials,
+            palette,
+            _placed_nodes(model),
+            material_index=_material_index,
+            unique=_unique,
+            plain_object=lambda prim, node, base, mats, pal, used: _object_for(
+                prim, node, base, mats, pal, used, built
+            ),
+        )
+        if len(objects) > MAX_OBJECTS:
+            raise OpError(
+                f"This GLB places {len(objects):,} objects once its bones are counted, past "
+                f"the {MAX_OBJECTS:,} Clay holds. It is a scene rather than a model -- "
+                "import the part you mean to edit."
+            )
+    else:
+        for node in _placed_nodes(model):
+            for prim in model.meshes[node.mesh]:
+                obj = _object_for(prim, node, name, materials, palette, taken, built)
+                if obj is not None:
+                    objects.append(obj)
 
     if not objects:
         raise OpError("This GLB has no meshes in it.")

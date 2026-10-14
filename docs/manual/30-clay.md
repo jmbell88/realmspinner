@@ -1376,10 +1376,18 @@ A texture Clay cannot use (unreadable, not PNG, JPEG or WebP, larger than 4096 Ã
 carrying a texture transform) is skipped, and the import says how many; a picture shared by several materials counts
 once, and a material nothing in the file uses counts for nothing. An import scale must be a positive number.
 
-Two things are refused rather than half-done. A **rigged** GLB, because Clay has no skinning and
-editing it would drop the rig; open it in Create instead. And a mesh past two million triangles,
-because the editor holds every mesh twice per undo step. Past two hundred thousand it asks first,
-since every edit rebuilds the whole mesh and you should know that before you press Extrude.
+A **rigged** GLB opens rigged. Each joint of its skeleton becomes a bone, parented to the joint above it
+(helper nodes between two joints, such as Blender's Armature empty, are folded into the placement and do not
+become objects); a mesh whose every point follows one joint alone becomes a child of that bone; and any other
+skinned mesh keeps its per-point weights, which move with its bones. A file saved in a pose is imported in
+that pose, and the bones are placed where the file shows them. More than 64 joints is refused by name, as is
+a bone sheared relative to the one above it. A weighted mesh can have its points moved freely, but an edit
+that changes their number, joining it or separating it is refused with a sentence naming **Unbind Skin**,
+which drops its weights.
+
+A mesh past two million triangles is refused, because the editor holds every mesh twice per undo step. Past
+two hundred thousand it asks first, since every edit rebuilds the whole mesh and you should know that before
+you press Extrude.
 
 ## Where the files go
 

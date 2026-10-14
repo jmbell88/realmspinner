@@ -89,6 +89,10 @@ OUTWARD_IMPORTS = {
     # as the rest of this list, for the one file that also reaches
     # ``core.safeio`` above.
     ("serialize.py", "realmspinner.kernels.geom3d"),
+    # rigimport.py reads a skinned ``gltf.Model`` (nodes, skins, primitives) into bones
+    # and weighted meshes: ``gltf`` and ``math3d`` again, the same two ``glbimport.py``
+    # reaches, and nothing outside the kernel.
+    ("rigimport.py", "realmspinner.kernels.geom3d"),
     # legacy.py is the migration-only home of the old modifier kernels
     # (radial-array and mirror spin each copy through ``math3d.compose``,
     # the one quaternion convention ``ops.py`` already uses); only
