@@ -167,6 +167,7 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ("I", "Inset faces -- drag, type a value, Enter (face mode)"),
             ("Ctrl+B", "Bevel edges -- drag, type a value, Enter (edge mode)"),
             ("Ctrl+R", "Loop cut -- pick one edge, drag along it, type a value, Enter (edge mode)"),
+            ("Ctrl+Shift+R", "Edge slide -- drag sideways, type a value, Enter (edge mode)"),
             # Added by the 2026-09-07 audit's clay-08: the X-ray button's own
             # tooltip has named this chord since it was added, and nothing
             # bound it -- including here, where the popup and the manual are

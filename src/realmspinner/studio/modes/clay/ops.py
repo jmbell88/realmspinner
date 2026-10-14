@@ -2819,6 +2819,27 @@ def _register_defaults() -> None:
             params=(Param("t", "position (0-1)", 0.5, 0.05, low=0.01, high=0.99),),
         )
     )
+    # Restored with the 2026-10-13 Clay rig plan (Tranche 1, landing 4): slide a picked
+    # edge loop along the strip it sits in. Ctrl+Shift+E is the app-wide export chord, so
+    # the key is Ctrl+Shift+R. The range stops short of +-1, where a slide would land on
+    # its neighbour (the same duplicate-vertex trap as Loop Cut's t = 0 or 1).
+    register(
+        Op(
+            name="edge-slide",
+            label="Edge Slide...",
+            modes=("edge",),
+            run=_element("ops_slide.edge_slide"),
+            key="Ctrl+Shift+R",
+            drag=DragSpec("t", "fraction", "ops_slide.edge_slide"),
+            enabled=in_mode("edge"),
+            reason=_in_mode_reason("edge"),
+            hint="Slides the picked edges sideways along the faces either side of them, "
+            "so a loop you have just cut can be moved to where the form wants it. "
+            "Nothing but positions changes. Which way is negative depends on the "
+            "mesh's own numbering; try the other sign.",
+            params=(Param("t", "slide (-1 to 1)", 0.0, 0.05, low=-0.99, high=0.99),),
+        )
+    )
     # ``ops_dissolve.dissolve_faces`` merges a connected block of faces into
     # one n-gon; "Merge Faces" is the word a user searches for.
     #

@@ -99,6 +99,7 @@ GROUPS: dict[str, Group] = {
             "inset",
             "bevel",
             "loop-cut",
+            "edge-slide",
             "merge_faces",
             "weld",
             "flip",

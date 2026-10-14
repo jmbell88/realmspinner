@@ -44,8 +44,11 @@ def test_the_frozen_clay_card_hashes_to_its_recorded_sha():
 
     Re-frozen 2026-10-13 (Tranche 1 landing 3) when ``clay_op`` regained ``loop-cut``:
     ``4e581da4...ab7f`` -> ``07266c9d...0727``.
+
+    Re-frozen 2026-10-13 (Tranche 1 landing 4) when ``clay_op`` regained ``edge-slide``:
+    ``07266c9d...0727`` -> ``7ce0f57c...dae7``.
     """
-    expected = "07266c9da1e306c58af43cafd2c6a4e6f50673c128d9c7ee9a45fc0dc7a80727"
+    expected = "7ce0f57c0c9a831b99021b1815e35877c1503ef7be7f4057e0b8ac9a881bdae7"
     assert contract.card_sha("clay") == expected
 
 

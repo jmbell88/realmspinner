@@ -88,8 +88,9 @@ def test_the_drag_ops_name_a_real_param_and_the_kernel_their_run_wraps() -> None
     names = {op.name for op in clay_ops.OPS if op.drag is not None}
     # Inset since the picoCAD cut, and Bevel again since Landing 12 of the 2026-10 UI
     # rebuild restored it: the ops whose first number is a distance the pointer finds.
-    # Loop cut (2026-10-13) is the first fraction; edge slide joins it with landing 4.
-    assert names == {"inset", "bevel", "loop-cut"}
+    # Loop cut and edge slide (2026-10-13) are the fractions: their number is a position,
+    # not a distance, so sideways travel across the viewport drives it.
+    assert names == {"inset", "bevel", "loop-cut", "edge-slide"}
     for op in clay_ops.OPS:
         if op.drag is None:
             continue

@@ -132,13 +132,13 @@ Clay has no menu bar over the viewport: the first row above the render is the [t
 Every operation Clay has is in three places, and all three are drawn from one table, so a name, a key, a
 greyed-out reason or a dialog of numbers cannot differ between them:
 
-- **The Inspector.** In Shape mode, **More actions** on a selected shape lists every whole-shape operation in
-  groups — Transform, Set Origin, Mirror, Parent, Join, Shading, Clean Up, Smooth, Separate, UV — with **Duplicate**
-  and **Delete** as rows of their own. In Points, Edges or Faces the **Select** row holds Select All, Select None,
+- **The Inspector.** In Shape mode, **More actions** on a selected shape lists every whole-shape operation in groups
+  — Transform, Set Origin, Mirror, Parent, Join, Shading, Clean Up, Smooth, Separate, UV — with **Duplicate** and
+  **Delete** as rows of their own. In Points, Edges or Faces the **Select** row holds Select All, Select None,
   Invert Selection and Select Linked, and **Shape it** holds what the mode edits with: repeat last, extrude, inset,
-  bevel, loop cut, merge faces, weld, flip, triangulate, subdivide and Delete, with Topology (dissolve, bridge, fill
-  hole, collapse), Set Origin to Selection and, in face mode, Shading and Separate Selection behind folds of their own.
-  See [The inspector](#the-inspector).
+  bevel, loop cut, edge slide, merge faces, weld, flip, triangulate, subdivide and Delete, with Topology (dissolve,
+  bridge, fill hole, collapse), Set Origin to Selection and, in face mode, Shading and Separate Selection behind
+  folds of their own. See [The inspector](#the-inspector).
 - **The right-click menu** in the viewport lists exactly the operations that apply in the current mode, in the
   same order, with the groups separated by rules.
 - **`Ctrl`+`K`**, the command palette, lists all of them under a **Clay** heading (below).
@@ -152,7 +152,7 @@ Inspector's tiles and **More shapes** list (see [Adding a primitive](#adding-a-p
 is on the Inspector's **Model & history** page, next to the units and up axis it uses; it is also in the **File**
 menu and in `Ctrl`+`K` (see [Importing an asset](#importing-an-asset)).
 
-That is the whole list. Clay has forty-six operations, and every one is in the right-click menu, Frame
+That is the whole list. Clay has forty-seven operations, and every one is in the right-click menu, Frame
 Selection included (it is also in the toolbar's View popover):
 
 | Group | Operations |
@@ -165,7 +165,7 @@ Selection included (it is also in the toolbar's View popover):
 | Object ▸ Parent | Group Selected, Ungroup, Parent to Last, Clear Parent |
 | Object ▸ Shading | Shade Smooth, Shade Flat (also in face mode) |
 | Object ▸ Separate | Separate Loose Parts; Separate Selection (`P`, face mode) |
-| Mesh | Repeat Last (`Shift+R`), Extrude (`E`); in face mode Inset Faces... (`I`), Merge Faces, Flip Normals, Assign Material..., Subdivide, Triangulate Faces (`T`); in edge mode Bevel Edges... (`Ctrl+B`), Loop Cut... (`Ctrl+R`); in vertex mode Weld... |
+| Mesh | Repeat Last (`Shift+R`), Extrude (`E`); in face mode Inset Faces... (`I`), Merge Faces, Flip Normals, Assign Material..., Subdivide, Triangulate Faces (`T`); in edge mode Bevel Edges... (`Ctrl+B`), Loop Cut... (`Ctrl+R`), Edge Slide... (`Ctrl+Shift+R`); in vertex mode Weld... |
 | Mesh ▸ Topology | Dissolve (vertex and edge modes); in edge mode Bridge Loops and Fill Hole; Collapse (edge and face modes) |
 | UV | Box Unwrap, Pack Islands... |
 | (toolbar) | Frame Selection (`F`) |
@@ -315,11 +315,11 @@ one gesture that is never reinterpreted, since it is how you look at what you ar
 mode a drag on empty space orbits and leaves the selection alone; only a click there deselects, and object
 mode has no box select.
 
-Right-click opens the context menu, listing exactly the operations that apply in the current mode
-with the ones that cannot run greyed out. The same table drives the Inspector's action buttons and the
-palette's rows, so none of them can offer something another refuses. Operations that take a number — inset, bevel,
-loop cut, weld, assign material, merge objects, snap to grid, mirror copy, pack islands, simplify, smooth — open a
-small dialog with the fields and an **Apply** button, and remember what you last used.
+Right-click opens the context menu, listing exactly the operations that apply in the current mode with the ones that
+cannot run greyed out. The same table drives the Inspector's action buttons and the palette's rows, so none of them
+can offer something another refuses. Operations that take a number — inset, bevel, loop cut, edge slide, weld,
+assign material, merge objects, snap to grid, mirror copy, pack islands, simplify, smooth — open a small dialog with
+the fields and an **Apply** button, and remember what you last used.
 
 Distances in the Inset, Weld and Bevel fields are world metres. Clay divides them by the object's own
 scale before applying them, so `0.1 m` is 10 cm on screen whatever the object's scale. For a non-uniform scale the
@@ -369,6 +369,7 @@ a box and `L` between them reach what a low-poly model needs.
 | Faces | Inset Faces (`I`) | Shrinks each face in place and rings it with the rim it vacated. The key starts a drag for the thickness. With *treat selection as one region* on, the cap's texture shrinks with the geometry and the rim gets the band of texture between the old edge and the new one, as a per-face inset always did. |
 | Edges | Bevel Edges... (`Ctrl+B`) | Replaces each selected edge with a flat strip the width you give and rebuilds the corners where beveled edges meet: bevel one edge of a box and the two faces at that edge's ends become pentagons, bevel all twelve and the box has 26 faces. One flat segment, not a rounded profile, and a bevel wider than the feature it sits on stops just short of the middle of each edge it slides along, so it flattens the feature without folding it or leaving two corners on one point. The key starts a drag for the width; a width typed below 0.001 m is raised to 0.001 m. An edge on a boundary, or one that three faces share, is refused with the reason; so is a selection that touches more than 10,000 corners (half that on a mesh with UVs), which would freeze the window. |
 | Edges | Loop Cut... (`Ctrl+R`) | With exactly one edge picked, rings the strip of quads that edge belongs to with a new loop of edges, cut at the position you give along each rung (0.5 is the middle; the field takes 0.01 to 0.99, because 0 or 1 would only duplicate a point). The ring stops at the first triangle, n-gon, open border or edge shared by three faces it meets, so a partial ring is normal; a face at the end of a stopped ring takes the new point into its outline and becomes an n-gon rather than leaving a crack. Texture coordinates are interpolated along each cut, so a cut across a seam leaves the seam where it was. The new ring is left selected. Refused above 400,000 corners on one object. |
+| Edges | Edge Slide... (`Ctrl+Shift+R`) | Moves the picked edges sideways along the faces either side of them, each end of an edge along its own two sideways rails, so a loop you have just cut can be put where the form wants it. The field runs from -1 to 1: 0 does not move anything and 1 would put an end on its neighbour, so the field stops just short of it at 0.99. Which direction is negative depends on the mesh's own point numbering, so try the other sign if it went the wrong way. Only positions move; topology, texture coordinates and materials are untouched. A point with no sideways edge outside the selection is refused by name. Refused above 65,536 points. |
 | Faces | Subdivide | Splits each face into quads without changing the shape. |
 | Faces | Flip Normals | Reverses the winding of the selected faces. |
 | Faces | Assign Material... | Paints the selected faces with one palette slot, given by its number in the Colour card's palette, and leaves the object's default slot alone. See [Texturing](#texturing). |
@@ -393,14 +394,15 @@ lowest-numbered of them.
 
 ### Dragging an operation's number
 
-**Inset** (`I`), **Bevel** (`Ctrl`+`B`) and **Loop Cut** (`Ctrl`+`R`) do not open their dialogs from the keyboard.
-They start a **drag**: move the pointer and the result is drawn live, with the operation, the number and its unit
-beside the cursor (`Inset thickness 0.050 m`, `Bevel width 0.050 m`). The distance starts at nothing and grows with
-how far the pointer has travelled from where you pressed the key.
+**Inset** (`I`), **Bevel** (`Ctrl`+`B`), **Loop Cut** (`Ctrl`+`R`) and **Edge Slide** (`Ctrl`+`Shift`+`R`) do not
+open their dialogs from the keyboard. They start a **drag**: move the pointer and the result is drawn live, with the
+operation, the number and its unit beside the cursor (`Inset thickness 0.050 m`, `Bevel width 0.050 m`). The
+distance starts at nothing and grows with how far the pointer has travelled from where you pressed the key.
 
-Loop Cut's number is a position, not a distance, so it works the other way round: it starts at 0.5, the middle of
-each rung, and moving the pointer sideways slides it, the full width of the viewport covering the whole range
-(`Loop cut position 0.500`, with no unit).
+Loop Cut's and Edge Slide's numbers are positions, not distances, so they work the other way round: Loop Cut starts
+at 0.5, the middle of each rung, and Edge Slide at 0, where nothing has moved, and moving the pointer sideways
+slides the number, the full width of the viewport covering the whole range (`Loop cut position 0.500`, with no
+unit).
 
 Click or `Enter` commits, and it commits **once**: one undo step, the same mesh you would have got from
 the dialog at that value, and the **Last action** card appears afterwards so the number is still in reach.
@@ -431,13 +433,13 @@ and the palette's Extrude do not start a drag. `E` extrudes only in an element m
 
 ### Adjusting the last operation, and repeating it
 
-An operation that takes numbers and is run in an element mode — inset, bevel, loop cut, weld, assign material — leaves a
-**Last action** card in the [Inspector](#the-inspector), under **Shape it**; the object-level ones (merge
-objects, snap to grid, mirror copy, pack islands) open a dialog but leave no card. It is headed with the
-operation's name and holds the same fields the dialog had, and changing one re-runs the operation from the
-state it started in: you see the new thickness on the mesh, and the whole thing is still **one** undo step,
-the same mesh you would have got by running the operation at that value in the first place. If the new
-value is one the operation refuses, the previous result stays on screen and the card says why.
+An operation that takes numbers and is run in an element mode — inset, bevel, loop cut, edge slide, weld, assign
+material — leaves a **Last action** card in the [Inspector](#the-inspector), under **Shape it**; the object-level
+ones (merge objects, snap to grid, mirror copy, pack islands) open a dialog but leave no card. It is headed with the
+operation's name and holds the same fields the dialog had, and changing one re-runs the operation from the state it
+started in: you see the new thickness on the mesh, and the whole thing is still **one** undo step, the same mesh you
+would have got by running the operation at that value in the first place. If the new value is one the operation
+refuses, the previous result stays on screen and the card says why.
 
 The card is there only while the model is exactly as the operation left it. Any later edit, an undo, a
 change to what is selected or a change of mode hides it, because from then on "change the thickness" would no
@@ -730,11 +732,12 @@ so the three never disagree:
   selected faces.
 - **Shape it** holds the mode's operations as buttons: **Repeat Last**, **Extrude**, and in face mode
   **Inset Faces...**, **Merge Faces**, **Flip Normals**, **Assign Material...**, **Triangulate Faces** and
-  **Subdivide**; in edge mode **Bevel Edges...** and **Loop Cut...**; in point mode **Weld...**; and **Delete**,
-  which deletes the picked elements and never the shape. The groups that are used less (**Set Origin**, and in face
-  mode **Shading** and **Separate**) are closed folds under the card. Hover shows what a button does and its key; a
-  button that cannot run is greyed and says why. An operation with numbers (the ones with `...`) opens its fields
-  right under its button with an **Apply**, remembers the values for next time, and counts as one undo step.
+  **Subdivide**; in edge mode **Bevel Edges...**, **Loop Cut...** and **Edge Slide...**; in point mode **Weld...**;
+  and **Delete**, which deletes the picked elements and never the shape. The groups that are used less
+  (**Set Origin**, and in face mode **Shading** and **Separate**) are closed folds under the card. Hover shows what
+  a button does and its key; a button that cannot run is greyed and says why. An operation with numbers (the ones
+  with `...`) opens its fields right under its button with an **Apply**, remembers the values for next time, and
+  counts as one undo step.
 - **Last action**, described under [Adjusting the last operation](#adjusting-the-last-operation-and-repeating-it),
   appears under **Shape it** while an operation's numbers are still live.
 - **Colour** is the same card as in Shape mode, under Last action: in Faces mode a swatch paints the picked
