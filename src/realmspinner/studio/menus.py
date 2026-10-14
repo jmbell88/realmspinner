@@ -344,6 +344,28 @@ def _clay_file_specs(
             callback=lambda: clay_mode.ask_import_mesh(ctx),
         )
     )
+    # The motion's way in: a .glb's animations laid onto this document's bones by name.
+    # Greyed with the reason it is, since the document is what it needs.
+    has_bones = tab is not None and any(obj.bone for obj in tab.doc.objects)
+    out.append(
+        MenuSpec(
+            identity="clay:import-animation",
+            path=("File",),
+            order=new_at,
+            label="Import Animation...",
+            enabled=has_bones and not (tab is not None and tab.saving),
+            checked=False,
+            shortcut="",
+            disabled_reason=(
+                "Open or start a document first."
+                if tab is None
+                else "Mark some shapes as bones first."
+                if not has_bones
+                else "Saving..."
+            ),
+            callback=lambda: clay_mode.import_animation(ctx, tab),
+        )
+    )
     if tab is None:
         why = "Open or start a document first."
     else:

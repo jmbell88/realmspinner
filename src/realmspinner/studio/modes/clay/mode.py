@@ -633,6 +633,39 @@ def ask_import_mesh(ctx: Any) -> None:
     ctx.submit("clay-import", run)
 
 
+def import_animation(ctx: Any, tab: ClayTab | None = None, path: Path | None = None) -> None:
+    """Import the animations of a ``.glb`` onto this document's bones, matched by name.
+
+    The picker and the parse run on one task thread (``path`` given skips the picker, for the
+    drop handler and the tests), with the tab ``saving`` for the length of it so nothing edits
+    the bones' rest transforms the retarget reads. The animations are *added* on the frame
+    thread when the task lands (:func:`on_task_done`), as one undo step, and what matched and
+    what did not is a toast: a name that matched nothing is the one thing the person has to
+    know to fix the file.
+    """
+    tab = tab or active(ctx)
+    if tab is None or tab.saving or _gesture_live(ctx, tab):
+        return
+    if not any(obj.bone for obj in tab.doc.objects):
+        ctx.toast("This document has no bones to animate. Mark the joints as bones first.", "error")
+        return
+    doc = tab.doc
+
+    def run() -> dict[str, Any] | None:
+        from ....kernels.geom3d import gltf
+        from ....kernels.mesh import animimport
+
+        source = path
+        if source is None:
+            source = dialogs.open_file("Import animation", dialogs.GLB_FILTER)
+            if source is None:
+                return None
+        model = gltf.load(_within_mesh_ceiling(Path(source)), texture_slots=())
+        return {"imported": animimport.import_by_name(doc, model), "path": str(source)}
+
+    _start(ctx, tab, f"clay-animport:{tab.uid}", run)
+
+
 def edit_asset_in_clay(ctx: Any, job: Any) -> None:
     """Open a library asset in Clay: its authored document if it has one.
 
@@ -1566,6 +1599,10 @@ def on_task_done(ctx: Any, done: Any) -> None:
         ctx.toast("Exported as an asset.")
         return
 
+    if result.get("imported") is not None:
+        _adopt_animations(ctx, tab, result["imported"], Path(result["path"]).name)
+        return
+
     if result.get("exported_file"):
         # A plain mesh file on disk, not the ``.rblk`` that makes the tab
         # clean -- unlike ``exported`` (the library asset) and the save
@@ -1589,6 +1626,27 @@ def on_task_done(ctx: Any, done: Any) -> None:
         remember_path(ctx, tab.path)
         persist(ctx)
     ctx.toast("Saved.")
+
+
+def _adopt_animations(ctx: Any, tab: ClayTab, imported: Any, source: str) -> None:
+    """Add what :func:`import_animation` retargeted, and say what landed. One undo step."""
+    from ....kernels.mesh.elements import OpError
+
+    try:
+        added = tab.doc.import_animations(imported.animations, imported.fps)
+    except OpError as error:
+        ctx.toast(f"Import Animation: {error}", "error")
+        return
+    tab.key_sel = []
+    clips = f"{added} animation{'s' if added != 1 else ''}"
+    line = f"Imported {clips} from {source}, onto {len(imported.matched)} bones."
+    if imported.unmatched:
+        shown = ", ".join(imported.unmatched[:5])
+        more = f" and {len(imported.unmatched) - 5} more" if len(imported.unmatched) > 5 else ""
+        line += f" Nothing here is named like: {shown}{more}."
+    ctx.toast(line)
+    for notice in imported.notices:
+        ctx.toast(notice)
 
 
 def shows_exported_tab(ctx: Any, key: str) -> bool:
@@ -1632,7 +1690,7 @@ def on_task_failed(ctx: Any, done: Any) -> None:
     tab = state.get(done.key.split(":", 1)[1])
     if tab is None:
         return
-    if name in ("clay-save", "clay-saveas", "clay-export", "clay-exportfile"):
+    if name in ("clay-save", "clay-saveas", "clay-export", "clay-exportfile", "clay-animport"):
         tab.saving = False
 
 

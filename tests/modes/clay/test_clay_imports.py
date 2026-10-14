@@ -93,6 +93,9 @@ OUTWARD_IMPORTS = {
     # and weighted meshes: ``gltf`` and ``math3d`` again, the same two ``glbimport.py``
     # reaches, and nothing outside the kernel.
     ("rigimport.py", "realmspinner.kernels.geom3d"),
+    # animimport.py lays a ``gltf.Model``'s animations onto a document's bones by name:
+    # ``gltf`` for the model and ``math3d`` for the quaternions, as ``rigimport.py`` does.
+    ("animimport.py", "realmspinner.kernels.geom3d"),
     # legacy.py is the migration-only home of the old modifier kernels
     # (radial-array and mirror spin each copy through ``math3d.compose``,
     # the one quaternion convention ``ops.py`` already uses); only

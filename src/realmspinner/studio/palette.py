@@ -722,6 +722,25 @@ def _clay_build(doc: Any, tab: Any, gesture: bool = False) -> list[Command]:
         )
     )
 
+    # And the motion's: a .glb's animations onto this document's bones, by name.
+    def import_animation(ctx: Any, _state: Any, live: Any) -> None:
+        clay_mode.import_animation(ctx, live)
+
+    def can_import_animation(ctx: Any) -> bool:
+        live = _clay_tab(ctx)
+        return live is not None and not live.saving and any(o.bone for o in live.doc.objects)
+
+    out.append(
+        Command(
+            key="clay-file:import-animation",
+            label="Import Animation...",
+            group=_CLAY_GROUP,
+            run=_clay_run(import_animation),
+            enabled=can_import_animation,
+            why="Mark some shapes as bones first.",
+        )
+    )
+
     # The ways out, greyed with the one sentence every output button uses.
     def can_export(ctx: Any) -> bool:
         live = _clay_tab(ctx)

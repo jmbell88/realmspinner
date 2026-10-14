@@ -960,10 +960,10 @@ three parts.
 The **top row** is the transport, then the animation list, then the playhead's position. The transport is
 **|<** (to the start, `Home`), **<** and **>** (one frame back and on, `Left` and `Right`), **Play** (`Space`) and
 **>|** (to the last key, `End`); Play is greyed until some bone has a key, and a one-shot animation that has
-reached its end starts again from the beginning when you press it. **New**, **Copy**, **Rename** and **Delete**
-are the animation list: a document holds up to 64 animations, each with its own keys, and the one named in the
-combo below is the one the strip edits, the viewport shows and Export GLB writes first. Deleting an animation, like
-every other change here, is one undo step.
+reached its end starts again from the beginning when you press it. **New**, **Copy**, **Rename**, **Import** and
+**Delete** are the animation list: a document holds up to 64 animations, each with its own keys, and the one named
+in the combo below is the one the strip edits, the viewport shows and Export GLB writes first. Import is
+[described below](#importing-an-animation). Deleting an animation, like every other change here, is one undo step.
 
 The **second row** is the animation's own settings. The combo picks which animation is selected. **fps** is the
 frame rate the strip counts in and the file is written at: 12, 24, 30 or 60. **Loop** plays the animation round
@@ -989,6 +989,35 @@ playhead.
 Playing moves the playhead and nothing else: it is never an undo step, and an unkeyed pose does not survive it.
 The strip shows up to the animation's length rounded up to a whole second, with at least one second to put a first
 key in.
+
+## Importing an animation
+
+**Import Animation...** (in the File menu, in `Ctrl`+`K` and as **Import** on the timeline strip) lays the motion of
+a `.glb` onto the bones this document already has, so a clip made in Blender, taken from another Clay document or
+exported from a rig you bought plays on the character you built here. It is greyed until some shape is marked as a
+bone.
+
+Bones are matched **by name**, loosely: case, separators and a `mixamorig:` prefix do not matter, and the side may be
+written `.L`, `_L`, `Left` or `L`, before or after the rest, so `LeftArm`, `arm.L` and `mixamorig:LeftArm` are one
+bone. A name that two bones answer to, or two names for one bone, is left alone and named in a toast, because a guess
+between them is how the left arm gets the right arm's wave. Every animation in the file comes in as its own
+animation, named as the file names it (`Walk`, `Walk.001` when that is taken), and the first is selected. It is one
+undo step. A toast says how many animations and bones landed and lists the animated nodes in the file that matched
+no bone, which is the thing to fix in the file or in the bone's name.
+
+**The motion arrives as a change from each rig's own rest pose**, not as the file's absolute numbers. A bone's turn is
+what the source bone did *from its rest*, applied from this bone's rest; a position is the source's offset from its
+rest added to this bone's; a size is the ratio. Where the two rigs are built the same way that is the file's numbers
+unchanged, and where they differ (a longer arm, a bone that rests turned another way) the movement still lands as the
+same movement. What names cannot tell is whether the two rigs' bones point the same way: if a rig was built with a
+different convention the clip will play wrong, and the matched list is how to see it. Retarget such a clip in
+Blender first. A smoothed (cubic spline) channel comes in as linear keys at the frame rate, as it does when a rigged
+file is opened, and the frame rate is the file's only when this document has no animation yet, since a file's rate
+must not retime clips you have already made. The caps are the same: 64 animations, 4,096 keys on a channel, 600
+seconds.
+
+Importing from an FBX file (a Mixamo download), from the template clips that shipped with the old Poser, and onto a
+rig made from one of the template skeletons are not here yet.
 
 ## Mirroring
 

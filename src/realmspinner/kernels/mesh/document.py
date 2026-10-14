@@ -2230,6 +2230,44 @@ class ClayDoc:
         self.active_animation = len(self.rig_state.animations) - 1
         return self.active_animation
 
+    def import_animations(
+        self, animations: Sequence[anim.Animation], fps: int | None = None
+    ) -> int:
+        """Add *animations* after the ones the document has, as **one** step, and select the
+        first of them. -> how many were added.
+
+        Names are made unique (``Walk``, ``Walk.001``). *fps* is adopted only by a document with no
+        animation yet, since the frame rate belongs to the document and not to a clip; a file's
+        suggestion must not retime what is already authored. Refused past
+        :data:`~.anim.MAX_ANIMATIONS`, or when a channel names something that is not a bone.
+        """
+        incoming = list(animations)
+        if not incoming:
+            return 0
+        existing = self.rig_state.animations
+        if len(existing) + len(incoming) > anim.MAX_ANIMATIONS:
+            raise el.OpError(
+                f"A rig holds at most {anim.MAX_ANIMATIONS} animations; this has "
+                f"{len(existing)} and the import adds {len(incoming)}. Delete some first."
+            )
+        taken = {a.name for a in existing}
+        added = []
+        for clip in incoming:
+            name = clip.name
+            n = 0
+            while name in taken:
+                n += 1
+                name = f"{clip.name}.{n:03d}"
+            taken.add(name)
+            added.append(clip if name == clip.name else clip.renamed(name))
+        state = self.rig_state.with_animations((*existing, *added))
+        if fps is not None and not existing and fps in anim.FPS_CHOICES:
+            state = state.with_fps(int(fps))
+        self.set_rig_state(state)
+        self.active_animation = len(existing)
+        self.pose_rev += 1
+        return len(added)
+
     def delete_animation(self, index: int) -> bool:
         animations = list(self.rig_state.animations)
         if not 0 <= index < len(animations):

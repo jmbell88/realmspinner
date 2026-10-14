@@ -25,6 +25,7 @@ from imgui_bundle import imgui
 from ..... import controls, dialogs, icons, theme, toolbar, widgets
 from .....manual import render as manual_render
 from .....tokens import sp
+from ... import mode as clay_mode
 from ... import ops as clay_ops
 from ... import timeline as tl
 
@@ -114,6 +115,11 @@ def _transport(ctx: Any, tab: Any, doc: Any) -> None:
             priority=1,
         ),
         toolbar.Item(
+            "import", "Import", icons.DOWNLOAD,
+            tooltip="Add the animations of a .glb, matched to your bones by name",
+            enabled=not saving, reason=widgets.DOCUMENT_SAVING_WHY, priority=2,
+        ),
+        toolbar.Item(
             "rename", "Rename", icons.PENCIL, tooltip="Rename this animation",
             enabled=animation is not None and not saving,
             reason=widgets.DOCUMENT_SAVING_WHY if saving else "There is no animation to rename.",
@@ -156,6 +162,8 @@ def _transport_action(ctx: Any, tab: Any, doc: Any, key: str) -> None:
             tab.key_sel = []
     elif key == "rename":
         _ask_rename(ctx, doc)
+    elif key == "import":
+        clay_mode.import_animation(ctx, tab)
     elif key == "delete":
         index = doc.active_animation
         if index is not None:
