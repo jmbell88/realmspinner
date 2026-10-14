@@ -194,6 +194,7 @@ def shortcut_sections() -> list[tuple[str, list[tuple[str, str]]]]:
             ("Delete", "Delete -- faces in an element mode, objects otherwise"),
             ("Ctrl+J", "Duplicate (object mode)"),
             ("Ctrl+M", "Merge the selected objects (object mode)"),
+            ("Ctrl+Shift+M", "Union the selected solids, cutting away the overlap (object mode)"),
             ("Ctrl+D", "Deselect"),
             ("Ctrl+A", "Select all, in the current mode"),
             ("Ctrl+Shift+I", "Invert the selection"),

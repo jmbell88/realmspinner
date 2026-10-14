@@ -78,8 +78,9 @@ few hundred faces you can see, and a `Shift`-drag box, `L` for everything joined
 **Merge Objects** (`Ctrl+M`) welds several objects into one. Vertices within a distance of each
 other are joined. Everything else survives — including, if the shapes interpenetrated, the interior
 walls now buried inside your model, which will z-fight where they touch the surface and which no light
-will ever reach. Clay has no boolean to cut them away; for a low-poly model the buried faces cost
-nothing you can see, and where they do, delete them in face mode.
+will ever reach. For a low-poly model the buried faces cost nothing you can see, and where they do, either
+delete them in face mode or use **Union Objects** (`Ctrl+Shift+M`) instead, which cuts them away but gives you
+triangles with no texture coordinates; see [Booleans](30-clay.md#booleans).
 
 Often you do not want a merge at all. **Group Selected** keeps the parts as separate objects under one
 empty, so the set moves as one thing and each part is still a box you can resize.

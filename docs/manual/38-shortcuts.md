@@ -204,6 +204,7 @@ one loop at a time, so a keypress about a picture can never be filed as a verdic
 | Delete | Delete the selection — faces in an element mode, objects in object mode |
 | Ctrl+J | Duplicate the selection (object mode only) |
 | Ctrl+M | Merge the selected objects into one (object mode only) |
+| Ctrl+Shift+M | Union the selected solids into one, cutting away the overlap (object mode only) |
 | Ctrl+D | Deselect — the same key Inker and Plotter use |
 | Ctrl+A | Select everything, in the current mode's sense |
 | Ctrl+Shift+I | Invert the selection |

@@ -133,12 +133,12 @@ Every operation Clay has is in three places, and all three are drawn from one ta
 greyed-out reason or a dialog of numbers cannot differ between them:
 
 - **The Inspector.** In Shape mode, **More actions** on a selected shape lists every whole-shape operation in groups
-  — Transform, Set Origin, Mirror, Parent, Join, Shading, Clean Up, Smooth, Separate, UV — with **Duplicate** and
-  **Delete** as rows of their own. In Points, Edges or Faces the **Select** row holds Select All, Select None,
-  Invert Selection and Select Linked, and **Shape it** holds what the mode edits with: repeat last, extrude, inset,
-  bevel, loop cut, edge slide, merge faces, weld, flip, triangulate, subdivide and Delete, with Topology (dissolve,
-  bridge, fill hole, collapse), Set Origin to Selection and, in face mode, Shading and Separate Selection behind
-  folds of their own. See [The inspector](#the-inspector).
+  — Transform, Set Origin, Mirror, Parent, Join, Shading, Clean Up, Smooth,
+  Separate, UV — with **Duplicate** and **Delete** as rows of their own. In Points, Edges or Faces the **Select**
+  row holds Select All, Select None, Invert Selection and Select Linked, and **Shape it** holds what the mode edits
+  with: repeat last, extrude, inset, bevel, loop cut, edge slide, merge faces, weld, flip, triangulate, subdivide
+  and Delete, with Topology (dissolve, bridge, fill hole, collapse), Set Origin to Selection and, in face mode,
+  Shading and Separate Selection behind folds of their own. See [The inspector](#the-inspector).
 - **The right-click menu** in the viewport lists exactly the operations that apply in the current mode, in the
   same order, with the groups separated by rules.
 - **`Ctrl`+`K`**, the command palette, lists all of them under a **Clay** heading (below).
@@ -152,13 +152,13 @@ Inspector's tiles and **More shapes** list (see [Adding a primitive](#adding-a-p
 is on the Inspector's **Model & history** page, next to the units and up axis it uses; it is also in the **File**
 menu and in `Ctrl`+`K` (see [Importing an asset](#importing-an-asset)).
 
-That is the whole list. Clay has forty-seven operations, and every one is in the right-click menu, Frame
+That is the whole list. Clay has fifty operations, and every one is in the right-click menu, Frame
 Selection included (it is also in the toolbar's View popover):
 
 | Group | Operations |
 | --- | --- |
 | Select | Select All (`Ctrl+A`), Select None, Invert Selection (`Ctrl+Shift+I`), Select Linked (`L`, element modes) |
-| Object | Duplicate (`Ctrl+J`), Merge Objects... (`Ctrl+M`), Recalculate Normals, Simplify..., Smooth..., Delete (`Delete`) |
+| Object | Duplicate (`Ctrl+J`), Merge Objects... (`Ctrl+M`), Union Objects (`Ctrl+Shift+M`), Difference Objects, Intersect Objects, Recalculate Normals, Simplify..., Smooth..., Delete (`Delete`) |
 | Object ▸ Transform | Drop to Ground, Snap to Grid... |
 | Object ▸ Set Origin | Origin to Bounds, Origin to Base, Origin to World; Origin to Selection in an element mode |
 | Object ▸ Mirror | Mirror X, Mirror Y, Mirror Z, Mirror Copy... |
@@ -838,14 +838,39 @@ objects until last. Two: an Extrude you have not moved yet leaves its new ring e
 one, so merging at a non-zero distance welds the ring back flat and the extrude vanishes. Move the
 extruded faces before you merge, or merge at zero.
 
-It is a weld and not a solid union. Geometry inside an overlap is kept rather than cut away, and
-there is no boolean in Clay to cut it: two interpenetrating cubes come out as one object still
-carrying both sets of interior walls. For a low-poly model that is usually fine, because the buried
+It is a weld and not a solid union. Geometry inside an overlap is kept rather than cut away:
+two interpenetrating cubes come out as one object still carrying both sets of interior walls.
+[Booleans](#booleans), below, cut it away. For a low-poly model that is usually fine, because the buried
 faces cost nothing you can see; where it is not, delete the faces inside the overlap in face mode.
 
 A merged object is no longer what a generator would build, so its generator claim is dropped along
 with the merge — the Inspector stops offering the size field that would have rebuilt a
 pristine box over your work. That drop is part of the same undo step.
+
+### Booleans
+
+**Union Objects** (`Ctrl+Shift+M`), **Difference Objects** and **Intersect Objects** (object mode, two or more visible
+objects selected) are the solid-geometry cousins of Merge Objects: they cut away the part that overlaps instead of
+keeping it. Union fuses the shapes into one solid and drops the surfaces buried inside the overlap. Difference cuts
+every other selected shape out of the **topmost selected object in the outliner**, which is the one that survives and
+the one cut from, so the order of the outliner decides which shape is the block and which is the hole. Intersect keeps
+only the volume every selected shape has in common. Like Merge, the survivor keeps its name, its transform and its
+default material, and the whole press is one undo step.
+
+They cost three things, and Merge Objects is still the right tool whenever those matter:
+
+- **The result is triangles.** The geometry kernel works in triangles, so a union of two boxes comes back as a
+  triangle mesh, not as quads. Subdivision-friendly topology does not survive.
+- **Texture coordinates are dropped.** A boolean recuts every face it touches, so no corner of the result matches a
+  corner of an input. Run Box Unwrap on the result and add its texture again.
+- **Every input must be a closed solid.** An open surface has no inside. The refusal says which fix applies: Weld an
+  object whose points are split between faces, Recalculate Normals on one that is inside out, or fill the holes of
+  one that has them. A result with nothing in it (an intersection of shapes that do not overlap, or a difference that
+  removes everything) is refused rather than leaving an empty object.
+
+The triangles of all the selected objects are counted together before anything is computed, and past 2,000,000 the
+press is refused and changes nothing. A press near that size takes several seconds, because the geometry is computed
+on the thread that draws the window.
 
 ## Mirroring
 

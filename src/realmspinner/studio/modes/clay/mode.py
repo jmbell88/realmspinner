@@ -2260,7 +2260,7 @@ def _ctrl_key(
         _select_all(doc)
     elif name == "i" and shift:
         _invert(doc)
-    elif name == "m" and doc.element_mode == "object":
+    elif name == "m" and not shift and doc.element_mode == "object":
         # **Merge is Ctrl+M, and Duplicate is Ctrl+J.** Clay used to be the
         # editor that disagreed with the other three about both keys: Ctrl+D
         # duplicated here and deselects in Inker and Plotter, and Ctrl+J merged

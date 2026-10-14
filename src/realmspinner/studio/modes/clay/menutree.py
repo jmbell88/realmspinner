@@ -85,7 +85,7 @@ GROUPS: dict[str, Group] = {
     ),
     "mirror": Group("Mirror", ("mirror-x", "mirror-y", "mirror-z", "mirror-copy")),
     "parent": Group("Parent", ("group", "ungroup", "parent-to-last", "clear-parent")),
-    "join": Group("Join", ("join",)),
+    "join": Group("Join", ("join", "union", "difference", "intersection")),
     "shading": Group("Shading", ("shade-smooth", "shade-flat")),
     "cleanup": Group("Clean Up", ("recalc-normals", "simplify")),
     "smooth": Group("Smooth", ("smooth",)),

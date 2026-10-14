@@ -1237,6 +1237,36 @@ def _join(ctx: Any, doc: Any, weld: float = 1e-4, **_: Any) -> None:
     doc.select([uids[0]])
 
 
+def _boolean(kind: str) -> Callable[..., None]:
+    """Union, Difference or Intersect over the selected solids, into the topmost one.
+
+    :func:`_join`'s shape on purpose -- outliner order picks the survivor, only visible
+    objects count, each input is carried into the survivor's frame through its own *world*
+    matrix, and ``ClayDoc.join_objects`` does the one-step bookkeeping -- with
+    ``ops_boolean`` in place of the weld. What differs is what the user is owed, and it is
+    said in the hints and the manual in this order: the result is **triangles**; its **UVs
+    are dropped**; every input must be a **closed solid** (the kernel's three remedies
+    arrive as the toast); and for Difference the survivor is **also the minuend**, the one
+    the others are cut from. The triangle budget is ``MAX_BOOLEAN_TRIANGLES`` summed over
+    every input, refused before the kernel runs, and an empty answer is a refusal.
+    """
+
+    def run(ctx: Any, doc: Any, **_: Any) -> None:
+        from ....kernels.mesh import ops_boolean
+
+        visible = [obj.uid for obj in doc.objects if obj.uid in doc.selection and obj.visible]
+        uids = _in_outliner_order(doc, visible)
+        by_uid = doc._uid_map()
+        objs = [by_uid[uid] for uid in uids]
+        worlds = [doc._world_in(uid, by_uid) for uid in uids]
+        mesh = ops_boolean.boolean(objs, kind, world=worlds)
+        doc.join_objects(uids[0], mesh, uids[1:])
+        doc.select([uids[0]])
+
+    run.__name__ = f"_{kind}"
+    return run
+
+
 def mirror(ctx: Any, doc: Any, axis: int, **_: Any) -> bool:
     from ....kernels.mesh import ops as clay_ops_geom
 
@@ -2520,7 +2550,8 @@ def _register_defaults() -> None:
             key="Ctrl+M",
             hint=(
                 "Welds the shapes into one object and keeps every surface, "
-                "including the ones buried inside an overlap."
+                "including the ones buried inside an overlap. Union Objects "
+                "(Ctrl+Shift+M) cuts those away instead."
             ),
             params=(
                 Param(
@@ -2535,6 +2566,53 @@ def _register_defaults() -> None:
             ),
         )
     )
+    # Restored with the 2026-10-13 Clay rig plan (Tranche 1, landing 5). The picoCAD cut
+    # took the three booleans out because a boolean's output is triangles with no UVs and
+    # needs closed inputs; the kernel never left (the character generators call it) and
+    # the costs are now stated in each hint rather than hidden. Only Union has a key.
+    for kind, label, key, hint in (
+        (
+            "union",
+            "Union Objects",
+            "Ctrl+Shift+M",
+            "Fuses the shapes into one solid and cuts away the surfaces buried inside the "
+            "overlap. The result is triangles with no texture coordinates (Box Unwrap, then "
+            "Add texture again), and every selected object must be a closed solid. The "
+            "topmost selected object in the outliner survives. Merge Objects (Ctrl+M) "
+            "keeps every surface and every face as it was.",
+        ),
+        (
+            "difference",
+            "Difference Objects",
+            "",
+            "Cuts every other selected shape out of the topmost one in the outliner, which "
+            "is the one that survives and the one cut from. The result is triangles with no "
+            "texture coordinates (Box Unwrap, then Add texture again), and every selected "
+            "object must be a closed solid.",
+        ),
+        (
+            "intersection",
+            "Intersect Objects",
+            "",
+            "Keeps only the volume every selected shape has in common, in the topmost "
+            "selected object in the outliner. The result is triangles with no texture "
+            "coordinates (Box Unwrap, then Add texture again), every selected object must "
+            "be a closed solid, and shapes that do not overlap leave nothing, which is "
+            "refused.",
+        ),
+    ):
+        register(
+            Op(
+                name=kind,
+                label=label,
+                modes=("object",),
+                run=_boolean(kind),
+                enabled=has_two_visible,
+                reason=_has_two_visible_reason,
+                key=key,
+                hint=hint,
+            )
+        )
     for axis, label in enumerate(("X", "Y", "Z")):
         register(
             Op(

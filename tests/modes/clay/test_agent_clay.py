@@ -4564,11 +4564,16 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     The next growth fails here and has to be argued for;
     ``test_audit_2026_10_07_agent.py`` pins that the ceiling stays within 3%
     of the measured surface.
+
+    Raised 2026-10-13 to 52,100 (surface 52,031) by Tranche 1 of the Clay rig plan: ten
+    restored ops add ten names to ``clay_op``'s enum (a name each in the tools/list
+    JSON and nothing else -- ``Op.hint`` is not in the catalogue), and the whole
+    growth is those 100-odd characters. Deliberate: the ops are the point.
     """
     from realmspinner.mcp import rpc
     from realmspinner.studio import agent_host
 
-    CEILING = 52_000
+    CEILING = 52_100
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]
@@ -4778,4 +4783,29 @@ def test_clay_op_edge_slide_moves_a_picked_edge_with_a_signed_param_as_one_undo_
     assert result["isError"] is False, result
     assert _payload(result)["ran"] is True
     assert not (tab.doc.by_uid(uid).mesh.positions == before).all(), "the edge moved"
+    assert _history_len(ctx, session) == steps + 1, "one tool call, one undo step"
+
+
+def test_clay_op_union_merges_the_agents_two_boxes_into_the_topmost_as_one_undo_step() -> None:
+    """Tranche 1 landing 5 restored the booleans, so ``clay_op``'s enum gains ``union``,
+    ``difference`` and ``intersection``. Fails before the restore: the enum has none of
+    them and the call is a schema refusal."""
+    ctx = _Ctx()
+    session = agent_clay.Session()
+    first = _new_agent_tab(ctx, session, "box")
+    tab = clay_mode.ensure(ctx).get(session.tab_uid)
+
+    refused = agent_clay.call(ctx, session, "clay_op", {"name": "union"})
+    assert refused["isError"] is True
+    assert refused["content"][0]["text"] == clay_ops.reason_for(clay_ops.get("union"), tab.doc)
+
+    second = agent_clay.call(ctx, session, "clay_add_primitive", {"generator": "box"})
+    assert second["isError"] is False, second
+    tab.doc.select([obj.uid for obj in tab.doc.objects])
+    assert len(tab.doc.selection) == 2
+    steps = _history_len(ctx, session)
+    result = agent_clay.call(ctx, session, "clay_op", {"name": "union"})
+    assert result["isError"] is False, result
+    assert _payload(result)["ran"] is True
+    assert len(tab.doc.objects) == 1 and tab.doc.objects[0].uid == first
     assert _history_len(ctx, session) == steps + 1, "one tool call, one undo step"

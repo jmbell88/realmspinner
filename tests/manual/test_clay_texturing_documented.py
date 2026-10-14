@@ -18,7 +18,7 @@ from realmspinner.kernels.mesh import document, objexport
 from realmspinner.kernels.pixel import palettes
 from realmspinner.studio.modes.clay import ops
 
-_WORDS = {16: "sixteen", 47: "forty-seven"}
+_WORDS = {16: "sixteen", 50: "fifty"}
 
 
 def _flat(text: str) -> str:
