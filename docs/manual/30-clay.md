@@ -133,7 +133,7 @@ Every operation Clay has is in three places, and all three are drawn from one ta
 greyed-out reason or a dialog of numbers cannot differ between them:
 
 - **The Inspector.** In Shape mode, **More actions** on a selected shape lists every whole-shape operation in groups
-  — Transform, Set Origin, Mirror, Parent, Join, Shading, Clean Up, Smooth,
+  — Transform, Set Origin, Mirror, Parent, Rig, Join, Shading, Clean Up, Smooth,
   Separate, UV — with **Duplicate** and **Delete** as rows of their own. In Points, Edges or Faces the **Select**
   row holds Select All, Select None, Invert Selection and Select Linked, and **Shape it** holds what the mode edits
   with: repeat last, extrude, inset, bevel, loop cut, edge slide, merge faces, weld, flip, triangulate, subdivide
@@ -152,7 +152,7 @@ Inspector's tiles and **More shapes** list (see [Adding a primitive](#adding-a-p
 is on the Inspector's **Model & history** page, next to the units and up axis it uses; it is also in the **File**
 menu and in `Ctrl`+`K` (see [Importing an asset](#importing-an-asset)).
 
-That is the whole list. Clay has fifty operations, and every one is in the right-click menu, Frame
+That is the whole list. Clay has fifty-three operations, and every one is in the right-click menu, Frame
 Selection included (it is also in the toolbar's View popover):
 
 | Group | Operations |
@@ -163,6 +163,7 @@ Selection included (it is also in the toolbar's View popover):
 | Object ▸ Set Origin | Origin to Bounds, Origin to Base, Origin to World; Origin to Selection in an element mode |
 | Object ▸ Mirror | Mirror X, Mirror Y, Mirror Z, Mirror Copy... |
 | Object ▸ Parent | Group Selected, Ungroup, Parent to Last, Clear Parent |
+| Object ▸ Rig | Mark as Bone, Unmark Bone, Unbind Skin |
 | Object ▸ Shading | Shade Smooth, Shade Flat (also in face mode) |
 | Object ▸ Separate | Separate Loose Parts; Separate Selection (`P`, face mode) |
 | Mesh | Repeat Last (`Shift+R`), Extrude (`E`); in face mode Inset Faces... (`I`), Merge Faces, Flip Normals, Assign Material..., Subdivide, Triangulate Faces (`T`); in edge mode Bevel Edges... (`Ctrl+B`), Loop Cut... (`Ctrl+R`), Edge Slide... (`Ctrl+Shift+R`); in vertex mode Weld... |
@@ -688,7 +689,7 @@ Then three folds, closed until you open them (the Inspector remembers which are 
   scale -- the shape compared with the mesh as first made, which Size makes unnecessary for nearly everything.
 - **Group & parent** holds the parent choice and **Clear parent**; see [Parents and groups](#parents-and-groups).
 - **More actions** lists every whole-object operation, generated from the same table as the right-click menu,
-  in groups: Transform, Set Origin, Mirror, Parent, Join, Shading, Clean Up, Smooth, Separate and UV. Each button
+  in groups: Transform, Set Origin, Mirror, Parent, Rig, Join, Shading, Clean Up, Smooth, Separate and UV. Each button
   says what it does on hover, with its key, and is greyed with the plain reason when it cannot run. An
   operation that takes numbers (Snap to Grid, Mirror Copy, Pack islands, Simplify, Smooth) opens its fields right
   below the group with an **Apply** button, and remembers the values for next time; the same fields open from the
@@ -871,6 +872,38 @@ They cost three things, and Merge Objects is still the right tool whenever those
 The triangles of all the selected objects are counted together before anything is computed, and past 2,000,000 the
 press is refused and changes nothing. A press near that size takes several seconds, because the geometry is computed
 on the thread that draws the window.
+
+## Bones and rigs
+
+A **bone** in Clay is an ordinary object that has been marked as one, the way BlockBench treats a group as a
+bone: its origin is the joint's pivot, its own transform is the joint's rest pose, and the bones' hierarchy is the
+parent chain between them (a group you did not mark, sitting between two bones, is skipped). Nothing else about the
+object changes, and an empty group is as good a bone as a box is.
+
+**Mark as Bone** and **Unmark Bone** are in the right-click menu's Rig group, in the outliner row menu, in the
+palette and on the Inspector's **Bone & rig** card, whose **bone** checkbox does the same. A bone wears a bone
+glyph in the outliner and the Model card counts them ("2 bones"). A document holds at most 64 bones, the number
+the viewer's skinning and the skeleton editor already hold; marking a 65th is refused.
+
+There are two ways a shape is bound to a bone, and only one of them is stored.
+
+- **Rigid** binding is the outliner: a shape that sits under a bone, however many groups down, moves with its
+  nearest bone, with every point at full weight. Nothing is saved for it, so deleting or unmarking the bone
+  simply unbinds the shape, and the card says which bone a shape moves with.
+- **Weighted** binding is a per-point weight against several bones, which Clay does not paint: it arrives with an
+  imported rig, or from Blender's automatic weights. A weighted mesh wears a link glyph, and the card names its
+  bones. Moving its points is fine and keeps the weights. Anything that changes how many points it has (extruding,
+  subdividing, welding, bevelling), joining it and separating it are refused with a sentence naming **Unbind
+  Skin**, which drops the weights and keeps the shape; so is deleting or unmarking a bone it is weighted to. Its
+  own position is ignored by every game engine, so dragging it with `G`, `R` or `S` is refused too: move its bones.
+
+A rig is saved with the document (`.rblk` format 5, which an older build refuses rather than open with the rig
+gone) and exported with it. **Export GLB** and **Export to the library** write the skin the way Blender writes its
+own: every bone a node, the skin listing them in document order, and each shape that moves with a bone as a
+separate root node with its points placed in the pose the bones are in, a joint and a weight on every point. A
+hidden bone is still a joint, and a hidden shape is not exported. A GLB with a skeleton opens the same way: each
+joint becomes a bone, a mesh that follows one joint alone becomes that bone's child, and any other skinned mesh
+keeps its weights. Clay's own rigid export reopens as the structure it was.
 
 ## Mirroring
 

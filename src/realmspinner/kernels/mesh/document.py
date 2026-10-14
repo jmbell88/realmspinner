@@ -1846,6 +1846,11 @@ class ClayDoc:
         )
         if all(np.array_equal(a, b) for a, b in zip(before, after, strict=True)):
             return False
+        if obj.skin is not None:
+            raise el.OpError(
+                f"{obj.name!r} is weighted to a skeleton, and a weighted mesh's own transform "
+                "is ignored when it is exported. Move its bones instead."
+            )
         obj.translation, obj.rotation, obj.scale = after
         self.history.push(TransformEdit(uid, before, after))  # type: ignore[arg-type]
         self.touch()

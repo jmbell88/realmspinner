@@ -494,6 +494,70 @@ def _relations(ctx: Any, doc: Any, obj: Any) -> None:
         _set_parent(ctx, doc, obj.uid, None if picked == "0" else int(picked))
 
 
+def rig_lines(doc: Any, obj: Any) -> tuple[str, str]:
+    """``(binding, hint)``: what the Rig card says *obj* is bound to, in plain words.
+
+    Pure, so the sentences are checkable without imgui. A bone says so; a weighted mesh
+    names its bones; anything else says which bone it moves with, or that none does.
+    """
+    from ......kernels.mesh import rig
+
+    by_uid = doc._uid_map()
+    if obj.skin is not None:
+        names = [by_uid[j].name for j in obj.skin.joints if j in by_uid]
+        shown = ", ".join(names[:4]) + (f" and {len(names) - 4} more" if len(names) > 4 else "")
+        count = len(obj.skin.joints)
+        return (
+            f"Weighted to {count} bone{'s' if count != 1 else ''}: {shown}.",
+            "Its points move with those bones by weight. Its own position is ignored when "
+            "it is exported, so move the bones, not the mesh.",
+        )
+    if obj.bone:
+        above = rig.bone_parent(by_uid, obj.uid)
+        parent = f" under {by_uid[above].name!r}" if above is not None else " (a root bone)"
+        return (
+            f"A bone{parent}.",
+            "Its origin is the joint's pivot. Shapes parented under it move with it.",
+        )
+    home = rig.nearest_bone(by_uid, obj.uid)
+    if home is not None:
+        return (
+            f"Moves with the bone {by_uid[home].name!r}.",
+            "Bound rigidly: every point follows that one bone at full weight.",
+        )
+    return ("Not bound to a bone.", "Parent it under a bone to make it move with one.")
+
+
+def _rig(ctx: Any, doc: Any, obj: Any) -> None:
+    """The Rig card: the bone mark, what the shape is bound to, and the way out of a skin.
+
+    The mark and the unbind go through the op registry (``mark-bone``, ``unmark-bone``,
+    ``unbind-skin``), so this card, the outliner's row menu, Ctrl+K and the agent run the
+    same code and are refused for the same reasons.
+    """
+    changed, wanted = controls.checkbox(
+        f"{icons.BONE} bone##rigbone",
+        bool(obj.bone),
+        tooltip="Mark this object as a bone: its origin is a joint's pivot and its own "
+        "transform is the joint's rest pose.",
+    )
+    if changed:
+        clay_ops.run(ctx, doc, clay_ops.get("mark-bone" if wanted else "unmark-bone"))
+    binding, hint = rig_lines(doc, obj)
+    widgets.muted_wrapped(binding)
+    widgets.muted_wrapped(hint)
+    if obj.skin is not None:
+        unbind = clay_ops.get("unbind-skin")
+        why = clay_ops.reason_for(unbind, doc)
+        if widgets.disabled_button(
+            f"{icons.LINK} Unbind Skin##rigunbind",
+            not why,
+            reason=why,
+            tooltip=unbind.hint,
+        ):
+            clay_ops.run(ctx, doc, unbind)
+
+
 #: What a bare ``_transform(doc, obj)`` -- no pane, no ``ClayState`` -- shows its
 #: display state in. Several tests drive the door with nothing but a document.
 _BARE_STATE: ClayState | None = None

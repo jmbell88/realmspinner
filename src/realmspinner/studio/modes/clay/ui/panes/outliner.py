@@ -836,6 +836,19 @@ def _context_menu(ctx: Any, state: Any, doc: Any, obj: Any, tab_uid: str = "") -
     targets = _menu_targets(doc, obj)
     if controls.menu_item(f"{icons.EYE} Solo", "", False)[0]:
         doc.isolate(targets)
+    # The rig rows, from the registry like every other op: Mark or Unmark for what the
+    # row is, Unbind Skin only for a weighted mesh. They act on the selection, which the
+    # menu has just made this row.
+    widgets.divider()
+    names = ["unmark-bone" if obj.bone else "mark-bone"]
+    if obj.skin is not None:
+        names.append("unbind-skin")
+    for name in names:
+        op = clay_ops.get(name)
+        why = clay_ops.reason_for(op, doc)
+        glyph = icons.BONE if "bone" in name else icons.LINK
+        if controls.menu_item(f"{glyph} {op.label}", "", False, not why, reason=why)[0]:
+            clay_ops.run(ctx, doc, op)
     widgets.divider()
     if controls.menu_item(f"{icons.TRASH} Delete", _delete_hint(doc, targets), False)[0]:
         _remove_objects(ctx, doc, targets)
@@ -917,6 +930,13 @@ def _row(
             end_rename(state)
     else:
         label = obj.name or f"object {obj.uid}"
+        # A bone wears the bone glyph and a weighted mesh the link one: the outliner is
+        # where a rig's structure is read, and a bone is not otherwise visible anywhere
+        # until it has a mesh of its own.
+        if obj.bone:
+            label = f"{icons.BONE} {label}"
+        elif obj.skin is not None:
+            label = f"{icons.LINK} {label}"
         # A hidden object's name is drawn muted. It used to be a
         # ``text_colored(theme.MUTED, "")`` above the selectable, which coloured
         # nothing -- and, being an item rather than a style push, put the name

@@ -467,6 +467,11 @@ def _one(ctx: Any, state: Any, tab: Any, doc: Any, obj: Any) -> None:
             )
     if widgets.header("Group & parent", default_open=False, persist_key="clay/insp/group"):
         props._relations(ctx, doc, obj)
+    # Open for a bone or a weighted mesh, where it is the point of the selection; closed
+    # for everything else, where it is one more fold in a column that is already long.
+    rigged = bool(obj.bone or obj.skin is not None)
+    if widgets.header("Bone & rig", default_open=rigged, persist_key="clay/insp/rig"):
+        props._rig(ctx, doc, obj)
     imgui.end_disabled()
     _more_actions(ctx, state, tab, doc, persist_key="clay/insp/more", default_open=False)
 

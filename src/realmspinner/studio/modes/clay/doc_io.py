@@ -112,10 +112,14 @@ def model_counts_line(doc: Any) -> str:
     verts = sum(len(o.mesh.positions) for o in visible)
     faces = sum(max(0, len(o.mesh.starts) - 1) for o in visible)
     tris = sum(triangles(o.mesh) for o in visible)
-    return (
+    line = (
         f"{shapes} · {colours} · {verts:,} vertices · {faces:,} faces "
         f"· {tris:,} triangles"
     )
+    bones = sum(1 for o in doc.objects if o.bone)
+    if bones:
+        line += f" · {bones} bone{'s' if bones != 1 else ''}"
+    return line
 
 
 #: The sentence for a live G/R/S, gizmo or UV drag. One string for the palette

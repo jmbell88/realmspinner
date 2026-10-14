@@ -354,6 +354,18 @@ class DragOps:
             # parent is not moved, so it carries nothing and its visible
             # child has to move itself.
             uids = [uid for uid in uids if index[uid].visible]
+            # A weighted mesh's own transform is ignored when it is exported, so a drag
+            # that moved it would show a placement no file keeps: its bones are what move
+            # it. Dropped with a sentence, the way a hidden object is dropped silently
+            # above because that one needs no explaining.
+            weighted = [uid for uid in uids if index[uid].skin is not None]
+            if weighted:
+                names = ", ".join(repr(index[uid].name) for uid in weighted)
+                self._toast(
+                    f"{names} is weighted to a skeleton, so it moves with its bones. "
+                    "Move a bone instead."
+                )
+                uids = [uid for uid in uids if uid not in weighted]
             if not uids:
                 return False
             selected = set(uids)

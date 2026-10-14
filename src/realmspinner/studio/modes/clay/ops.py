@@ -1651,6 +1651,76 @@ def _has_group_selected_reason(doc: Any) -> str:
     return "" if has_group_selected(doc) else "Select an empty with children to ungroup."
 
 
+def _bones_to_mark(doc: Any, flag: bool) -> list[int]:
+    return [
+        obj.uid
+        for obj in doc.objects
+        if obj.uid in doc.selection and obj.visible and obj.bone != flag
+    ]
+
+
+def has_unmarked_selected(doc: Any) -> bool:
+    """Mark as Bone's own gate: a visible selected object that is not a bone yet."""
+    return bool(_bones_to_mark(doc, True))
+
+
+def has_bone_selected(doc: Any) -> bool:
+    """Unmark Bone's own gate: a visible selected object that is a bone."""
+    return bool(_bones_to_mark(doc, False))
+
+
+def has_skin_selected(doc: Any) -> bool:
+    """Unbind Skin's own gate: a selected object with weights."""
+    return any(obj.skin is not None for obj in doc.objects if obj.uid in doc.selection)
+
+
+def _has_unmarked_selected_reason(doc: Any) -> str:
+    if not doc.selection:
+        return "Select an object first."
+    return "" if has_unmarked_selected(doc) else "Everything selected is a bone already."
+
+
+def _has_bone_selected_reason(doc: Any) -> str:
+    if not doc.selection:
+        return "Select a bone first."
+    return "" if has_bone_selected(doc) else "None of the selection is a bone."
+
+
+def _has_skin_selected_reason(doc: Any) -> str:
+    if not doc.selection:
+        return "Select a weighted mesh first."
+    return "" if has_skin_selected(doc) else "None of the selection is weighted to a skeleton."
+
+
+def _mark_bone(flag: bool) -> Callable[..., bool]:
+    """Mark or unmark every visible selected object as a bone, as one step.
+
+    ``ClayDoc.set_bone`` is the door and owns the refusals (the 64-bone cap, a bone a
+    weighted mesh still names); objects already in the wanted state are left alone, so
+    the row is enabled by whether *any* selected object would change, the same
+    "whichever of the selection this applies to" shape Ungroup follows.
+    """
+
+    def run(ctx: Any, doc: Any, **_: Any) -> bool:
+        del ctx
+        return doc.set_bone(_bones_to_mark(doc, flag), flag)
+
+    return run
+
+
+def _unbind_skin(ctx: Any, doc: Any, **_: Any) -> bool:
+    """Drop the weights and the skin of every selected weighted mesh.
+
+    One undo step per object that had any, collapsed into one by :func:`run`. The mesh
+    keeps its shape; it is bound rigidly again if it sits under a bone.
+    """
+
+    def one(doc: Any, obj: Any) -> bool:
+        return doc.unbind_skin(obj.uid)
+
+    return run_object_op(ctx, doc, one)
+
+
 def _group(ctx: Any, doc: Any, **_: Any) -> None:
     """Group the selection under one new empty, and select the empty.
 
@@ -2731,6 +2801,45 @@ def _register_defaults() -> None:
             reason=_has_objects_reason,
             hint="Every selected object becomes a root, keeping its world "
             "placement.",
+        )
+    )
+    register(
+        Op(
+            name="mark-bone",
+            label="Mark as Bone",
+            modes=("object",),
+            run=_mark_bone(True),
+            enabled=has_unmarked_selected,
+            reason=_has_unmarked_selected_reason,
+            hint="Makes each selected object a bone: its origin is the joint's pivot and "
+            "its own transform is the joint's rest pose. A shape under a bone moves with "
+            "it, and exports as a skinned mesh.",
+        )
+    )
+    register(
+        Op(
+            name="unmark-bone",
+            label="Unmark Bone",
+            modes=("object",),
+            run=_mark_bone(False),
+            enabled=has_bone_selected,
+            reason=_has_bone_selected_reason,
+            hint="Turns each selected bone back into an ordinary object. Refused for a bone "
+            "a weighted mesh is still bound to.",
+        )
+    )
+    register(
+        Op(
+            name="unbind-skin",
+            label="Unbind Skin",
+            modes=("object",),
+            run=_unbind_skin,
+            enabled=has_skin_selected,
+            reason=_has_skin_selected_reason,
+            hint="Drops a weighted mesh's per-point weights, keeping its shape. It is bound "
+            "rigidly to the bone above it instead, if it sits under one. This is also the "
+            "way out of the edits a weighted mesh refuses (changing its points' number, "
+            "joining, separating).",
         )
     )
     register(
