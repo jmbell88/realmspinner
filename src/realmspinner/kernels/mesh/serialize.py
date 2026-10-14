@@ -78,7 +78,12 @@ npz gains ``joints`` and ``weights``. All of it is omitted at its default, so a 
 no rig differs from a version 4 file in the version number alone, and a version 4 file opens
 with no notice. The rig's bone cap, the skin's references and the weights are checked by one
 function (:func:`_rig_refusal`) for the reader and the writer, so the writer cannot save a
-file the reader refuses.
+file the reader refuses. A top-level ``"rig"`` -- ``{"fps", "active", "animations"}`` -- holds the
+document's keyframe animations: the small half (names, loop, interpolation, which bone has which
+properties) in ``scene.json`` and the key times and values in ``anims/<i>.npz`` as
+``<uid>_<property>_t`` / ``_v``. It is omitted for a document with no animation at the default
+rate, and a channel naming anything but a marked bone is refused by the reader and the writer
+alike.
 
 **Materials are reduced to the Clay subset on every read**
 (:func:`~.document.reduce_material`): a name, a colour, a base-colour
@@ -99,13 +104,14 @@ import numpy as np
 
 from ...core.safeio import npyguard, pixelguard, zipguard
 from ..geom3d import gltf
-from . import legacy, rig
+from . import anim, legacy, rig
 from . import mesh as bm
 from .document import ClayDoc, Obj, reduce_material, reserve_uid
 
 VERSION = 5
 SCENE = "scene.json"
 MESH_DIR = "meshes"
+ANIM_DIR = "anims"
 TEXTURE_DIR = "textures"
 
 # 1980-01-01, the earliest a zip can express. Any fixed value would do; this one
@@ -265,6 +271,26 @@ def _object_json(obj: Obj) -> dict[str, Any]:
     return entry
 
 
+def _rig_json(doc: ClayDoc) -> dict[str, Any] | None:
+    """The ``"rig"`` key: the animations' small half, or ``None`` at the defaults."""
+    state = doc.rig_state
+    if not state:
+        return None
+    return {
+        "fps": int(state.fps),
+        "active": doc.active_animation,
+        "animations": [
+            {
+                "name": a.name,
+                "loop": bool(a.loop),
+                "interpolation": a.interpolation,
+                "channels": {str(uid): sorted(props) for uid, props in sorted(a.channels.items())},
+            }
+            for a in state.animations
+        ],
+    }
+
+
 def _collect_textures(doc: ClayDoc) -> tuple[list[Any], dict[int, int]]:
     """Every distinct texture in the palette, and a map from identity to index.
 
@@ -405,6 +431,9 @@ def scene_json(
     camera = view_json(view)
     if camera is not None:
         scene["view"] = camera
+    motion = _rig_json(doc)
+    if motion is not None:
+        scene["rig"] = motion
     return json.dumps(scene, sort_keys=True, indent=2)
 
 
@@ -441,14 +470,20 @@ class RblkSnapshot:
     once a material holds it -- only replaced, wholesale, by a new tuple.
     """
 
-    __slots__ = ("scene", "meshes", "images")
+    __slots__ = ("scene", "meshes", "images", "animations")
 
     def __init__(
-        self, scene: str, meshes: tuple[tuple[int, bm.Mesh], ...], images: tuple[Any, ...]
+        self,
+        scene: str,
+        meshes: tuple[tuple[int, bm.Mesh], ...],
+        images: tuple[Any, ...],
+        animations: tuple[anim.Animation, ...] = (),
     ) -> None:
         self.scene = scene
         self.meshes = meshes
         self.images = images
+        # Frozen values (``anim.Animation``), held by reference like the meshes are.
+        self.animations = animations
 
 
 def snapshot(doc: ClayDoc, *, view: Any = None) -> RblkSnapshot:
@@ -462,7 +497,12 @@ def snapshot(doc: ClayDoc, *, view: Any = None) -> RblkSnapshot:
     images, _index = collected
     scene = scene_json(doc, collected, view=view)
     meshes = tuple((int(obj.uid), obj.mesh) for obj in doc.objects)
-    return RblkSnapshot(scene=scene, meshes=meshes, images=tuple(images))
+    return RblkSnapshot(
+        scene=scene,
+        meshes=meshes,
+        images=tuple(images),
+        animations=tuple(doc.rig_state.animations),
+    )
 
 
 def triangle_count(mesh: bm.Mesh) -> int:
@@ -632,6 +672,19 @@ def _refuse_unreadable(snap: RblkSnapshot) -> None:
             f"this clay document's rig is not usable ({refusal}); saving it would write "
             "a file this build cannot open again"
         )
+    bones = {proxy.uid for proxy in proxies if proxy.bone}
+    if len(snap.animations) > anim.MAX_ANIMATIONS:
+        raise ValueError(
+            f"this clay document has {len(snap.animations)} animations, past the "
+            f"{anim.MAX_ANIMATIONS} Clay reads; saving it would write a file this build "
+            "cannot open again"
+        )
+    for animation in snap.animations:
+        if set(animation.channels) - bones:
+            raise ValueError(
+                f"the animation {animation.name!r} animates something that is not a bone; "
+                "saving it would write a file this build cannot open again"
+            )
 
 
 def snapshot_bytes(snap: RblkSnapshot) -> bytes:
@@ -667,6 +720,17 @@ def snapshot_bytes(snap: RblkSnapshot) -> bytes:
                 arrays["weights"] = mesh.weights
             zf.writestr(
                 zipfile.ZipInfo(f"{MESH_DIR}/{uid}.npz", _EPOCH),
+                _npz_bytes(arrays),
+                zipfile.ZIP_DEFLATED,
+            )
+        for i, animation in enumerate(snap.animations):
+            arrays = {}
+            for uid, props in sorted(animation.channels.items()):
+                for prop, channel in sorted(props.items()):
+                    arrays[f"{uid}_{prop}_t"] = channel.times
+                    arrays[f"{uid}_{prop}_v"] = channel.values
+            zf.writestr(
+                zipfile.ZipInfo(f"{ANIM_DIR}/{i}.npz", _EPOCH),
                 _npz_bytes(arrays),
                 zipfile.ZIP_DEFLATED,
             )
@@ -1057,6 +1121,78 @@ def _rig_refusal(objects: list[Obj]) -> str:
     return "; ".join(rig.skin_problems(objects))
 
 
+def _read_animations(
+    zf: zipfile.ZipFile, scene: dict[str, Any], objects: list[Obj]
+) -> tuple[anim.RigState, int | None]:
+    """The document's animations and which one was selected, or a refusal by name.
+
+    Counted and checked before any array is read (the object count's reasoning), and every
+    channel's bone must be a marked bone of this file: motion naming anything else could not be
+    played back, and the writer refuses to write it.
+    """
+    raw = scene.get("rig")
+    if raw is None:
+        return anim.RigState(), None
+    if not isinstance(raw, dict):
+        raise ValueError("this clay document's rig is not an object")
+    try:
+        fps = int(raw.get("fps", 24))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("this clay document's frame rate is not a number") from exc
+    declared = raw.get("animations", [])
+    if not isinstance(declared, list):
+        raise ValueError("this clay document's animations are not a list")
+    if len(declared) > anim.MAX_ANIMATIONS:
+        raise ValueError(
+            f"this clay document declares {len(declared)} animations, past the "
+            f"{anim.MAX_ANIMATIONS} Clay reads"
+        )
+    bones = {obj.uid for obj in objects if obj.bone}
+    animations = []
+    for i, entry in enumerate(declared):
+        name = str(entry.get("name", "")) if isinstance(entry, dict) else ""
+        if not isinstance(entry, dict) or not isinstance(entry.get("channels", {}), dict):
+            raise ValueError(f"animation {i} in this clay document is not readable")
+        member = f"{ANIM_DIR}/{i}.npz"
+        try:
+            blob = zf.read(member)
+        except KeyError as exc:
+            raise ValueError(
+                f"this clay document names the animation {name!r} but {member} is missing"
+            ) from exc
+        arrays = npyguard.read_npz(blob, f"an animation in this clay document ({member})")
+        channels: dict[int, dict[str, anim.Channel]] = {}
+        try:
+            for key, props in entry.get("channels", {}).items():
+                uid = int(key)
+                if uid not in bones:
+                    raise ValueError(f"it animates uid {uid}, which is not a bone")
+                for prop in props:
+                    if prop not in anim.PROPS:
+                        raise ValueError(f"{prop!r} is not an animatable property")
+                    channels.setdefault(uid, {})[prop] = anim.Channel(
+                        arrays[f"{uid}_{prop}_t"], arrays[f"{uid}_{prop}_v"]
+                    )
+            animations.append(
+                anim.Animation(
+                    name,
+                    bool(entry.get("loop", True)),
+                    str(entry.get("interpolation", "linear")),
+                    channels,
+                )
+            )
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(
+                f"the animation {name!r} in this clay document is not usable ({exc})"
+            ) from exc
+    try:
+        state = anim.RigState(tuple(animations), fps)
+    except ValueError as exc:
+        raise ValueError(f"this clay document's animations are not usable ({exc})") from exc
+    active = raw.get("active")
+    return state, active if isinstance(active, int) and not isinstance(active, bool) else None
+
+
 def _factor(value: Any, n: int, field: str) -> tuple[float, ...]:
     """A material's ``base_color_factor``/``emissive_factor`` cast to exactly
     ``n`` floats, refusing anything else by name.
@@ -1356,10 +1492,12 @@ def read_rblk(data: bytes) -> ClayDoc:
         # them all -- see ``_validate_hierarchy``'s own docstring for why a
         # forward-referencing ``parent`` cannot be checked per entry.
         _validate_hierarchy(objects)
+        rig_state, active = anim.RigState(), None
         if version >= 5:
             refusal = _rig_refusal(objects)
             if refusal:
                 raise ValueError(f"this clay document's rig is not usable: {refusal}")
+            rig_state, active = _read_animations(zf, scene, objects)
 
     # A scene with objects but no materials is a hand-edited or truncated
     # file: every face's material index would fall off the empty palette,
@@ -1384,6 +1522,8 @@ def read_rblk(data: bytes) -> ClayDoc:
     if objects and not materials:
         materials = None
     doc = ClayDoc(objects=objects, materials=materials)
+    doc.rig_state = rig_state
+    doc.set_active_animation(active)
     if version < 4:
         notices = legacy.migrate(doc, legacy_fields)
         pairs = zip(materials or [], raw_materials, strict=False)

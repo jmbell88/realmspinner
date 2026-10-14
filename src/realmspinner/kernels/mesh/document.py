@@ -116,9 +116,9 @@ import numpy as np
 from ...core.undo import CompoundEdit, Edit, UndoStack
 from ..geom3d import gltf
 from ..geom3d import math3d as m3
+from . import anim, regen, rig
 from . import elements as el
 from . import mesh as bm
-from . import regen, rig
 from . import uv as uv_projection
 from .edits import (  # noqa: F401
     MaterialEdit,
@@ -128,6 +128,7 @@ from .edits import (  # noqa: F401
     ObjectMoveEdit,
     ObjectPropsEdit,
     ObjectRemoveEdit,
+    RigEdit,
     TransformEdit,
     _boundary_uids,
     _material_holders,
@@ -441,6 +442,10 @@ class ClayDoc:
         # saved either, so a checkpoint cannot outlive the session that made
         # it.
         self.checkpoints: dict[str, int] = {}
+        # The rig's motion (``anim``): animations and the frame rate they are shown at,
+        # restored by undo. Which animation is selected is not an edit and not in it.
+        self.rig_state = anim.RigState()
+        self.active_animation: int | None = None
 
     # -- lookup ------------------------------------------------------------
 
@@ -1479,6 +1484,9 @@ class ClayDoc:
 
         if not gone:
             return
+        pruned = self._prune_animation_edit(gone)
+        if pruned is not None:
+            edits.append(pruned)
         # In place: nothing else may be holding a stale list.
         doomed = set(gone)
         self.objects[:] = [o for o in self.objects if o.uid not in doomed]
@@ -1856,6 +1864,173 @@ class ClayDoc:
         self.touch()
         return True
 
+    # -- animation ---------------------------------------------------------
+
+    def _clamp_active_animation(self) -> None:
+        """Keep the selected animation a real index (an undo can shrink the list)."""
+        count = len(self.rig_state.animations)
+        if self.active_animation is not None and not 0 <= self.active_animation < count:
+            self.active_animation = count - 1 if count else None
+
+    def animation(self, index: int | None = None) -> anim.Animation | None:
+        """The animation at *index*, or the selected one, or ``None``."""
+        index = self.active_animation if index is None else index
+        animations = self.rig_state.animations
+        if index is None or not 0 <= index < len(animations):
+            return None
+        return animations[index]
+
+    def set_rig_state(self, state: anim.RigState) -> bool:
+        """Replace the animations and frame rate as **one** step. -> whether anything changed.
+
+        The one door every animation edit below goes through. Refused (``OpError``, nothing
+        pushed) when a channel names an object that is not a bone, so a document can never
+        hold motion the reader would refuse.
+        """
+        if state is self.rig_state:
+            return False
+        bones = {obj.uid for obj in self.objects if obj.bone}
+        for animation in state.animations:
+            stray = set(animation.channels) - bones
+            if stray:
+                raise el.OpError(
+                    f"The animation {animation.name!r} animates something that is not a bone."
+                )
+        before, self.rig_state = self.rig_state, state
+        self.history.push(RigEdit(before, state))
+        self._clamp_active_animation()
+        self.touch()
+        return True
+
+    def set_active_animation(self, index: int | None) -> None:
+        """Select an animation. Not an edit: nothing is pushed and nothing is dirtied."""
+        count = len(self.rig_state.animations)
+        self.active_animation = index if index is not None and 0 <= index < count else None
+
+    def _fresh_animation_name(self, base: str) -> str:
+        taken = {a.name for a in self.rig_state.animations}
+        if base not in taken:
+            return base
+        n = 1
+        while f"{base}.{n:03d}" in taken:
+            n += 1
+        return f"{base}.{n:03d}"
+
+    def add_animation(self, name: str = "Animation", *, copy_of: int | None = None) -> int:
+        """A new empty animation (or a copy of *copy_of*), selected. -> its index."""
+        animations = self.rig_state.animations
+        if len(animations) >= anim.MAX_ANIMATIONS:
+            raise el.OpError(
+                f"A rig holds at most {anim.MAX_ANIMATIONS} animations. Delete one first."
+            )
+        label = self._fresh_animation_name(name.strip() or "Animation")
+        if copy_of is not None:
+            source = animations[copy_of]
+            fresh = anim.Animation(label, source.loop, source.interpolation, source.channels)
+        else:
+            fresh = anim.Animation(label)
+        self.set_rig_state(self.rig_state.with_animations((*animations, fresh)))
+        self.active_animation = len(self.rig_state.animations) - 1
+        return self.active_animation
+
+    def delete_animation(self, index: int) -> bool:
+        animations = list(self.rig_state.animations)
+        if not 0 <= index < len(animations):
+            return False
+        del animations[index]
+        return self.set_rig_state(self.rig_state.with_animations(animations))
+
+    def _edit_animation(self, index: int | None, make: Any) -> bool:
+        index = self.active_animation if index is None else index
+        animations = list(self.rig_state.animations)
+        if index is None or not 0 <= index < len(animations):
+            raise el.OpError("Select or create an animation first.")
+        replacement = make(animations[index])
+        if replacement is animations[index]:
+            return False
+        animations[index] = replacement
+        return self.set_rig_state(self.rig_state.with_animations(animations))
+
+    def rename_animation(self, index: int, name: str) -> bool:
+        name = name.strip()
+        if not name:
+            raise el.OpError("An animation needs a name.")
+        if any(a.name == name for i, a in enumerate(self.rig_state.animations) if i != index):
+            raise el.OpError(f"There is already an animation called {name!r}.")
+        return self._edit_animation(
+            index, lambda a: a if a.name == name else a.renamed(name)
+        )
+
+    def set_animation_loop(self, index: int, loop: bool) -> bool:
+        return self._edit_animation(index, lambda a: a if a.loop == loop else a.with_loop(loop))
+
+    def set_animation_interpolation(self, index: int, interpolation: str) -> bool:
+        def change(a: anim.Animation) -> anim.Animation:
+            return a if a.interpolation == interpolation else a.with_interpolation(interpolation)
+
+        return self._edit_animation(index, change)
+
+    def set_fps(self, fps: int) -> bool:
+        if fps not in anim.FPS_CHOICES:
+            raise el.OpError(f"The frame rate is one of {', '.join(map(str, anim.FPS_CHOICES))}.")
+        if fps == self.rig_state.fps:
+            return False
+        return self.set_rig_state(self.rig_state.with_fps(fps))
+
+    def _require_bone(self, uid: int) -> Obj:
+        obj = self.by_uid(uid)
+        if not obj.bone:
+            raise el.OpError(f"{obj.name!r} is not a bone, so it cannot be animated.")
+        return obj
+
+    def set_key(
+        self, uid: int, prop: str, time: float, value: Any, *, animation: int | None = None
+    ) -> bool:
+        """Key one property of one bone at *time*, as one step. -> whether anything changed.
+
+        *value* is the bone's absolute local transform at that moment (a quaternion for
+        ``rotation``). A value equal to the one already keyed there changes nothing.
+        """
+        self._require_bone(uid)
+        target = self.animation(animation)
+        if target is not None:
+            old = target.channels.get(uid, {}).get(prop)
+            if old is not None:
+                near = np.flatnonzero(np.abs(old.times - time) <= anim.TIME_EPSILON)
+                row = np.asarray(value, dtype="f8").reshape(-1)
+                if prop == "rotation" and np.linalg.norm(row) > 0:
+                    row = row / np.linalg.norm(row)
+                if len(near) and np.array_equal(old.values[near[0]], row):
+                    return False
+        return self._edit_animation(
+            animation, lambda a: a.with_key(uid, prop, float(time), value)
+        )
+
+    def delete_key(
+        self, uid: int, prop: str, time: float, *, animation: int | None = None
+    ) -> bool:
+        return self._edit_animation(animation, lambda a: a.without_key(uid, prop, float(time)))
+
+    def move_key(
+        self, uid: int, prop: str, time: float, to: float, *, animation: int | None = None
+    ) -> bool:
+        return self._edit_animation(animation, lambda a: a.moved(uid, prop, float(time), float(to)))
+
+    def clear_bone_keys(self, uid: int, *, animation: int | None = None) -> bool:
+        return self._edit_animation(animation, lambda a: a.without_bones([uid]))
+
+    def _prune_animation_edit(self, uids: Iterable[int]) -> RigEdit | None:
+        """Drop the channels of bones that are going away, applied now, and answer the
+        step that records it -- or ``None`` when nothing animated them. For the doors that
+        delete or unmark bones to fold into their own compound step."""
+        gone = {int(u) for u in uids}
+        animations = self.rig_state.animations
+        pruned = tuple(a.without_bones(gone) for a in animations)
+        if all(new is old for new, old in zip(pruned, animations, strict=True)):
+            return None
+        before, self.rig_state = self.rig_state, self.rig_state.with_animations(pruned)
+        return RigEdit(before, self.rig_state)
+
     # -- bones and skins ---------------------------------------------------
 
     def _with_skin_of(self, obj: Obj, mesh: bm.Mesh) -> bm.Mesh:
@@ -1939,10 +2114,14 @@ class ClayDoc:
                 )
         else:
             self._without_skin_bones({o.uid for o in changing}, by_uid, None)
-        edits = []
+        edits: list[Any] = []
         for obj in changing:
             obj.bone = flag
             edits.append(ObjectPropsEdit(obj.uid, {"bone": not flag}, {"bone": flag}))
+        if not flag:
+            pruned = self._prune_animation_edit(obj.uid for obj in changing)
+            if pruned is not None:
+                edits.append(pruned)
         self.history.push(edits[0] if len(edits) == 1 else CompoundEdit(edits))
         self.touch()
         return True

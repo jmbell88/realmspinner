@@ -283,6 +283,42 @@ class ObjectMoveEdit(Edit):
 
 
 @dataclass
+class RigEdit(Edit):
+    """A rig's animations and frame rate, before and after.
+
+    Both are frozen values (``anim.RigState``), so the step is a snapshot swap and the cost is
+    the arrays the two states hold between them (a channel the edit did not touch is the same
+    object in both and is counted once).
+    """
+
+    before: Any
+    after: Any
+
+    def __post_init__(self) -> None:
+        seen: set[int] = set()
+        cost = 0
+        for state in (self.before, self.after):
+            for animation in state.animations:
+                for props in animation.channels.values():
+                    for channel in props.values():
+                        if id(channel) not in seen:
+                            seen.add(id(channel))
+                            cost += channel.times.nbytes + channel.values.nbytes
+        self.cost = cost
+
+    def _put(self, doc: Any, state: Any) -> None:
+        doc.rig_state = state
+        doc._clamp_active_animation()
+        doc.touch()
+
+    def undo(self, doc: Any) -> None:
+        self._put(doc, self.before)
+
+    def redo(self, doc: Any) -> None:
+        self._put(doc, self.after)
+
+
+@dataclass
 class ObjectPropsEdit(Edit):
     """Name, visibility, default material, generator and its parameters --
     anything about an object that is neither its geometry nor its transform."""
