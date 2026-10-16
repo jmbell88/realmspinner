@@ -29,6 +29,7 @@ import numpy as np
 from .....kernels.geom3d import math3d as m3
 from .....kernels.mesh import document as bd
 from .. import gestures
+from ..element_move import affine_about
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .view import ClayView
@@ -56,15 +57,6 @@ class _ElementDrag:
     # that the object's mesh never moved -- reading it back would find the
     # press-time geometry and commit nothing at all.
     preview: Any = None
-
-
-def _about(centre: np.ndarray, matrix: np.ndarray) -> np.ndarray:
-    """*matrix* conjugated to act about *centre* rather than about the origin."""
-    to = m3.identity()
-    to[:3, 3] = -np.asarray(centre, dtype="f8")
-    back = m3.identity()
-    back[:3, 3] = np.asarray(centre, dtype="f8")
-    return back @ matrix @ to
 
 
 def _world_scale_on_local_axes(rotation: Any, factors: Any) -> np.ndarray | None:
@@ -1347,7 +1339,7 @@ class DragOps:
             if snap:
                 delta = ops.snap_rotation(delta, getattr(state, "snap_rotate", 0.0))
             rotation = m3.compose(m3.vec3(), delta, m3.vec3(1.0, 1.0, 1.0))
-            world = _about(centre, rotation)
+            world = affine_about(centre, rotation)
         elif self._is_scale(state):
             factors = np.asarray(delta, dtype="f8").reshape(3)
             # The 2026-10-09 audit's clay-10: a typed -1 on selected elements
@@ -1363,7 +1355,7 @@ class DragOps:
             if self._element_scale_refused:
                 factors = np.ones(3)
             scale = np.diag(np.append(factors, 1.0))
-            world = _about(centre, scale)
+            world = affine_about(centre, scale)
         else:
             # No grid snap on the target here: a move onto the grid is done per
             # vertex in ``_preview_element_drag`` (``_element_snap_step``), where
@@ -1532,10 +1524,7 @@ class DragOps:
         drags, self._element_drags = self._element_drags, {}
         if getattr(self, "_element_scale_refused", False):
             self._element_scale_refused = False
-            self._toast(
-                "Scaling selected elements by a negative factor would turn their faces "
-                "inside out, so they were left as they were. Use Mirror to flip them."
-            )
+            self._toast(element_move.NEGATIVE_SCALE_SENTENCE)
         # ``commit_positions`` owns the fold and its ``try/finally`` (an
         # ``OpError`` escaping a ``set_mesh`` must not leave the undo stack's
         # gesture counter open); what stays here is the view's half -- evicting

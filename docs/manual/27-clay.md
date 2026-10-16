@@ -152,7 +152,7 @@ Inspector's tiles and **More shapes** list (see [Adding a primitive](#adding-a-p
 is on the Inspector's **Model & history** page, next to the units and up axis it uses; it is also in the **File**
 menu and in `Ctrl`+`K` (see [Importing an asset](#importing-an-asset)).
 
-That is the whole list. Clay has fifty-eight operations, and every one is in the right-click menu, Frame
+That is the whole list. Clay has sixty-one operations, and every one is in the right-click menu, Frame
 Selection included (it is also in the toolbar's View popover):
 
 | Group | Operations |
@@ -167,6 +167,7 @@ Selection included (it is also in the toolbar's View popover):
 | Object ▸ Shading | Shade Smooth, Shade Flat (also in face mode) |
 | Object ▸ Separate | Separate Loose Parts; Separate Selection (`P`, face mode) |
 | Mesh | Repeat Last (`Shift+R`), Extrude (`E`); in face mode Inset Faces... (`I`), Merge Faces, Flip Normals, Assign Material..., Subdivide, Triangulate Faces (`T`); in edge mode Bevel Edges... (`Ctrl+B`), Loop Cut... (`Ctrl+R`), Edge Slide... (`Ctrl+Shift+R`); in vertex mode Weld... |
+| Mesh ▸ Transform | Move Elements..., Scale Elements..., Rotate Elements... (the three element modes) |
 | Mesh ▸ Topology | Dissolve (vertex and edge modes); in edge mode Bridge Loops and Fill Hole; Collapse (edge and face modes) |
 | UV | Box Unwrap, Pack Islands... |
 | (toolbar) | Frame Selection (`F`) |
@@ -320,7 +321,8 @@ mode has no box select.
 Right-click opens the context menu, listing exactly the operations that apply in the current mode with the ones that
 cannot run greyed out. The same table drives the Inspector's action buttons and the palette's rows, so none of them
 can offer something another refuses. Operations that take a number — inset, bevel, loop cut, edge slide, weld,
-assign material, merge objects, snap to grid, mirror copy, pack islands, simplify, smooth — open a small dialog with
+assign material, merge objects, snap to grid, mirror copy, move elements, scale elements, rotate elements,
+pack islands, simplify, smooth — open a small dialog with
 the fields and an **Apply** button, and remember what you last used.
 
 Distances in the Inset, Weld and Bevel fields are world metres. Clay divides them by the object's own
@@ -372,6 +374,7 @@ a box and `L` between them reach what a low-poly model needs.
 | Edges | Bevel Edges... (`Ctrl+B`) | Replaces each selected edge with a flat strip the width you give and rebuilds the corners where beveled edges meet: bevel one edge of a box and the two faces at that edge's ends become pentagons, bevel all twelve and the box has 26 faces. One flat segment, not a rounded profile, and a bevel wider than the feature it sits on stops just short of the middle of each edge it slides along, so it flattens the feature without folding it or leaving two corners on one point. The key starts a drag for the width; a width typed below 0.001 m is raised to 0.001 m. An edge on a boundary, or one that three faces share, is refused with the reason; so is a selection that touches more than 10,000 corners (half that on a mesh with UVs), which would freeze the window. |
 | Edges | Loop Cut... (`Ctrl+R`) | With exactly one edge picked, rings the strip of quads that edge belongs to with a new loop of edges, cut at the position you give along each rung (0.5 is the middle; the field takes 0.01 to 0.99, because 0 or 1 would only duplicate a point). The ring stops at the first triangle, n-gon, open border or edge shared by three faces it meets, so a partial ring is normal; a face at the end of a stopped ring takes the new point into its outline and becomes an n-gon rather than leaving a crack. Texture coordinates are interpolated along each cut, so a cut across a seam leaves the seam where it was. The new ring is left selected. Refused above 400,000 corners on one object. |
 | Edges | Edge Slide... (`Ctrl+Shift+R`) | Moves the picked edges sideways along the faces either side of them, each end of an edge along its own two sideways rails, so a loop you have just cut can be put where the form wants it. The field runs from -1 to 1: 0 does not move anything (and leaves no undo step) and 1 would put an end on its neighbour, so the field stops just short of it at 0.99. Which direction is negative depends on the mesh's own point numbering, but it is the same direction all along a loop, so try the other sign if the whole loop went the wrong way. Only positions move; topology, texture coordinates and materials are untouched. A point with no sideways edge outside the selection is refused by name. Refused above 65,536 points, or when one point has more than 8,192 sideways edges (a degenerate fan hub). |
+| Any | Move Elements..., Scale Elements..., Rotate Elements... (Mesh ▸ Transform) | The typed twins of the viewport's `G`, `S` and `R` drags: they move, scale or rotate the picked points, edges or faces by numbers you give, in world axes, about the selection's centre or the world origin (the *pivot* field). Scale takes a factor per axis; 0 flattens the picked elements onto a plane, and a negative factor is refused with the reason, because it would turn the faces inside out (Mirror is the way to flip). Rotate takes degrees about X, then Y, then Z. A move of 0, a scale of 1 and a rotation of 0 change nothing and leave no undo step. Only the elements move; faces, texture coordinates and materials stay as they were. This is also how an agent tapers a box or rakes a windscreen. |
 | Faces | Subdivide | Splits each face into quads without changing the shape. |
 | Faces | Flip Normals | Reverses the winding of the selected faces. |
 | Faces | Assign Material... | Paints the selected faces with one palette slot, given by its number in the Colour card's palette, and leaves the object's default slot alone. See [Texturing](#texturing). |

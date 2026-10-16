@@ -62,4 +62,4 @@ def test_clay_batch_refuses_or_bounds_several_synchronous_subprocess_ops_folded_
     # tools_batch._make_entry's own "index > 0" guard.
     assert payload["completed"] == 1
     assert payload["stopped_at"] == 1
-    assert "deadline" in payload["results"][1]["content"][0]["text"]
+    assert "deadline" in payload["results"][1]["error"]

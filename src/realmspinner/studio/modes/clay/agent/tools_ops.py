@@ -744,6 +744,7 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
     # "changed" too: there is no prior mesh for it to equal.
     before = {obj.uid: obj.mesh for obj in doc.objects}
     before_sel = dict(doc.element_sel)
+    before_objects = sorted(doc.selection)
     head = doc.history.head
     ran = clay_ops.run(proxy, doc, op, **params)
     pushed = doc.history.head != head
@@ -826,6 +827,16 @@ def _h_op(ctx: Any, session: Session, args: dict) -> dict:
     # pick, every object still holding one is reported, with the counts and
     # stamp ``clay_elements`` would give (counts, never indices: the reply
     # must not grow with the mesh). ``select-none`` reports ``[]``.
+    #
+    # car-07: mirror-copy, duplicate, separate-*, group, ungroup and delete leave
+    # ``doc.selection`` (the shapes being edited) somewhere else while ``changed``
+    # lists only meshes. An agent that then read ``clay_element_mode``'s ``editing``
+    # took the copies for stale state. Named ``object_selection``, not ``selection``:
+    # that key below is the element-mode pick report, a list of dicts, and one key
+    # must not hold two shapes. Absent when the op left the selection alone.
+    after_objects = sorted(doc.selection)
+    if after_objects != before_objects:
+        reply["object_selection"] = after_objects
     after_sel = doc.element_sel
     if doc.element_mode != "object" and (
         before_sel.keys() != after_sel.keys()

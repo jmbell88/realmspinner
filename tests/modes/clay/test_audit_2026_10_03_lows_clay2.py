@@ -448,6 +448,8 @@ _PINNED_MODULE_IMPORTS = {
         # The input rule's pure classifier (no imports of its own) and the
         # click-slop distance it is measured with.
         ("..", "gestures"), ("math", None),
+        # The pivot conjugation the typed Scale/Rotate Elements ops share with the S/R drags.
+        ("..element_move", "affine_about"),
     },
     _UI / "_view_overlay.py": {
         ("__future__", "annotations"), ("typing", "Any"), ("moderngl", None), ("numpy", None),

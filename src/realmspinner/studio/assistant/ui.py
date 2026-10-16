@@ -955,7 +955,13 @@ def _refusal_sentence(result: dict) -> str:
     stopped_at = structured.get("stopped_at")
     results = structured.get("results") or []
     if isinstance(stopped_at, int) and 0 <= stopped_at < len(results):
-        result = results[stopped_at]
+        # A batch row is ``{"error": <sentence>, ...}`` since car-04; the
+        # ``content`` read below is the old whole-result row (and a refusal of
+        # the batch itself, which has no such entry).
+        row = results[stopped_at]
+        if isinstance(row, dict) and isinstance(row.get("error"), str) and row["error"]:
+            return row["error"]
+        result = row
     content = result.get("content") or []
     if content and isinstance(content[0], dict) and content[0].get("text"):
         return str(content[0]["text"])

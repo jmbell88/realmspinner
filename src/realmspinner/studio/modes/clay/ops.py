@@ -1175,6 +1175,98 @@ def _inset_check(values: dict[str, Any]) -> None:
         )
 
 
+def _scale_elements_check(values: dict[str, Any]) -> None:
+    """Refuse a negative scale factor, in the sentence the S drag toasts.
+
+    The 2026-10-09 audit's clay-10: a negative factor on picked elements moves the
+    positions but not the winding, so every face comes out inside-out. The
+    ``Param`` floor is wide open on purpose -- a ``low`` of 0 would *clamp* a typed
+    -1 to a flatten and report success -- and this ``check`` is where it is refused.
+    Zero stays legal: it flattens onto a plane and inverts nothing.
+    """
+    from ....kernels.mesh.elements import OpError
+    from . import element_move
+
+    if any(float(values.get(axis, 1.0)) < 0.0 for axis in ("sx", "sy", "sz")):
+        raise OpError(element_move.NEGATIVE_SCALE_SENTENCE)
+
+
+def _typed_element_transform(ctx: Any, doc: Any, apply: Callable[[list[Exception]], bool]) -> bool:
+    """Run one typed element transform; a refusal the document made becomes an ``OpError``.
+
+    *apply* is handed the list ``element_move`` fills with per-object refusals. An
+    op that changed nothing returns ``False`` (``run`` then pushes no step and
+    reports it did not run); a refusal that left nothing changed is raised so the
+    caller hears why.
+    """
+    from ....kernels.mesh.elements import OpError
+
+    errors: list[Exception] = []
+    changed = apply(errors)
+    if errors and not changed:
+        raise OpError(str(errors[0]))
+    return changed
+
+
+def _move_elements(
+    ctx: Any, doc: Any, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0, **_: Any
+) -> bool:
+    """Shift the picked elements by (dx, dy, dz) metres along the world axes."""
+    from . import element_move
+
+    return _typed_element_transform(
+        ctx, doc, lambda refused: element_move.move_elements(doc, (dx, dy, dz), refused=refused)
+    )
+
+
+def _typed_pivot(doc: Any, pivot: int) -> Any:
+    """The world point a typed scale or rotate turns about: the selection's centre
+    (``None``, which ``element_move`` resolves) or the world origin."""
+    return None if int(pivot) == 0 else (0.0, 0.0, 0.0)
+
+
+def _scale_elements(
+    ctx: Any,
+    doc: Any,
+    sx: float = 1.0,
+    sy: float = 1.0,
+    sz: float = 1.0,
+    pivot: int = 0,
+    **_: Any,
+) -> bool:
+    """Scale the picked elements by (sx, sy, sz) along the world axes."""
+    from . import element_move
+
+    return _typed_element_transform(
+        ctx,
+        doc,
+        lambda refused: element_move.scale_elements(
+            doc, (sx, sy, sz), pivot=_typed_pivot(doc, pivot), refused=refused
+        ),
+    )
+
+
+def _rotate_elements(
+    ctx: Any,
+    doc: Any,
+    rx: float = 0.0,
+    ry: float = 0.0,
+    rz: float = 0.0,
+    pivot: int = 0,
+    **_: Any,
+) -> bool:
+    """Turn the picked elements by Euler XYZ degrees about the world axes."""
+    from . import element_move
+
+    return _typed_element_transform(
+        ctx,
+        doc,
+        lambda refused: element_move.rotate_elements(
+            doc, (rx, ry, rz), pivot=_typed_pivot(doc, pivot), refused=refused
+        ),
+    )
+
+
 def _with_descendants_in(doc: Any, uids: Iterable[int]) -> set[int]:
     """*uids* and every object under any of them, from one parent -> children map.
 
@@ -3168,6 +3260,82 @@ def _register_defaults() -> None:
                     low=0.0,
                     high=1.0,
                     boolean=True,
+                ),
+            ),
+        )
+    )
+    # Typed element transforms (finding car-01). G/S/R stay the viewport's drags --
+    # no ``key`` here -- but a pointer-less caller (the agent) and an exact value
+    # needed a door, so these carry the drag's own maths (``element_move``) by number.
+    register(
+        Op(
+            name="move-elements",
+            label="Move Elements...",
+            modes=ELEMENT_MODES,
+            run=_move_elements,
+            enabled=in_mode(*ELEMENT_MODES),
+            reason=_in_mode_reason(*ELEMENT_MODES),
+            hint="Shifts the picked points, edges or faces by a typed distance along "
+            "the world axes; the G drag is the pointer way.",
+            params=(
+                Param("dx", "move X (m)", 0.0, 0.05, low=-1e6),
+                Param("dy", "move Y (m)", 0.0, 0.05, low=-1e6),
+                Param("dz", "move Z (m)", 0.0, 0.05, low=-1e6),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="scale-elements",
+            label="Scale Elements...",
+            modes=ELEMENT_MODES,
+            run=_scale_elements,
+            enabled=in_mode(*ELEMENT_MODES),
+            reason=_in_mode_reason(*ELEMENT_MODES),
+            check=_scale_elements_check,
+            hint="Scales the picked points, edges or faces by typed factors along the "
+            "world axes (1 leaves an axis alone, 0 flattens it, a negative factor is "
+            "refused -- Mirror flips); the S drag is the pointer way.",
+            # ``low`` is wide open and the check refuses a negative: a floor of 0
+            # would clamp a typed -1 into a flatten and report success.
+            params=(
+                Param("sx", "scale X", 1.0, 0.05, low=-1e6),
+                Param("sy", "scale Y", 1.0, 0.05, low=-1e6),
+                Param("sz", "scale Z", 1.0, 0.05, low=-1e6),
+                Param(
+                    "pivot",
+                    "scale about",
+                    0.0,
+                    1.0,
+                    low=0.0,
+                    high=1.0,
+                    choices=("selection centre", "world origin"),
+                ),
+            ),
+        )
+    )
+    register(
+        Op(
+            name="rotate-elements",
+            label="Rotate Elements...",
+            modes=ELEMENT_MODES,
+            run=_rotate_elements,
+            enabled=in_mode(*ELEMENT_MODES),
+            reason=_in_mode_reason(*ELEMENT_MODES),
+            hint="Turns the picked points, edges or faces by typed Euler XYZ degrees "
+            "about the world axes; the R drag is the pointer way.",
+            params=(
+                Param("rx", "rotate X (deg)", 0.0, 5.0, low=-360.0, high=360.0),
+                Param("ry", "rotate Y (deg)", 0.0, 5.0, low=-360.0, high=360.0),
+                Param("rz", "rotate Z (deg)", 0.0, 5.0, low=-360.0, high=360.0),
+                Param(
+                    "pivot",
+                    "rotate about",
+                    0.0,
+                    1.0,
+                    low=0.0,
+                    high=1.0,
+                    choices=("selection centre", "world origin"),
                 ),
             ),
         )

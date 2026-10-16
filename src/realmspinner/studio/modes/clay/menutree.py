@@ -73,7 +73,19 @@ GROUPS: dict[str, Group] = {
         ("select-all", "select-none", "select-invert", "select-linked"),
     ),
     "basic": Group("Object", ("duplicate",)),
-    "transform": Group("Transform", ("drop-to-ground", "snap-to-grid")),
+    # The three typed element transforms sit beside the object-level ones: a closed
+    # submenu in the element modes' Mesh menu, so the Inspector's open Shape it card
+    # (``mesh`` + ``delete``) does not grow by three rows.
+    "transform": Group(
+        "Transform",
+        (
+            "drop-to-ground",
+            "snap-to-grid",
+            "move-elements",
+            "scale-elements",
+            "rotate-elements",
+        ),
+    ),
     "origin": Group(
         "Set Origin",
         (
@@ -180,6 +192,7 @@ def _mesh_menu(*extra: Entry) -> Menu:
         (
             _inline("mesh"),
             _sub("topology"),
+            _sub("transform"),
             _sub("origin"),
             *extra,
             _inline("delete"),

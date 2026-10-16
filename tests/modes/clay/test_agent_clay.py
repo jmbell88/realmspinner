@@ -471,8 +471,10 @@ def test_a_batch_refuses_at_the_entry_with_a_bad_argument_and_keeps_what_ran() -
     assert payload["completed"] == 2
     assert payload["stopped_at"] == 2
     assert payload["changed"] is True
-    assert payload["results"][2]["isError"] is True
-    assert "translaton" in payload["results"][2]["content"][0]["text"]
+    # A refused row is {"error": sentence, ...extras}, with no per-row isError:
+    # stopped_at names the failing row (car-04).
+    assert "isError" not in payload["results"][2]
+    assert "translaton" in payload["results"][2]["error"]
     # The prefix genuinely ran and is kept: two objects exist on the document
     # this batch itself minted (its first call was the creator).
     tab = clay_mode.ensure(ctx).get(session.tab_uid)
@@ -2277,16 +2279,16 @@ def test_a_ref_to_a_name_no_object_has_stops_the_batch_and_keeps_the_prefix() ->
     assert "never" not in names
 
     ref_failure = payload["results"][1]
-    assert ref_failure["isError"] is True
-    assert ref_failure["structuredContent"]["field"] == "uid"
-    assert ref_failure["structuredContent"]["recovery"] == "read_scene"
+    assert "isError" not in ref_failure  # a refusal row is {"error", ...extras} (car-04)
+    assert ref_failure["field"] == "uid"
+    assert ref_failure["recovery"] == "read_scene"
     # Distinguishes a real ``$ref`` miss from the generic "not an int" refusal
     # a bare unresolved ``{"$ref": ...}`` dict would otherwise fall through
     # to (which also names field="uid"/recovery="read_scene", coincidentally)
     # -- this message names the object by the name that was actually looked
     # up, not the raw dict ``int()`` choked on.
-    assert "no object named" in ref_failure["content"][0]["text"]
-    assert "ghost" in ref_failure["content"][0]["text"]
+    assert "no object named" in ref_failure["error"]
+    assert "ghost" in ref_failure["error"]
 
 
 def test_a_dict_carrying_ref_beside_another_key_is_refused() -> None:
@@ -2308,14 +2310,14 @@ def test_a_dict_carrying_ref_beside_another_key_is_refused() -> None:
     payload = _payload(result)
     assert payload["stopped_at"] == 1
     ref_failure = payload["results"][1]
-    assert ref_failure["structuredContent"]["field"] == "uid"
+    assert ref_failure["field"] == "uid"
     # "fix_arguments", not "read_scene" -- this is a malformed call, not a
     # name the document happens not to hold, and the message names $ref by
     # name rather than falling through to the generic bad-uid refusal (which
     # would also land on field="uid", coincidentally, but with recovery
     # "read_scene" and no mention of $ref at all).
-    assert ref_failure["structuredContent"]["recovery"] == "fix_arguments"
-    assert "$ref" in ref_failure["content"][0]["text"]
+    assert ref_failure["recovery"] == "fix_arguments"
+    assert "$ref" in ref_failure["error"]
 
 
 def test_a_ref_to_an_ambiguous_name_is_refused_naming_both_uids() -> None:
@@ -2347,9 +2349,9 @@ def test_a_ref_to_an_ambiguous_name_is_refused_naming_both_uids() -> None:
     assert result["isError"] is True
     payload = _payload(result)
     ref_failure = payload["results"][0]
-    assert ref_failure["isError"] is True
-    assert ref_failure["structuredContent"]["field"] == "uid"
-    assert set(ref_failure["structuredContent"]["uids"]) == {uid1, uid2}
+    assert "isError" not in ref_failure
+    assert ref_failure["field"] == "uid"
+    assert set(ref_failure["uids"]) == {uid1, uid2}
 
 
 def test_a_ref_in_an_ordinary_non_batched_call_is_not_resolved() -> None:
@@ -2464,8 +2466,8 @@ def test_a_failing_call_mid_program_rolls_back_pushes_no_step_and_restores_selec
     assert payload["changed"] is False
     assert payload["completed"] == 1
     assert payload["stopped_at"] == {"step": "steps[1].transform", "call": "clay_transform"}
-    assert payload["failure"]["isError"] is True
-    assert "999999" in payload["failure"]["content"][0]["text"]
+    assert "isError" not in payload["failure"]  # {"error", ...extras} (car-04)
+    assert "999999" in payload["failure"]["error"]
     assert payload["objects"] == []
 
     # No step pushed -- the folded step this run would have pushed is fully
@@ -2567,7 +2569,7 @@ def test_clay_programs_deadline_rolls_back(monkeypatch: pytest.MonkeyPatch) -> N
     assert result["isError"] is True
     payload = _payload(result)
     assert payload["rolled_back"] is True
-    assert "deadline" in payload["failure"]["content"][0]["text"]
+    assert "deadline" in payload["failure"]["error"]
     tab = clay_mode.ensure(ctx).get(session.tab_uid)
     assert len(tab.doc.objects) == 0
 
@@ -2702,7 +2704,7 @@ def test_an_assert_failure_rolls_back_pushes_no_step_and_names_the_step_path() -
     assert payload["rolled_back"] is True
     assert payload["changed"] is False
     assert payload["stopped_at"] == {"step": "steps[1].assert", "call": "live:assert"}
-    assert "size(a, 1) > 100" in payload["failure"]["content"][0]["text"]
+    assert "size(a, 1) > 100" in payload["failure"]["error"]
     tab = clay_mode.ensure(ctx).get(session.tab_uid)
     assert len(tab.doc.objects) == 0
 
@@ -4586,11 +4588,19 @@ def test_the_tool_catalogue_stays_inside_the_context_budget_an_agent_pays_for_it
     rules (``PROGRAM_MAX_VISITS``, the ``<id>_mirror`` name, world-space ``move``/``turn``, merge
     consumption). Net of the four pose-only ops that clay-12 took out of ``clay_op``'s enum
     (an agent can never run them) and ``clay_checkpoint`` out of ``clay_batch``'s.
+
+    Raised 2026-10-15 to 54,000 (surface 53,916; catalogue JSON 45,203 + instructions 8,713) by
+    the car build's three findings. Deliberate: ``move-elements``, ``scale-elements`` and
+    ``rotate-elements`` are three more names in ``clay_op``'s enum (54 characters), and
+    ``instructions()`` gains two sentences (about 300): ``clay_select_by`` /
+    ``clay_select_elements`` add an unseen uid to the edited set, and ``clay_op`` replies carry
+    ``object_selection`` when an op changed which objects are selected. The slim batch rows
+    change replies, not this catalogue.
     """
     from realmspinner.mcp import rpc
     from realmspinner.studio import agent_host
 
-    CEILING = 53_600
+    CEILING = 54_000
 
     tools = [*agent_clay.tools(), *agent_host._transport_tools()]
     tool_jsons = [rpc.tool_dict(t) for t in tools]

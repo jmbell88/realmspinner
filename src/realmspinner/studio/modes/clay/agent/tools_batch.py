@@ -276,6 +276,112 @@ def _run_entry(ctx: Any, session: Session, doc: Any, entry: Any) -> dict:
     return _resolve_and_call(ctx, session, doc, name, arguments)
 
 
+#: Tools whose reply is one object row (or a short list of them) plus a verdict,
+#: and so carry the row's noise: ``bbox``, ``verts``, ``uv``, ``stamp`` and
+#: ``selected`` are all a ``clay_scene`` read away and an agent that has just
+#: placed something does not act on them. A DENYLIST on purpose (car-04): a tool
+#: missing from this set, and a key not named in :func:`_slim_mutation`, passes
+#: through whole, so a new field is never silently swallowed. ``clay_op`` is not
+#: here: its ``changed`` rows and ``selection`` report put ``stamp`` and
+#: ``selected`` to work (the counts an element edit just produced), and the read
+#: tools (``clay_scene``, ``clay_measure``, ``clay_elements``, the selection
+#: tools, ``clay_catalog``) are the data the agent asked for.
+_SLIM_ROW_TOOLS = frozenset(
+    {
+        "clay_add_primitive",
+        "clay_add_mesh",
+        "clay_transform",
+        "clay_set_params",
+        "clay_material",
+        "clay_rename",
+        "clay_set_origin",
+        "clay_parent",
+        "clay_group",
+        "clay_ungroup",
+        "clay_delete",
+        "clay_separate",
+        "clay_uv",
+    }
+)
+
+_ROW_NOISE_KEYS = ("bbox", "verts", "uv", "stamp", "selected")
+
+
+def _slim_mutation(payload: dict) -> dict:
+    """*payload* (one mutation tool's structured reply) without the fields a
+    batch reader never needs: :data:`_ROW_NOISE_KEYS`, plus a value that is just
+    its default -- ``visible: true``, ``bone: false``, ``parent: null``,
+    ``rotation: [0,0,0]``, ``scale: [1,1,1]``. ``uid``/``uids``/``changed`` and
+    every key not named here are kept: ``transcript.produced_uids`` counts the
+    uid keys and a recorded fixture replays against them. A ``clay_separate``
+    reply's ``objects`` rows are slimmed the same way."""
+    slim: dict[str, Any] = {}
+    for key, value in payload.items():
+        if key in _ROW_NOISE_KEYS:
+            continue
+        if (
+            (key == "visible" and value is True)
+            or (key == "bone" and value is False)
+            or (key == "parent" and value is None)
+            or (key == "rotation" and value == [0, 0, 0])
+            or (key == "scale" and value == [1, 1, 1])
+        ):
+            continue
+        if key == "objects" and isinstance(value, list):
+            value = [_slim_mutation(v) if isinstance(v, dict) else v for v in value]
+        slim[key] = value
+    return slim
+
+
+def _row(name: str | None, result: dict) -> dict:
+    """One ``clay_batch`` / ``clay_program`` row, from a nested call's whole MCP
+    *result* (car-04). That result is ``{"content": [<the JSON as text>],
+    "isError", "structuredContent"}``, and the envelope that embeds it is itself
+    sent as text and as structuredContent, so every field used to travel four
+    times; a 26-box batch was about 11k tokens.
+
+    A success is its ``structuredContent`` once -- no ``content`` wrapper, no
+    ``isError`` (a success has none to report) -- slimmed by :func:`_slim_mutation`
+    when *name* is in :data:`_SLIM_ROW_TOOLS`. A refusal is ``{"error": <the
+    message sentence>, ...its structured extras}``: ``field``, ``recovery``,
+    ``changed``, ``uids`` and ``op`` ride along unchanged. There is no per-row
+    ``isError``: the envelope's ``stopped_at`` names the failing row. A result
+    with no structuredContent (a picture tool, which a batch does not take, but
+    be defensive) falls back to its text parsed as JSON, then to ``{"text": ...}``.
+    """
+    structured = result.get("structuredContent")
+    content = result.get("content") or []
+    sentence = ""
+    if content and isinstance(content[0], dict):
+        sentence = str(content[0].get("text") or "")
+    if result.get("isError"):
+        row: dict[str, Any] = {"error": sentence}
+        if isinstance(structured, dict):
+            row.update({k: v for k, v in structured.items() if k != "error"})
+        return row
+    if isinstance(structured, dict):
+        payload = structured
+    else:
+        try:
+            parsed = json.loads(sentence)
+        except ValueError:
+            parsed = None
+        payload = parsed if isinstance(parsed, dict) else {"text": sentence}
+    if name in _SLIM_ROW_TOOLS:
+        return _slim_mutation(payload)
+    return payload
+
+
+def _entry_tool_name(entry: Any) -> str | None:
+    """The tool an :func:`_fold_run` entry will call, for :func:`_row`: a
+    ``(name, arguments)`` pair's own name, or a thunk's ``tool_name`` attribute
+    (set by the batch's and the program's ``_make_entry``); ``None`` for a live
+    step, whose row then passes through whole."""
+    if callable(entry):
+        return getattr(entry, "tool_name", None)
+    return entry[0]
+
+
 def _fold_run(
     ctx: Any,
     session: Session,
@@ -294,7 +400,7 @@ def _fold_run(
     expanded call list, wrapped in a deadline-checking thunk apiece.
 
     -> ``(results, stopped_at, rolled_back, changed)``: *results* is one
-    tool result per entry actually run (stopping at the first refusal, so
+    :func:`_row` per entry actually run (stopping at the first refusal, so
     shorter than *entries* on a stop); *stopped_at* is that entry's index, or
     ``None`` if every entry succeeded; *rolled_back* is whether *rollback*
     fired; *changed* is ``doc.history.head != mark`` after everything above,
@@ -336,7 +442,7 @@ def _fold_run(
     try:
         for i, entry in enumerate(entries):
             result = _run_entry(ctx, session, doc, entry)
-            results.append(result)
+            results.append(_row(_entry_tool_name(entry), result))
             if result.get("isError"):
                 stopped_at = i
                 break
@@ -530,6 +636,7 @@ def _h_batch(ctx: Any, session: Session, args: dict) -> dict:
             deadline += time.monotonic() - started
             return result
 
+        _run.tool_name = name  # type: ignore[attr-defined]  # read by _entry_tool_name
         return _run
 
     entries = [
@@ -973,6 +1080,8 @@ def _h_program(ctx: Any, session: Session, args: dict) -> dict:
             deadline += time.monotonic() - started
             return result
 
+        if compiled_call[0] != "live":
+            _run.tool_name = compiled_call[0]  # type: ignore[attr-defined]
         return _run
 
     entries = [_make_entry(i, c) for i, c in enumerate(compiled.calls)]

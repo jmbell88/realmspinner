@@ -118,13 +118,13 @@ def test_the_frame_guard_counts_the_escaped_text_twin_of_a_batch_reply(
 
     measured = agent_clay.call(ctx, session, "clay_batch", {"calls": calls})
     assert measured["isError"] is False, measured
-    old_estimate = 2 * len(json.dumps(measured["structuredContent"]))
     wire = _framed(measured)
-    assert wire > old_estimate, (wire, old_estimate)  # the 2x estimate under-counts
-
-    # A ceiling the old estimate clears and the real frame does not.
+    # car-04: a batch row no longer carries a second, escaped text copy of
+    # itself, so the 2x-structuredContent estimate this audit found under-counting
+    # (1.053 of it) now over-counts slightly. The guard still has to measure the
+    # frame itself rather than an estimate: one byte under the real frame refuses,
+    # the real frame passes.
     monkeypatch.setattr(rpc, "MAX_FRAME", wire - 1 + 64 * 1024)
-    assert old_estimate <= rpc.MAX_FRAME - 64 * 1024
     result = agent_clay.call(ctx, session, "clay_batch", {"calls": calls})
 
     assert result["isError"] is True, "a reply past MAX_FRAME was sent after its edit was kept"

@@ -381,7 +381,9 @@ defaults filled in and out-of-range values clamped, and names the clamped ones i
 rounding is not a clamp). A value below a floor the catalogue marks "refused" (Simplify's target faces, Snap
 to Grid's step) is refused rather than clamped. When a multi-object run is refused for some objects and runs
 for others, the refusal sentences also arrive as an `errors` list; each changed object carries
-`faces_before`. `clay_op` acts on the current selection, so `clay_select` first. `clay_batch` and
+`faces_before`. `clay_op` acts on the current selection, so `clay_select` first. When an op changes which
+*objects* are selected (Mirror Copy, Duplicate, Separate, Group, Ungroup, Delete) its reply carries
+`object_selection`, the new selection's uids; an op that leaves it alone omits the key. `clay_batch` and
 `clay_program` also stop at a total run time (60 s and 20 s), slow entries included, as well as at the
 deadline they check between entries (30 s and 4 s).
 
@@ -565,6 +567,13 @@ where the frame thread is busy with something else. The test-visible consequence
 a tool is never an entry in `_HANDLERS`, which is what keeps the derived-catalogue test honest rather
 than quietly widened to cover a tool the Clay agent package never owned. The price of that is real, too — a
 tool built this way gets no frame thread of its own, ever, and so may not touch a document.
+
+Inside a `clay_batch` or `clay_program` result, each row is one copy, not the twice-answered shape: a
+successful row is the nested call's structured payload (a mutating tool's row also drops the per-object noise:
+`bbox`, `verts`, `uv`, `stamp`, `selected`, and a default rotation, scale, `bone`, `visible` or null `parent`),
+and a refused row is an object holding `error` (the refusal's sentence) beside its `field`, `recovery` and
+`changed`. `stopped_at` names the failing row, so a row has no `isError` of its own. Reads such as `clay_scene`
+keep every field, and no row ever drops a `uid` or `uids`.
 
 A new tool gets the structured-result shape for free the moment it answers through `_json` the
 way every other verb does: its JSON payload lands as text, which is what a model reads, and again

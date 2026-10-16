@@ -274,7 +274,9 @@ agent's model actually reads) and again as ``structuredContent`` (the same
 data, for a client that wants to branch on a field instead of re-parsing
 prose out of the text block). Duplication, not an oversight: a model and a
 client are two different readers of one answer, and neither can stand in
-for the other.
+for the other. Inside a ``clay_batch`` / ``clay_program`` result each row is
+ONE copy (the nested call's structured payload, trimmed of per-object noise for
+mutation tools), not this twice-answered wire shape.
 
 **A refusal is machine-readable, not only readable.** ``fail``
 (``studio/modes/clay/agent/validate.py``) -- the thin wrapper over ``protocol.fail`` --
@@ -730,7 +732,11 @@ def instructions() -> str:
         "the ones that need one (a material slot, a direction, a box). "
         "clay_select, and clay_program, want object mode, and refuse by "
         "name rather than switch back for you if the document is not in "
-        "it.\n\n"
+        "it. clay_select_by and clay_select_elements on a uid not yet being "
+        "edited ADD that uid to the edited set ('editing'); to retarget, "
+        "go to object mode and clay_select. clay_op replies carry "
+        "'object_selection' when the op changed which objects are "
+        "selected (mirror-copy, duplicate, separate, group, delete).\n\n"
         "A selection is indices into one mesh, and indices go stale the "
         "moment the mesh they describe is replaced: an undo drops it, a "
         "params rebuild that changes the face count restricts it to what "

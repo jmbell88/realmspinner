@@ -66,8 +66,13 @@ def test_the_frozen_clay_card_hashes_to_its_recorded_sha():
     enum; clay-12 dropped the pose-only ops (``insert-key``, ``delete-key``, ``reset-pose``,
     ``apply-pose-as-rest``) from ``clay_op``'s: ``207a75c0...661a`` -> ``4d621000...8b``.
     Still free (``card_shas`` is ``()``).
+
+    Re-frozen 2026-10-15 when ``clay_op`` gained ``move-elements``, ``scale-elements`` and
+    ``rotate-elements`` (the car build's missing element transform): the only change is those
+    three names in ``clay_op``'s name enum, ``4d621000...8b`` -> ``05e07638...a55``.
+    Still free (``card_shas`` is ``()``).
     """
-    expected = "4d621000a77874153997007d402ac2090a0d2ea46798d1c790e0b0d7ade4d78b"
+    expected = "05e076387e83b7ae1a39a83ab63073b1b8aa2b6f64cb1194df905d500fd1ca55"
     assert contract.card_sha("clay") == expected
 
 

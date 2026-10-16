@@ -10,7 +10,10 @@ panes, the view and the tests all reach it without a window.
 
 The drag previews through :func:`moved_local` and commits through
 :func:`commit_positions`; a typed value goes through :func:`move_elements`, which is
-both halves in one call.
+both halves in one call. Scale and rotate have the same two doors: the drag builds
+its 4x4 with :func:`affine_about`, and the typed ops (:func:`scale_elements`,
+:func:`rotate_elements`, the agent's way of tapering a box top) build theirs with
+the same function, so the pointer and a typed value cannot disagree about a pivot.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from typing import Any
 
 import numpy as np
 
+from ....kernels.geom3d import math3d as m3
 from ....kernels.mesh import elements as el
 from ....kernels.mesh.selection import _element_pickable
 
@@ -28,6 +32,27 @@ def apply_affine(matrix: np.ndarray, points: np.ndarray) -> np.ndarray:
     """*points* (``(n, 3)``) through the 4x4 *matrix*."""
     homo = np.hstack([np.asarray(points, dtype="f8"), np.ones((len(points), 1))])
     return (np.asarray(matrix, dtype="f8") @ homo.T).T[:, :3]
+
+
+#: The refusal for a negative scale factor on picked elements. The 2026-10-09 audit's
+#: clay-10: a typed -1 moved the positions but not the winding, so every face came out
+#: inside-out with no word said. Held here so the drag's toast and the typed op's
+#: refusal are one sentence. Zero is *not* refused (the second audit's clay-81): it
+#: flattens the picked elements onto a plane and inverts nothing.
+NEGATIVE_SCALE_SENTENCE = (
+    "Scaling selected elements by a negative factor would turn their faces "
+    "inside out, so they were left as they were. Use Mirror to flip them."
+)
+
+
+def affine_about(pivot: Any, matrix: np.ndarray) -> np.ndarray:
+    """*matrix* conjugated to act about *pivot* rather than about the origin."""
+    centre = np.asarray(pivot, dtype="f8")
+    to = m3.identity()
+    to[:3, 3] = -centre
+    back = m3.identity()
+    back[:3, 3] = centre
+    return back @ matrix @ to
 
 
 def snap_points(points: np.ndarray, step: float) -> np.ndarray:
@@ -189,6 +214,108 @@ def move_elements(
     if refused is not None:
         refused.extend(error for _uid, error in failed)
     return pushed
+
+
+def _transform_elements(
+    doc: Any, world: np.ndarray, refused: list[Exception] | None
+) -> bool:
+    """Put every object's selected vertices through the world-space affine *world*.
+
+    The body :func:`move_elements` has for a shift, for any 4x4: eligibility is
+    ``_element_pickable`` plus ``el.affected_verts``, the world matrix is undone
+    per object so a parented one lands right, and the lot is one undo step through
+    :func:`commit_positions` (which also drops an object whose positions came out
+    equal, so a transform that changes nothing records nothing).
+    """
+    changes: dict[int, tuple[Any, np.ndarray]] = {}
+    for uid, sel in list(doc.element_sel.items()):
+        try:
+            obj = doc.by_uid(uid)
+        except KeyError:
+            continue
+        if not _element_pickable(obj):
+            continue
+        verts = el.affected_verts(obj.mesh, sel)
+        if not len(verts):
+            continue
+        matrix = doc.world_matrix(uid)
+        try:
+            inverse = np.linalg.inv(matrix)
+        except np.linalg.LinAlgError:
+            continue
+        positions = np.array(obj.mesh.positions, dtype="f4")
+        with np.errstate(over="ignore", invalid="ignore"):
+            positions[verts] = apply_affine(
+                inverse @ world @ matrix, obj.mesh.positions[verts].astype("f8")
+            )
+        changes[uid] = (obj.mesh, positions)
+    pushed, _unchanged, failed = commit_positions(doc, changes)
+    if refused is not None:
+        refused.extend(error for _uid, error in failed)
+    return pushed
+
+
+def _pivot_world(doc: Any, pivot: Any) -> np.ndarray | None:
+    """The world point to scale or turn about: *pivot*, or the selection's median."""
+    if pivot is None:
+        return element_median_world(doc)
+    return np.asarray(pivot, dtype="f8").reshape(3)
+
+
+def scale_elements(
+    doc: Any,
+    factors: Any,
+    *,
+    pivot: Any = None,
+    refused: list[Exception] | None = None,
+) -> bool:
+    """Scale every object's selected elements by per-world-axis *factors*.
+
+    -> whether anything moved.
+
+    About *pivot* (a world point; ``None`` is the selection's median, the gizmo's
+    centre). A negative factor is refused with :data:`NEGATIVE_SCALE_SENTENCE` --
+    appended to *refused* when the caller passed a list, raised as
+    ``OpError`` when not -- exactly as the S drag refuses it. All-ones records nothing.
+    """
+    f = np.asarray(factors, dtype="f8").reshape(3)
+    if bool((f < 0.0).any()):
+        error = el.OpError(NEGATIVE_SCALE_SENTENCE)
+        if refused is None:
+            raise error
+        refused.append(error)
+        return False
+    if bool(np.all(f == 1.0)):
+        return False
+    centre = _pivot_world(doc, pivot)
+    if centre is None:
+        return False
+    return _transform_elements(doc, affine_about(centre, np.diag(np.append(f, 1.0))), refused)
+
+
+def rotate_elements(
+    doc: Any,
+    euler_deg: Any,
+    *,
+    pivot: Any = None,
+    refused: list[Exception] | None = None,
+) -> bool:
+    """Turn every object's selected elements by Euler XYZ degrees about world axes.
+
+    -> whether anything moved.
+
+    The app's one Euler order (``math3d.quat_from_euler_xyz``), about *pivot* (a
+    world point; ``None`` is the selection's median). All-zero records nothing.
+    """
+    angles = np.asarray(euler_deg, dtype="f8").reshape(3)
+    if not np.any(angles):
+        return False
+    centre = _pivot_world(doc, pivot)
+    if centre is None:
+        return False
+    quat = m3.quat_from_euler_xyz(angles)
+    rotation = m3.compose(m3.vec3(), quat, m3.vec3(1.0, 1.0, 1.0))
+    return _transform_elements(doc, affine_about(centre, rotation), refused)
 
 
 def element_median_world(doc: Any) -> np.ndarray | None:

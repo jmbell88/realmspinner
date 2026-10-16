@@ -135,6 +135,22 @@ touched: arguments, outcomes and ``made`` lists are the recorder's own. The
 bracket and telescope-colonnade slices were dropped when Clay lost the
 boolean, lathe and column tools they were recorded against: a recording
 cannot be re-authored, only replaced by a new sitting.
+
+**``car`` is recorded**, by the same recorder, on 2026-10-15, from Claude Code
+driving the real app over the real MCP connection (the hard end of the
+subjects: thirty-two parts, a mirror-copy, hinge origins, ramp glass slopes,
+a region inset across three objects and a per-face material). It is sliced
+the way ``p43-chair`` is and says so: **every ``clay_render`` line is dropped**
+(a GL context ``_Ctx`` lacks), **so is the closing ``clay_export``** (it needs
+``ctx.svc`` and a Library row, see above), and the slice **starts at its
+first building call**, leaving out the opening reads and a throwaway add-then-
+undo that was not part of the car. **One refusal is dropped too**: live, a
+``clay_op`` ``assign-material`` was refused ("Switch to Faces mode first.")
+right after a ``clay_material`` in Faces mode, but the headless replay accepts
+the identical call and three live attempts to repeat it kept Faces mode, so the
+cause (a sibling call sent in the same turn, or a keypress in the app) is
+unknown and a fixture claiming the refusal would fail for a reason it cannot
+name. It is recorded in the 2026-10-15 car audit, not asserted here.
 """
 
 from __future__ import annotations
@@ -302,6 +318,10 @@ def test_spoked_hub_transcript_exercises_batch_ref_and_duplicate() -> None:
 
 def test_recorded_p43_chair_builds_ten_parts_in_two_calls() -> None:
     _replay("p43-chair")
+
+
+def test_recorded_car_builds_thirty_two_parts() -> None:
+    _replay("car")
 
 
 def test_a_transcript_replays_even_though_its_recorded_uids_cannot_exist() -> None:
