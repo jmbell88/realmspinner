@@ -602,6 +602,12 @@ class EngineModel:
     description: str = ""
     #: True for the engine's own binaries, False for the weights it loads.
     runtime: bool = False
+    #: True for a weights row that lands in a directory *another* row owns whole (Pixal3D's
+    #: five files go in the TRELLIS.2 GGUF directory: one model directory serves both
+    #: families). Such a row claims only its own files (``fetch.claims``), so removing it
+    #: never takes the directory, and removing the owning row cannot delete these files out
+    #: from under it (``fetch.removal_plan``).
+    shares_directory: bool = False
     #: sha256 by filename, for a ``runtime`` entry. The archive's own digest
     #: already pins the whole artifact and is what the worker verifies before
     #: it unpacks; these turn "the download is wrong" into "*this file* is
@@ -702,6 +708,20 @@ TRELLIS_GGUF_FILES = (
     "tex_dec.gguf",
     "tex_flow_1024.gguf",
     "tex_flow_512.gguf",
+)
+
+# The five Pixal3D-specific files. One model directory serves both families: they carry a
+# ``pixal3d_`` prefix and everything byte-identical to TRELLIS.2's (the decoders, DINOv3,
+# BiRefNet) keeps its plain name and is shared, so adding Pixal3D to a working TRELLIS.2 set is
+# five new files and not a second copy of everything (trellis.cpp's docs/pixal3d/README.md).
+# ``pixal3d_tex_flow_1024`` is the only texture flow Pixal3D publishes: there is no 512 variant,
+# which is why a 512 request is refused at the door.
+PIXAL3D_GGUF_FILES = (
+    "pixal3d_naf.gguf",
+    "pixal3d_shape_flow_1024.gguf",
+    "pixal3d_shape_flow_512.gguf",
+    "pixal3d_ss_flow.gguf",
+    "pixal3d_tex_flow_1024.gguf",
 )
 
 # The engine's own binaries, as the one release asset they are published in.
@@ -809,6 +829,38 @@ ENGINE_MODELS: dict[str, EngineModel] = _table(
             "trellis-server.exe's own weights, quantised. This is the half of the "
             "app that makes geometry -- without it the Mesh stage has nothing to "
             "run, and every other model here is optional beside it."
+        ),
+    ),
+    EngineModel(
+        "pixal3d_gguf",
+        "Pixal3D weights (experimental)",
+        PIXAL3D_GGUF_FILES,
+        shares_directory=True,
+        fetch=(
+            Fetch(
+                "vegax87/Pixal3D",
+                # The same directory as the TRELLIS.2 weights: the engine reads both
+                # families from one model directory, and ``fetch.engine_dir`` lands
+                # every non-runtime engine row in ``config.trellis_models_dir`` anyway.
+                "trellis2-gguf",
+                # Pinned to the commit that was read on 2026-10-15; the five files at it
+                # total 11,009,738,144 B (the Hub's own listing), the 10.25 GiB below.
+                revision="51de7d1764f4b735c4e3aaea40e5ba60c18ca707",
+                allow_patterns=("pixal3d_*.gguf",),
+                size_gib=10.25,
+            ),
+        ),
+        description=(
+            "An alternative reconstruction model that follows the reference's outline.\n\n"
+            "Pixal3D (TencentARC, SIGGRAPH 2026, MIT) is a fine-tune of TRELLIS.2 that "
+            "projects each 3D cell into the picture instead of letting attention find "
+            "it, so the mesh is pixel-aligned to a front-on reference by construction. "
+            "It runs on the same engine, from the same model directory, selected per "
+            "job in Create's Advanced section. Experimental: not the default, "
+            "unmeasured against TRELLIS.2 on this app's own references, and it needs "
+            "the engine at least v0.8.0. Resolution 1024 or 1536 only (it ships no "
+            "512 texture model). These are community GGUF conversions of the "
+            "published checkpoints."
         ),
     ),
 )

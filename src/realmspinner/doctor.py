@@ -150,6 +150,7 @@ def static_checks(config: Config, *, probe_slow: bool = True, force: bool = Fals
         _exe_check(config),
         _faces_check(config),
         _gguf_check(config),
+        _pixal3d_check(config),
         _birefnet_check(config),
         _gltfpack_check(config),
         _realmspinnerc_check(),
@@ -603,6 +604,27 @@ def _exe_check(config: Config) -> Check:
         fatal=False,
         pending_install=True,
     )
+
+
+def _pixal3d_check(config: Config) -> Check:
+    """Pixal3D's five extra weight files, an opt-in second reconstruction model.
+
+    Absent is the ordinary state (it is experimental, off by default, and 10 GiB), so the
+    row is a never-fatal registry row like every other optional download, and its detail
+    says what is lost without it (nothing: TRELLIS.2 is unaffected) rather than reading
+    like a request.
+    """
+    spec = models.ENGINE_MODELS["pixal3d_gguf"]
+    ok = fetch.present(config, "engine", spec)
+    if ok:
+        detail = str(config.trellis_models_dir)
+    else:
+        detail = (
+            "not downloaded -- optional. Only the experimental Pixal3D model in Create's "
+            "Advanced section needs it; TRELLIS.2 is unaffected. "
+            f"Download it in Settings -> Models, or: {fetch.download_text(config, 'engine', spec)}"
+        )
+    return _registry_row(config, "engine", spec, ok, detail)
 
 
 def _faces_check(config: Config) -> Check:

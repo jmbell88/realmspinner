@@ -336,8 +336,9 @@ def test_health_reports_the_worker_and_the_doctor_checks(svc, worker):
         # rows by hand rather than from the table. Familiar's own three rows
         # (2026-09-13) *are* built from ``FAMILIAR_MODELS``, unlike the engine.
         # 20 since 2026-10-15: "engine face targets", the engine's ``--help`` read
-        # for ``--faces`` (``doctor._faces_check``), beside the exe row.
-        20
+        # for ``--faces`` (``doctor._faces_check``), beside the exe row. 21 with
+        # Pixal3D's weights, the third ``ENGINE_MODELS`` row.
+        21
         + len(models.BASE_MODELS)
         + len(models.STYLE_LORAS)
         + len(models.IP_ADAPTERS)

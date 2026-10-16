@@ -69,6 +69,24 @@ uvx hf download ilintar/trellis2-gguf --revision a57397bd3d351599d9729fc144b3f87
   --local-dir $HOME/.realmspinner/models/trellis2-gguf
 ```
 
+**Pixal3D (optional, experimental).** A second reconstruction model on the same engine, selected per job
+in Create's Advanced section, **Engine model**. It is a fine-tune of TRELLIS.2 that projects each 3D cell into
+the picture, so the mesh follows a front-on reference's outline closely. It needs the engine at v0.8.0 or
+newer and five extra weight files (about 10.3 GiB) in the *same* directory as the TRELLIS.2 GGUFs; the
+decoders, DINOv3 and BiRefNet are shared. It ships no 512-resolution texture model, so a 512 request is
+refused. The files are a community GGUF conversion of TencentARC's published checkpoints and of
+valeoai's NAF upsampler, pinned to one revision:
+
+```powershell
+# Pixal3D GGUF weights (~10.3 GB) -> ~/.realmspinner/models/trellis2-gguf/
+uvx hf download vegax87/Pixal3D --revision 51de7d1764f4b735c4e3aaea40e5ba60c18ca707 --include "pixal3d_*.gguf" `
+  --local-dir $HOME/.realmspinner/models/trellis2-gguf
+```
+
+Licences: TencentARC/Pixal3D and the conversion repository `vegax87/Pixal3D` are both MIT; NAF, the
+upsampler one of the five files is converted from, is Apache-2.0. Not the default and not measured against
+TRELLIS.2 on this app's own references.
+
 **An NVIDIA card is required and there is no CPU build.** A source checkout keeps its own copy in
 `vendor/trellis/` (README step 2); a downloaded copy wins over that one, and `REALMSPINNER_TRELLIS_EXE`
 beats both — which is the sideload path for a machine that cannot reach GitHub.
@@ -202,6 +220,7 @@ restricted ones; this table is the same information in full.
 | **SDXL 1.0** (the default, and the PAG recipe over it) | OpenRAIL++-M | Yes, subject to the licence's use restrictions |
 | **FLUX.2 klein-base 4B** | Apache-2.0 | Yes |
 | **TRELLIS.2-4B** (the reconstruction engine) | MIT | Yes |
+| **Pixal3D** (optional second reconstruction model; TencentARC and the `vegax87/Pixal3D` conversion; its NAF upsampler is Apache-2.0) | MIT | Yes |
 | **llama.cpp** (Familiar's runtime) | MIT | Yes |
 | **Familiar weights, Gemma 4 12B QAT Q4_0** (stock pin) | Pending a human licence review (P53) | Not yet decided -- read the repository's own licence page |
 | **Familiar retrieval, EmbeddingGemma 2** (optional) | Pending a human licence review (P53) | Not yet decided -- read the repository's own licence page |

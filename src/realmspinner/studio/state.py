@@ -433,6 +433,15 @@ DEFAULT_FORM_3D: dict[str, Any] = {
     # default must not drift, the same rule "profile" above states.
     "lowpoly_triangles": 5000,
     "mesh_finishing": "engine",
+    # The reconstruction model: "" is TRELLIS.2, the default, and the only value a form
+    # that never touched the control sends; "pixal3d" is the experimental second model
+    # (same engine, opt-in, its own weights). Nothing sets it implicitly -- no preset, no
+    # restored form from before it existed (``settings.restore_form`` fills a missing key
+    # from here). ``recon_fov`` is Pixal3D's camera and means nothing to TRELLIS.2; 49.13
+    # is Pixal3D's own default (``pipelines.recon.PIXAL3D_DEFAULT_FOV``, restated because
+    # ``studio.state`` may not import a pipeline).
+    "recon_model": "",
+    "recon_fov": 49.13,
     # Reachable now that the Budget combo offers "custom" alongside every
     # other tier -- this used to sit unused behind a form with no widget for
     # it, kept only because the API and the retarget panel already read it.

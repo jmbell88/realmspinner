@@ -107,6 +107,10 @@ reach a small budget. `scripts/build-trellis.ps1` builds the engine from a pinne
 checks the result lists `--faces`, and packages the zip with its digests; `REALMSPINNER_TRELLIS_EXE`
 pointed at the result is how to use it before the download in Settings → Models carries it.
 
+**Pixal3D, the optional second model, has its own weights.** Five more files (about 10 GB) from
+`vegax87/Pixal3D` go in the same model directory as the TRELLIS.2 GGUFs; Settings → Models has the row, and
+`docs/MODELS.md` has the paste-able command. Nothing here needs them.
+
 **Neither the engine nor its weights is a fatal startup check, and the engine stopped being one on
 2026-09-10.** It used to be, on the grounds that the installer staged it — so its absence could only
 mean a broken install. That reasoning ended when it became a download: a machine that has not

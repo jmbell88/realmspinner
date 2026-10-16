@@ -141,6 +141,7 @@ their publishers, and one of them restricts commercial use of what you generate.
 | SDXL 1.0 | Stability AI | Hugging Face | OpenRAIL++-M | Permitted, subject to the use restrictions |
 | FLUX.2 klein-base 4B | Black Forest Labs | Hugging Face | Apache-2.0 | Permitted |
 | TRELLIS.2-4B | Microsoft | Hugging Face | MIT | Permitted |
+| Pixal3D (optional, experimental; the five `pixal3d_*.gguf` files, `vegax87/Pixal3D`, pinned to one revision) | TencentARC; converted by `vegax87`; NAF upsampler by valeoai | Hugging Face | MIT (Pixal3D and the conversion repository); NAF is Apache-2.0 | Permitted |
 | BiRefNet weights | ZhengPeng7 | Hugging Face | MIT | Permitted |
 | ACE-Step v1 3.5B | ACE-Step | Hugging Face | Apache-2.0 | Permitted |
 | Gemma 4 12B QAT Q4_0 (Familiar's stock weights and vision projector, `google/gemma-4-12B-it-qat-q4_0-gguf`) | Google | Hugging Face | **Pending a human licence review** (an open item in the maintainer's own plan) | Not yet decided |

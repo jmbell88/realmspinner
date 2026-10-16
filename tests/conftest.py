@@ -709,6 +709,8 @@ class FakeTrellisServer:
             resolution=request.resolution,
             bg_removal=request.bg_removal,
             faces=request.faces,
+            model=request.model,
+            fov=request.fov,
         )
 
     async def generate(
@@ -720,6 +722,8 @@ class FakeTrellisServer:
         resolution: int = 1024,
         bg_removal: str | None = None,
         faces: int | None = None,
+        model: str | None = None,
+        fov: float | None = None,
     ) -> Path:
         self.generate_calls.append(
             {
@@ -728,6 +732,8 @@ class FakeTrellisServer:
                 "resolution": resolution,
                 "bg_removal": bg_removal,
                 "faces": faces,
+                "model": model,
+                "fov": fov,
             }
         )
         if self.should_raise is not None:

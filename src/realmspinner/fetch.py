@@ -690,7 +690,12 @@ def claims(config: Config, entry: Entry) -> tuple[Path, ...]:
     root = config.t2i_model_root
     spec = entry.spec
     if entry.kind == "engine":
-        return (engine_dir(config, spec),)
+        base = engine_dir(config, spec)
+        if getattr(spec, "shares_directory", False):
+            # Lands in a directory another engine row owns whole (Pixal3D, in the TRELLIS.2
+            # GGUF directory): its own files only, the Familiar weights' rule below.
+            return tuple(base / name for name in spec.probe)
+        return (base,)
     if entry.kind == "familiar":
         if spec.runtime:
             # Two archives that really do share one directory of binaries: it
@@ -826,7 +831,22 @@ def removal_plan(config: Config, chosen: list[Entry]) -> Removal:
     if blocked:
         return Removal((), 0.0, tuple(blocked))
 
-    removable = tuple(p for p in wanted if p not in others)
+    # A path another entry claims is never removable (above). Two refinements for a
+    # *directory* claim beside per-file claims inside it (the TRELLIS.2 GGUF directory and
+    # Pixal3D's files): a directory may not go while a file another entry claims inside it
+    # **exists** -- only existing ones: an absent file is a download not made yet, which
+    # deleting the directory cannot hurt -- and a chosen file inside a chosen directory
+    # is not listed twice (the directory's removal takes it).
+    def _guarded(path: Path) -> bool:
+        return any(o != path and o.is_relative_to(path) and o.exists() for o in others)
+
+    removable = tuple(
+        p
+        for p in wanted
+        if p not in others
+        and not _guarded(p)
+        and not any(q != p and p.is_relative_to(q) for q in wanted)
+    )
     freed = 0.0
     for job in plan(config, chosen):
         if any(p == job.dest or job.dest in p.parents for p in removable):

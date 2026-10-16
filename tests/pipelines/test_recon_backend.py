@@ -236,3 +236,43 @@ async def test_reconstruct_forwards_the_requests_faces_to_generate(tmp_path, mon
         recon.ReconRequest(images=(image,), output=tmp_path / "o.glb", faces=2000)
     )
     assert _Capture.posts[0][3]["faces"] == "2000"
+
+
+async def test_pixal3d_request_sends_model_and_fov_fields(tmp_path, monkeypatch):
+    """One resident server serves either family, so the *request* names it; the camera is
+    per-request too because it describes the image, not the run. Neither is sent unless set."""
+    monkeypatch.setattr(trellis.httpx, "AsyncClient", _Capture)
+    monkeypatch.setattr(trellis, "_validate_glb", lambda data: None)
+    server = _server(tmp_path)
+
+    async def started() -> None:
+        return None
+
+    monkeypatch.setattr(server, "ensure_started", started)
+    image = tmp_path / "reference.png"
+    image.write_bytes(b"png")
+    _Capture.posts = []
+    await server.reconstruct(recon.ReconRequest(images=(image,), output=tmp_path / "a.glb"))
+    await server.reconstruct(
+        recon.ReconRequest(
+            images=(image,), output=tmp_path / "b.glb", model="pixal3d", fov=38.5
+        )
+    )
+    plain, pixal = (post[3] for post in _Capture.posts)
+    assert "model" not in plain and "fov" not in plain
+    assert pixal["model"] == "pixal3d"
+    assert pixal["fov"] == "38.5"
+
+
+def test_active_backend_name_reads_job_params():
+    assert recon.active_backend_name(None) == recon.DEFAULT_BACKEND
+    assert recon.active_backend_name(None, {}) == recon.DEFAULT_BACKEND
+    assert recon.active_backend_name(None, {"recon_model": "trellis"}) == recon.DEFAULT_BACKEND
+    assert recon.active_backend_name(None, {"recon_model": "pixal3d"}) == "pixal3d"
+    assert recon.active_capabilities(None, {"recon_model": "pixal3d"}) is recon.PIXAL3D_CAPS
+    assert recon.active_capabilities(None) is recon.TRELLIS_CAPS
+
+
+def test_pixal3d_publishes_no_512_texture_model_and_trellis_still_runs_512():
+    assert recon.PIXAL3D_CAPS.resolutions == (1024, 1536)
+    assert 512 in recon.TRELLIS_CAPS.resolutions

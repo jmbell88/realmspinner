@@ -407,6 +407,89 @@ def check_recon_views(capabilities: Any, views: int) -> None:
         )
 
 
+#: The reconstruction models a job may name. ``None``/``""``/``"trellis"`` are TRELLIS.2, the
+#: default and what every row made before Pixal3D means; ``"pixal3d"`` is the experimental
+#: second model on the same engine.
+RECON_MODELS = ("trellis", "pixal3d")
+#: Pixal3D's camera field of view, in degrees. A wrong value does not crash, it drifts the
+#: mesh off the input silhouette, so the bound only has to keep out the absurd.
+MIN_RECON_FOV = 10.0
+MAX_RECON_FOV = 120.0
+
+
+def check_recon_model(value: Any) -> None:
+    if value is None or value == "" or value in RECON_MODELS:
+        return
+    raise Invalid(
+        f"recon_model must be one of {list(RECON_MODELS)}", field="recon_model"
+    )
+
+
+def check_recon_fov(value: Any) -> None:
+    if value is None:
+        return
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise Invalid("recon_fov must be a number of degrees", field="recon_fov")
+    if not MIN_RECON_FOV <= float(value) <= MAX_RECON_FOV:
+        raise Invalid(
+            f"recon_fov must be between {MIN_RECON_FOV:g} and {MAX_RECON_FOV:g} degrees",
+            field="recon_fov",
+        )
+
+
+def check_recon_resolution(capabilities: Any, resolution: Any) -> None:
+    """Refuse a resolution the chosen backend has no model for, addressed to ``resolution``.
+
+    Pixal3D publishes one texture flow, at 1024, so a 512 request has no texture to run:
+    the engine would fall back to geometry only. Refused here rather than shipped as a
+    mesh with no texture under a job that asked for one.
+    """
+    res = 1024 if resolution is None else resolution
+    if res not in capabilities.resolutions:
+        raise Invalid(
+            f"this reconstruction model supports resolutions {list(capabilities.resolutions)}, "
+            f"not {res}",
+            field="resolution",
+        )
+
+
+def check_pixal3d_request(svc: Any, params: dict[str, Any]) -> None:
+    """Admission for a job that asks for Pixal3D: its resolutions, and its weights.
+
+    No-op for any other job. The weights half is here and not in ``check_weights`` (which
+    leaves the engine rows to the UI's own gate, see its docstring) because Pixal3D is
+    *opt-in per job*: nothing else would notice that the five extra files are missing until
+    the engine answered with a 400 minutes later. ``rows=`` carries the refusal to the
+    Settings -> Models row.
+    """
+    if params.get("recon_model") != "pixal3d":
+        return
+    from .. import fetch, models
+    from ..pipelines import recon
+
+    check_recon_resolution(recon.active_capabilities(svc.config, params), params.get("resolution"))
+    from ..pipelines import trellis
+
+    # Probed with a short timeout (this runs on the frame thread; a probe that did not
+    # answer is "no"). An engine with no ``--model`` would ignore the request's ``model``
+    # field and make a TRELLIS.2 mesh under Pixal3D's name.
+    if not trellis.engine_caps(svc.config.resolve_trellis_exe(), timeout=3.0)["pixal3d"]:
+        raise Invalid(
+            "the installed engine cannot run Pixal3D (it needs trellis.cpp v0.8.0 or newer); "
+            "update it in Settings -> Models, or pick TRELLIS.2",
+            field="recon_model",
+            rows=("engine:trellis_runtime",),
+        )
+    spec = models.ENGINE_MODELS["pixal3d_gguf"]
+    if not fetch.present(svc.config, "engine", spec):
+        raise Invalid(
+            f"Pixal3D is selected but its weights are not downloaded. "
+            f"{install_remedy(spec.label, fetch.download_text(svc.config, 'engine', spec))}",
+            field="recon_model",
+            rows=(f"engine:{spec.key}",),
+        )
+
+
 def check_trellis_tex_res(value: int | None) -> None:
     if value is None:
         return

@@ -39,10 +39,24 @@ class ReconCapabilities:
     #: single-image; a multi-view backend declares more and nothing else about
     #: the queue has to know.
     max_views: int = 1
+    #: The reconstruction resolutions it can run. Admission refuses against this
+    #: with ``field="resolution"``.
+    resolutions: tuple[int, ...] = (512, 1024, 1536)
 
 
 #: TRELLIS.2 as the native server runs it: one image in, one GLB out.
 TRELLIS_CAPS = ReconCapabilities(max_views=1)
+
+#: The name a manifest records for a Pixal3D run, and what ``params["recon_model"]``
+#: says on the job. Pixal3D is TRELLIS.2 fine-tuned: the same engine, selected per request.
+PIXAL3D_BACKEND = "pixal3d"
+#: Pixal3D publishes one texture flow, at 1024: there is no 512 model to run, so a 512
+#: request has no texture and the door refuses it rather than ship geometry only.
+PIXAL3D_CAPS = ReconCapabilities(max_views=1, resolutions=(1024, 1536))
+#: Pixal3D's own default horizontal field of view in degrees, from its reference
+#: implementation. The image's real camera is unknowable here (MoGe-2, which the reference
+#: uses to estimate it, is not ported), so it is a per-job parameter.
+PIXAL3D_DEFAULT_FOV = 49.13
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +70,12 @@ class ReconRequest:
     seed: int = 42
     resolution: int = 1024
     bg_removal: str | None = None
+    #: ``"pixal3d"`` to ask for the Pixal3D family on the same engine; ``None`` leaves
+    #: the server's own default (TRELLIS.2), so the field is simply not sent.
+    model: str | None = None
+    #: Pixal3D's camera: the image's horizontal field of view, in degrees. Sent only
+    #: when set, and meaningless to TRELLIS.2.
+    fov: float | None = None
     #: The engine's own QEM face target, applied before its UV and PBR bake
     #: (``trellis-server``'s per-request ``faces`` field). ``None`` is "do not
     #: send it": the engine's built-in ~300k target applies, which is also the only
@@ -87,14 +107,22 @@ class ReconBackend(Protocol):
     async def reconstruct(self, request: ReconRequest) -> Path: ...
 
 
-def active_backend_name(config: Any) -> str:
-    """The backend this configuration reconstructs with. One answer today; the
-    function exists so the manifest and the admission door ask one place."""
+def active_backend_name(config: Any, params: Any = None) -> str:
+    """The backend a job reconstructs with: Pixal3D when its ``recon_model`` says so,
+    otherwise TRELLIS.2.
+
+    Per *job*, not per configuration: one resident server serves either family and
+    the request names which. ``config`` is kept for the callers (the bench manifest)
+    that have only that, and who therefore get the default.
+    """
     del config
+    if isinstance(params, dict) and params.get("recon_model") == PIXAL3D_BACKEND:
+        return PIXAL3D_BACKEND
     return DEFAULT_BACKEND
 
 
-def active_capabilities(config: Any) -> ReconCapabilities:
+def active_capabilities(config: Any, params: Any = None) -> ReconCapabilities:
     """The capabilities of :func:`active_backend_name`'s backend."""
-    del config
+    if active_backend_name(config, params) == PIXAL3D_BACKEND:
+        return PIXAL3D_CAPS
     return TRELLIS_CAPS

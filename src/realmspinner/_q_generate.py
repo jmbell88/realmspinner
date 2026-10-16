@@ -818,6 +818,7 @@ class GenerateOps:
         )
         queue_mod._log_mem("before trellis generate")
         faces = await self._engine_faces(params)
+        model, fov = await self._recon_model(params)
         # Recorded whether or not it was sent: ``_lowpoly`` reads it to know
         # whether the engine was asked for the budget (and so whether its answer
         # is to be verified or remeshed), and a stored row then says which path
@@ -831,6 +832,8 @@ class GenerateOps:
                 resolution=resolution,
                 bg_removal=bg_removal,
                 faces=faces,
+                model=model,
+                fov=fov,
             )
         )
         # The remesh loop, and it re-enters only the trellis half. Everything
@@ -966,6 +969,8 @@ class GenerateOps:
                             # reports itself as.
                             bg_removal=bg_removal,
                             faces=faces,
+                            model=model,
+                            fov=fov,
                         )
                     )
                 except Exception:
@@ -1086,6 +1091,28 @@ class GenerateOps:
             for scratch in (keep, keep_source):
                 with contextlib.suppress(OSError):
                     scratch.unlink()
+
+    async def _recon_model(
+        self: Worker, params: dict[str, Any]
+    ) -> tuple[str | None, float | None]:
+        """``(model, fov)`` for the request: Pixal3D and its camera, or ``(None, None)``.
+
+        An engine that cannot do Pixal3D must refuse here, not run: an exe older than
+        v0.8.0 ignores the ``model`` field it does not know, so the job would finish as a
+        TRELLIS.2 mesh while its row, its recipe and the findings corpus all said Pixal3D.
+        The door asks the same question (``check_pixal3d_request``); this asks again against
+        the engine that is installed *now*, which is what actually runs.
+        """
+        if params.get("recon_model") != recon.PIXAL3D_BACKEND:
+            return None, None
+        caps = await asyncio.to_thread(trellis.engine_caps, self.config.resolve_trellis_exe())
+        if not caps["pixal3d"]:
+            raise RuntimeError(
+                "the installed engine cannot run Pixal3D (it needs trellis.cpp v0.8.0 or newer); "
+                "update it in Settings -> Models, or pick TRELLIS.2"
+            )
+        fov = params.get("recon_fov")
+        return recon.PIXAL3D_BACKEND, float(recon.PIXAL3D_DEFAULT_FOV if fov is None else fov)
 
     async def _engine_faces(self: Worker, params: dict[str, Any]) -> int | None:
         """The face target to hand the engine for this job, or ``None``.

@@ -39,7 +39,10 @@ from .validation import (
     MAX_REFERENCE_COUNT,
     MAX_UPLOAD_BYTES,
     check_glb,
+    check_pixal3d_request,
     check_prompt,
+    check_recon_fov,
+    check_recon_model,
     check_recon_views,
     check_seed,
     check_trellis_atlas,
@@ -157,6 +160,30 @@ def resolve_profile(
 # package and one outside it have always called, and renaming a cross-module
 # call site is not what promoting a helper is for.
 _resolve_profile = resolve_profile
+
+
+def _record_recon_model(
+    params: dict[str, Any], recon_model: str | None, recon_fov: float | None
+) -> None:
+    """Write ``recon_model``/``recon_fov`` onto a row, the unset-follows-default way.
+
+    TRELLIS.2 is the default and leaves no key at all, so every row made before Pixal3D
+    and every row that never asked reads identically. ``pixal3d`` records itself and its
+    camera (Pixal3D's own default 49.13 degrees when none was given), both inputs and both
+    in ``VECTOR_PARAMS``. An explicit ``trellis``/empty clears an inherited choice.
+    """
+    from ..pipelines import recon
+
+    if recon_model is None:
+        return
+    if recon_model == recon.PIXAL3D_BACKEND:
+        params["recon_model"] = recon_model
+        params["recon_fov"] = float(
+            recon.PIXAL3D_DEFAULT_FOV if recon_fov is None else recon_fov
+        )
+    else:
+        params.pop("recon_model", None)
+        params.pop("recon_fov", None)
 
 
 def _engine_takes_budget(svc: RealmspinnerService, params: dict[str, Any]) -> bool:
@@ -350,6 +377,8 @@ def create_job(
     custom_triangles: int | None = None,
     lowpoly_triangles: int | None = None,
     mesh_finishing: str = DEFAULT_MESH_FINISHING,
+    recon_model: str | None = None,
+    recon_fov: float | None = None,
     trellis_band: int | None = None,
     trellis_tex_res: int | None = None,
     trellis_gss: float | None = None,
@@ -504,6 +533,8 @@ def create_job(
         ("mesh_seed", mesh_seed),
     ):
         check_seed(name, value)
+    check_recon_model(recon_model)
+    check_recon_fov(recon_fov)
     check_trellis_band(trellis_band)
     # One reference image per reconstruction today; the call is what a backend that
     # takes several (``recon.ReconCapabilities.max_views``) will be admitted by.
@@ -591,6 +622,7 @@ def create_job(
         # deliberate choice there (mesh.promote_kwargs) -- so the
         # follow-the-default path is the API's and the sweeps', not the UI's.
         params["reference_prep"] = bool(reference_prep)
+    _record_recon_model(params, recon_model, recon_fov)
     for key, value in (
         ("trellis_band", trellis_band),
         ("trellis_tex_res", trellis_tex_res),
@@ -640,6 +672,7 @@ def create_job(
     # leaves no input.png: the projected peak is a function of the normalized
     # params (conditioning, resolution), which is why it cannot run any earlier.
     check_weights(svc, kind, params)
+    check_pixal3d_request(svc, params)
     check_vram(svc, kind, "model" if output == "model" else output, params)
 
     def _decode(raw: bytes, field: str) -> bytes:

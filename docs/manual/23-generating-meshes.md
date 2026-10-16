@@ -304,12 +304,25 @@ screen, greyed, and its tooltip gives the same reason as the Rig segment in the 
 Blender, Make 3D also never requests a rig, even if the setting was on when it was saved.
 See [Rigging and posing](#rigging-and-posing).
 
+**Engine model** chooses the reconstruction model: **TRELLIS.2**, the default, or **Pixal3D
+(experimental)**. Pixal3D is TRELLIS.2 fine-tuned to project each 3D cell into the reference picture, so
+the mesh follows a front-on reference's outline more closely; it runs on the same engine, from the same
+model directory, per job. It needs five extra weight files (about 10 GB, **Settings → Models** → *Pixal3D
+weights*) and an engine at v0.8.0 or newer; until the weights are downloaded the control is greyed with
+that reason. It makes meshes at resolution 1024 or 1536 only, because Pixal3D ships no 512 texture model,
+and a 512 request is refused naming the **Mesh resolution** control. **Camera field of view** appears
+only for Pixal3D: it is the picture's horizontal field of view in degrees, 49.13 by default, and a wrong
+value does not fail, it makes the mesh thicker or flatter than the object, so try a few degrees either
+way. The choice is recorded on the job and in its recipe, and a Pixal3D job is charged 1.25 times
+TRELLIS.2's GPU memory until a real run replaces that guess. Pixal3D has not been measured against
+TRELLIS.2 on this app's own references, which is why it is not the default.
+
 ## Advanced
 
 Below Rig is a collapsible **Advanced** card, closed by default; click its title row to open it, and
 the column remembers whether you left it open, across restarts. It opens onto the settings listed
-under [Mesh parameters](#mesh-parameters) (resolution, finishing, background, seed and centring), then
-an **Engine** group holding the seven launch
+under [Mesh parameters](#mesh-parameters) (resolution, finishing, **Engine model**, background, seed and
+centring), then an **Engine** group holding the seven launch
 flags the reconstruction engine (`trellis-server.exe`) itself accepts: **Band**, **Texture resolution**,
 **Sparse-structure guidance**, **Structured-latent guidance**, **Token budget**, **Decimation** and
 **Atlas resolution**. A findings sweep could already set every one of these — they are exactly

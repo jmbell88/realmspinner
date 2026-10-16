@@ -211,6 +211,7 @@ def _advanced_basics(
     _hint(ctx, form, "platform", form["platform"], findings_doc)
 
     _finishing(ctx, form)
+    _engine_model(ctx, form, form_ui)
 
     with focus.item(ctx.state, FOCUS_PANE, "bg_removal"):
         _changed, form["bg_removal"] = form_ui.combo(
@@ -651,6 +652,71 @@ def _budget(ctx: Any, form: dict[str, Any], findings_doc: Any = LOAD_FINDINGS) -
                 form["custom_triangles"] = max(0, value)
                 ctx.state.clear_field_error("custom_triangles")
             widgets.field_error(ctx.state, "custom_triangles")
+
+
+#: The ``model_rows`` key of Pixal3D's weights (``models.ENGINE_MODELS["pixal3d_gguf"]``).
+PIXAL3D_ROW = "engine:pixal3d_gguf"
+
+
+def _pixal3d_present(ctx: Any) -> bool:
+    """Whether the Pixal3D weights are installed, from the frame's own row snapshot.
+
+    An absent or empty snapshot (a headless ctx, the first frame) reads as *present*, the
+    same doctrine as ``engine_problem``: a snapshot that has not landed yet must not lock
+    a fully installed host. The door (``check_pixal3d_request``) is the real gate.
+    """
+    rows = getattr(ctx, "model_rows", None) or ()
+    known = [row for row in rows if str(row.get("row_key")) == PIXAL3D_ROW]
+    return not known or bool(known[0].get("present"))
+
+
+def _engine_model(ctx: Any, form: dict[str, Any], form_ui: forms.Form) -> None:
+    """Which reconstruction model: TRELLIS.2 (the default) or Pixal3D (experimental).
+
+    Pixal3D is the same engine with a pixel-aligned conditioning, so it follows a
+    front-on reference's outline more closely and needs its own ten gigabytes of
+    weights. The combo is **greyed with its reason** when they are not installed, unless
+    the form already holds Pixal3D (then it must stay open to switch back). The camera
+    field appears only for Pixal3D: a wrong value does not fail, it drifts the mesh off the
+    reference's silhouette, thicker or flatter, so it is worth a few degrees either way.
+    """
+    current = str(form.get("recon_model") or "")
+    present = _pixal3d_present(ctx)
+    before = current
+    _changed, current = form_ui.combo(
+        "recon_model",
+        "Engine model",
+        current,
+        [("", "TRELLIS.2"), ("pixal3d", "Pixal3D (experimental)")],
+        help_text=(
+            "The first is the default. Pixal3D projects each 3D cell into the picture, so the "
+            "mesh follows a front-on reference's outline closely. It is experimental, "
+            "needs its own weights, and runs at resolution 1024 or 1536 only."
+        ),
+        enabled=present or current == "pixal3d",
+        reason="" if present else "Needs the Pixal3D weights. Download them in Settings > Models.",
+    )
+    form["recon_model"] = current
+    if current != before:
+        ctx.state.clear_field_error("recon_model")
+    widgets.field_error(ctx.state, "recon_model")
+    if current != "pixal3d":
+        return
+    changed, value = form_ui.number(
+        "recon_fov",
+        "Camera field of view",
+        float(form.get("recon_fov") or 49.13),
+        help_text=(
+            "The picture's horizontal field of view in degrees. Pixal3D's own default is "
+            "49.13. If the mesh comes out thicker or flatter than the object, try a few "
+            "degrees either side."
+        ),
+        commit=True,
+    )
+    if changed:
+        form["recon_fov"] = min(max(float(value), 10.0), 120.0)
+        ctx.state.clear_field_error("recon_fov")
+    widgets.field_error(ctx.state, "recon_fov")
 
 
 def _finishing(ctx: Any, form: dict[str, Any]) -> None:

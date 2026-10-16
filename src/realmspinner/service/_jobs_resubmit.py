@@ -31,7 +31,12 @@ from ..generation import MESH_FINISHINGS
 from ..pipelines import recon, reference
 from ..provenance import file_fingerprint
 from . import matte
-from ._jobs_create import _normalize_guidance, resolve_lowpoly, resolve_profile
+from ._jobs_create import (
+    _normalize_guidance,
+    _record_recon_model,
+    resolve_lowpoly,
+    resolve_profile,
+)
 from ._jobs_rework import _require_no_dependents
 from .core import RealmspinnerService
 from .errors import Conflict, Invalid
@@ -42,6 +47,9 @@ from .validation import (
     MAX_MESH_CANDIDATES,
     check_job_id,
     check_not_retired,
+    check_pixal3d_request,
+    check_recon_fov,
+    check_recon_model,
     check_recon_views,
     check_seed,
     check_trellis_atlas,
@@ -453,6 +461,9 @@ def rerun_job(
         # reloads the checkpoint, and must not be admitted onto a substitute.
         check_not_retired(params)
     check_weights(svc, kind, params)
+    # A reroll of a Pixal3D mesh is still a Pixal3D request, and its weights may have
+    # been removed since (same reason as the weights check above).
+    check_pixal3d_request(svc, params)
     check_vram(svc, kind, stage, params)
     if kind == "tile_sheet":
         # The same door ``create_tile_sheet`` holds, held again on the way back
@@ -641,6 +652,8 @@ def promote_to_model(
     custom_triangles: int | None = None,
     lowpoly_triangles: int | None = None,
     mesh_finishing: str | None = None,
+    recon_model: str | None = None,
+    recon_fov: float | None = None,
     trellis_band: int | None = None,
     trellis_tex_res: int | None = None,
     trellis_gss: float | None = None,
@@ -701,6 +714,8 @@ def promote_to_model(
         raise Invalid(
             f"resolution must be one of {sorted(ALLOWED_RESOLUTIONS)}", field="resolution"
         )
+    check_recon_model(recon_model)
+    check_recon_fov(recon_fov)
     check_trellis_band(trellis_band)
     # One reference image per reconstruction today; the call is what a backend that
     # takes several (``recon.ReconCapabilities.max_views``) will be admitted by.
@@ -826,6 +841,7 @@ def promote_to_model(
     # stage, which never ran these flags (a reference is text/image, not
     # model), so there is nothing here to inherit and every one of these is
     # written only when this call asked for it.
+    _record_recon_model(params, recon_model, recon_fov)
     for key, value in (
         ("trellis_band", trellis_band),
         ("trellis_tex_res", trellis_tex_res),
@@ -906,6 +922,7 @@ def promote_to_model(
     params["seed"] = params["mesh_seed"]
     # The other door onto a mesh job, and the expensive one -- a promotion is
     # the two-minute reconstruction with nothing cheap in front of it.
+    check_pixal3d_request(svc, params)
     check_vram(svc, "image", "model", params)
 
     new_id = uuid.uuid4().hex[:12]

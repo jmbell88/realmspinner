@@ -105,6 +105,11 @@ VECTOR_PARAMS = (
     "trellis_max_tokens",
     "trellis_decim",
     "trellis_atlas",
+    # The reconstruction model and Pixal3D's camera (``service._jobs_create._record_recon_model``):
+    # inputs picked at the door, written only for a Pixal3D job, so a TRELLIS.2 row's vector
+    # is exactly what it was before the second model existed.
+    "recon_model",
+    "recon_fov",
 )
 
 

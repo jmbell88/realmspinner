@@ -205,6 +205,12 @@ def engine_kwargs(form: dict[str, Any]) -> dict[str, Any]:
     """
     out: dict[str, Any] = {}
     out["mesh_finishing"] = form.get("mesh_finishing", DEFAULT_MESH_FINISHING)
+    # The reconstruction model, only when it is the non-default one: "still at its sentinel
+    # means omitted" (an untouched form claims no choice), and the camera travels with it
+    # because it describes the image to Pixal3D and means nothing to TRELLIS.2.
+    if str(form.get("recon_model") or "") == "pixal3d":
+        out["recon_model"] = "pixal3d"
+        out["recon_fov"] = float(form.get("recon_fov") or 49.13)
     if int(form["trellis_band"]) > 0:
         out["trellis_band"] = int(form["trellis_band"])
     if int(form["trellis_tex_res"]) > 0:

@@ -757,6 +757,8 @@ class TrellisServer:
             resolution=request.resolution,
             bg_removal=request.bg_removal,
             faces=request.faces,
+            model=request.model,
+            fov=request.fov,
         )
 
     async def generate(
@@ -768,6 +770,8 @@ class TrellisServer:
         resolution: int = 1024,
         bg_removal: str | None = None,
         faces: int | None = None,
+        model: str | None = None,
+        fov: float | None = None,
     ) -> Path:
         """Run image -> 3D and write the returned GLB to output_path.
 
@@ -790,6 +794,13 @@ class TrellisServer:
             data["bg_removal"] = bg_removal
         if faces is not None:
             data["faces"] = str(int(faces))
+        # One resident server serves either family (one model directory holds both),
+        # and the request says which; likewise the camera, which describes the *image*
+        # and not the run, so a launch-time default would be close to useless.
+        if model is not None:
+            data["model"] = model
+        if fov is not None:
+            data["fov"] = str(float(fov))
         # Streamed rather than buffered by httpx, so the ceiling below can be
         # applied while the body is still arriving: `r.content` on a plain post
         # has already read the whole thing by the time anything could refuse it.

@@ -278,9 +278,10 @@ def test_run_checks_returns_every_check(tmp_path):
     # visible only folded into the matting and text rows -- neither of which
     # runs on a host that has never downloaded either of those optional
     # weights. The twentieth is "engine face targets" (2026-10-15): the engine's
-    # ``--help`` read for ``--faces``, beside the exe row.
+    # ``--help`` read for ``--faces``, beside the exe row. The twenty-first is Pixal3D's
+    # weights, the third ``ENGINE_MODELS`` row (the engine's own two are built by hand).
     expected = (
-        20
+        21
         + len(model_registry.BASE_MODELS)
         + len(model_registry.STYLE_LORAS)
         + len(model_registry.IP_ADAPTERS)

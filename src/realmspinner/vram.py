@@ -186,8 +186,21 @@ def _resolution(params: dict[str, Any] | None) -> int:
     return res if res in TRELLIS_RES_MULT else 1024
 
 
+PIXAL3D_GIB = TRELLIS_GIB * 1.25
+"""What a Pixal3D reconstruction is charged at resolution 1024, in GiB.
+
+**Unmeasured, and written down as a guess.** Pixal3D adds a per-block projection and
+a NAF upsampler to TRELLIS.2's 1.3B DiT, and its own docs call the texture stage "the
+memory peak" (a ~1 GB host query map plus ~2.4 GB of convolution scratch while the
+flow model is resident), so it cannot cost less than TRELLIS.2 -- but no run has
+measured how much more. 1.25x is a stand-in; the real figure is a card measurement
+still owed, and it should replace this number, not sit beside it.
+"""
+
+
 def _trellis_cost(params: dict[str, Any] | None) -> float:
-    return TRELLIS_GIB * TRELLIS_RES_MULT[_resolution(params)]
+    base = PIXAL3D_GIB if (params or {}).get("recon_model") == "pixal3d" else TRELLIS_GIB
+    return base * TRELLIS_RES_MULT[_resolution(params)]
 
 
 # A step-distillation LoRA's device footprint, in GiB. Hyper-SDXL-4steps was

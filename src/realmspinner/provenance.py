@@ -274,6 +274,10 @@ def trellis_recipe(config: Any, params: Mapping[str, Any], *, mesh_seed: int) ->
         "decim": params.get("trellis_decim", config.trellis_decim),
         "atlas": params.get("trellis_atlas", config.trellis_atlas),
         "webp": config.trellis_webp,
+        # The reconstruction model and its camera: part of what decided the mesh. TRELLIS.2
+        # is the default and a row made before Pixal3D has neither key.
+        "recon_model": params.get("recon_model") or "trellis",
+        "recon_fov": params.get("recon_fov"),
         "mesh_profile": params.get("profile") or "raw",
         "platform": params.get("platform"),
         "size_m": params.get("size_m"),
