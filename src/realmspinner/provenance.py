@@ -254,9 +254,17 @@ def trellis_recipe(config: Any, params: Mapping[str, Any], *, mesh_seed: int) ->
     ``config.mesh_profile`` now reads "standard"; falling back to it here would
     make an old row's recipe claim a budget the job never asked for.
     """
+    # Function scope, as ``prompt_mod`` below: provenance is core, trellis is a pipeline.
+    from .pipelines import trellis
+
     return {
         "version": RECIPE_VERSION,
         **native_engine_identity(config),
+        # What the engine could do for this mesh, read from the binary: whether
+        # the budget was sent to the engine or fell back to Blender is otherwise
+        # not recoverable from a stored row (``mesh_finishing`` says what was
+        # asked, this says what the exe was able to take).
+        "engine_caps": trellis.engine_caps(config.resolve_trellis_exe()),
         "seed": mesh_seed,
         "band": params.get("trellis_band", config.trellis_band),
         "tex_res": params.get("trellis_tex_res", config.trellis_tex_res),

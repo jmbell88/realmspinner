@@ -96,6 +96,17 @@ one, and `REALMSPINNER_TRELLIS_EXE` beats both — see
 install the engine on a machine that cannot reach GitHub: unpack the archive anywhere and point the
 variable at the executable.
 
+**v0.8.1 has no per-request face target.** The Game-ready budget's default finishing, **Engine**
+(see [Mesh parameters](23-generating-meshes.md#mesh-parameters)), needs an engine whose `--help`
+lists `--faces`, which upstream added after v0.8.1 and has in no release. `realmspinner doctor`'s
+"engine face targets" row says whether the engine it found has it, and names the cause when it does
+not (a `REALMSPINNER_TRELLIS_EXE` override, or a v0.8.1 download). Without it every Game-ready job
+still works: it falls back to the Blender finishers, which are gated but slower and cannot always
+reach a small budget. `scripts/build-trellis.ps1` builds the engine from a pinned upstream commit
+(it needs the Visual Studio C++ tools, CMake, Ninja and a CUDA 13 toolkit, and takes a long time),
+checks the result lists `--faces`, and packages the zip with its digests; `REALMSPINNER_TRELLIS_EXE`
+pointed at the result is how to use it before the download in Settings → Models carries it.
+
 **Neither the engine nor its weights is a fatal startup check, and the engine stopped being one on
 2026-09-10.** It used to be, on the grounds that the installer staged it — so its absence could only
 mean a broken install. That reasoning ended when it became a download: a machine that has not

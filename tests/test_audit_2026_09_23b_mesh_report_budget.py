@@ -33,6 +33,11 @@ class _FakeWorker:
         self.progress = _FakeProgress()
         self._cancel = None
 
+    async def _score_mesh(self, job_id, glb_path, params) -> None:
+        # ``_audit_mesh`` records the silhouette score last; these tests are about the
+        # report's budget and the score has its own (``tests/test_mesh_score_worker.py``).
+        return None
+
 
 @pytest.fixture
 def store(tmp_path):

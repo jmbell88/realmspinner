@@ -21,7 +21,7 @@ from .kernels.rig import templates
 # of which keep torch, cv2 and numpy inside the functions that need them. It is
 # imported for last_error() alone -- doctor runs in this process, so the answer
 # is a module attribute rather than anything that has to be carried.
-from .pipelines import matting
+from .pipelines import matting, trellis
 
 # Same reasoning: ``service.evidence`` imports json, shutil and ``provenance``
 # and nothing else, so naming the archive's size here costs no import weight.
@@ -148,6 +148,7 @@ def static_checks(config: Config, *, probe_slow: bool = True, force: bool = Fals
         matting.forget_failure()
     return [
         _exe_check(config),
+        _faces_check(config),
         _gguf_check(config),
         _birefnet_check(config),
         _gltfpack_check(config),
@@ -602,6 +603,46 @@ def _exe_check(config: Config) -> Check:
         fatal=False,
         pending_install=True,
     )
+
+
+def _faces_check(config: Config) -> Check:
+    """Does the engine take a per-request face target?
+
+    Non-fatal: without it the Game-ready budget falls back to the Blender
+    remesh, which works but can miss its budget (a 5,000-triangle request that
+    shipped 13,821, 2026-10-15 -- ``dev/measurements/2026-10-15-lowpoly-silhouette-gate.md``).
+    Read from the binary's own ``--help`` (``trellis.engine_caps``), not from a
+    version string, so a sideloaded override and a stale download are both
+    named for what they are. A missing engine is the exe row's finding, not
+    this one's: it is reported as not-installed so it never counts as a second
+    failure.
+    """
+    name = "engine face targets"
+    exe = config.resolve_trellis_exe()
+    if not exe.is_file():
+        return Check(
+            name, False,
+            "no engine installed to ask -- download it in Settings -> Models",
+            fatal=False, pending_install=True,
+        )
+    if trellis.engine_caps(exe)["faces"]:
+        return Check(name, True, "the engine lists --faces", fatal=False)
+    effect = (
+        "Game-ready budgets fall back to the Blender remesh, which can miss its target."
+    )
+    if config.trellis_server_exe is not None:
+        cause = (
+            f"REALMSPINNER_TRELLIS_EXE points at {exe}, which does not list --faces "
+            f"(an upstream v0.8.1 or older build). {effect} Unset it to use the downloaded "
+            f"engine, or point it at a build from scripts/build-trellis.ps1."
+        )
+    else:
+        cause = (
+            f"the installed engine at {exe} does not list --faces (a v0.8.1 or older "
+            f"build). {effect} Update it in Settings -> Models "
+            f"(pinned: {models.TRELLIS_RUNTIME_VERSION})."
+        )
+    return Check(name, False, cause, fatal=False)
 
 
 def _gguf_check(config: Config) -> Check:

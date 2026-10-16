@@ -58,6 +58,68 @@ RECLAIM_TIMEOUT = 5.0  # how long to wait for a killed orphan to release the por
 KILL_TIMEOUT = 5.0  # how long a killed server gets to actually be reaped
 
 
+# --help is printed and the process exits before any weight or GPU work, so this
+# is a generous ceiling on a cold disk cache, not a measured time.
+CAPS_TIMEOUT = 20.0
+#: What an engine that could not be asked (missing, unrunnable, timed out) is
+#: taken to support. Every flag False is the safe reading: the caller falls back
+#: to the Blender path rather than sending a field the exe may reject with a 400.
+NO_CAPS: dict[str, bool] = {"faces": False, "post_replay": False, "pixal3d": False}
+# (path, st_size, st_mtime_ns) -> caps, the same key provenance uses for its
+# digests, so an engine replaced in place is probed again and an unchanged one is not.
+_caps_cache: dict[tuple[str, int, int], dict[str, bool]] = {}
+
+
+def engine_caps(exe: Path, *, timeout: float = CAPS_TIMEOUT) -> dict[str, bool]:
+    """What the engine at ``exe`` can do, read from its own ``--help`` once.
+
+    ``faces``: it lists ``--faces``, the QEM face target that runs *before* the
+    engine's UV and PBR bake and is also a per-request ``/generate`` field.
+    ``pixal3d``: it lists ``--model`` and names pixal3d. ``post_replay``: the
+    ``post-replay.exe`` that re-runs the bake from a ``--dump-post`` file sits
+    beside it. v0.8.1, the last upstream release, has the second but neither of
+    the others; only a build from a later commit (``scripts/build-trellis.ps1``)
+    has ``--faces``.
+
+    Asking the binary rather than comparing version strings is the point: an
+    override (``REALMSPINNER_TRELLIS_EXE``), a stale download and a custom build
+    all answer the same way, and none of them needs a catalogue to be right.
+
+    The probe is a child, so it runs in the kill-on-close job. A failure (no
+    file, will not run, no answer in time) returns :data:`NO_CAPS` **uncached**,
+    so a later call, after the engine is repaired, probes again. ``timeout`` is
+    the caller's: the worker can wait out a cold disk, a submit door on the
+    frame thread cannot.
+    """
+    try:
+        st = exe.stat()
+    except OSError:
+        return dict(NO_CAPS)
+    key = (str(exe), st.st_size, st.st_mtime_ns)
+    caps = _caps_cache.get(key)
+    if caps is None:
+        try:
+            done = winjob.run(
+                [str(exe), "--help"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return dict(NO_CAPS)
+        text = f"{done.stdout or ''}\n{done.stderr or ''}"
+        if "--port" not in text:
+            # Not a usage text at all (a loader error, a wrong exe): read nothing from it.
+            return dict(NO_CAPS)
+        caps = {"faces": "--faces" in text, "pixal3d": "--model" in text and "pixal3d" in text}
+        _caps_cache[key] = caps
+    # Outside the cache: a file beside the exe is not a property of the exe's
+    # own bytes, so it is not covered by the (path, size, mtime) key.
+    return {**NO_CAPS, **caps, "post_replay": (exe.parent / "post-replay.exe").is_file()}
+
+
 class TrellisStopFailed(RuntimeError):
     """``stop()`` could not confirm the server was dead.
 
@@ -694,6 +756,7 @@ class TrellisServer:
             seed=request.seed,
             resolution=request.resolution,
             bg_removal=request.bg_removal,
+            faces=request.faces,
         )
 
     async def generate(
@@ -704,6 +767,7 @@ class TrellisServer:
         seed: int = 42,
         resolution: int = 1024,
         bg_removal: str | None = None,
+        faces: int | None = None,
     ) -> Path:
         """Run image -> 3D and write the returned GLB to output_path.
 
@@ -712,12 +776,20 @@ class TrellisServer:
         cutout, auto lets the server decide. Omitted entirely when None so the
         exe applies its own default rather than being handed a keyword it may
         not know.
+
+        ``faces`` is the engine's QEM face target, run *before* its own UV and
+        PBR bake, so the texture is baked onto the mesh that ships. Sent only when
+        set, by the same rule: an engine without ``--faces`` answers an unknown
+        multipart field with a 400 at worst, so the caller asks
+        ``engine_caps`` first, and ``None`` leaves the exe's own ~300k target.
         """
         await self.ensure_started()
         self.last_used = time.monotonic()
         data = {"seed": str(seed), "resolution": str(resolution)}
         if bg_removal is not None:
             data["bg_removal"] = bg_removal
+        if faces is not None:
+            data["faces"] = str(int(faces))
         # Streamed rather than buffered by httpx, so the ceiling below can be
         # applied while the body is still arriving: `r.content` on a plain post
         # has already read the whole thing by the time anything could refuse it.

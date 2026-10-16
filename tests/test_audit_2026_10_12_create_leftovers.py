@@ -160,7 +160,7 @@ def test_a_host_with_neither_binary_does_not_refuse_a_stored_custom_budget(monke
     assert not [p for p in found if "Custom triangles" in str(p)]
 
 
-# --- F18-11: the four preserve_shape defaults agree ----------------------------
+# --- F18-11: the four default-finishing literals agree ----------------------------
 
 
 def test_every_default_mesh_finishing_is_the_same_word():
@@ -179,4 +179,4 @@ def test_every_default_mesh_finishing_is_the_same_word():
         DEFAULT_FORM_3D["mesh_finishing"],
         door,
     }
-    assert words == {"preserve_shape"}
+    assert words == {generation.DEFAULT_MESH_FINISHING} == {"engine"}

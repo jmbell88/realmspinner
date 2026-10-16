@@ -277,9 +277,10 @@ def test_run_checks_returns_every_check(tmp_path):
     # sibling for the ``text2image`` pack, which had no row of its own and was
     # visible only folded into the matting and text rows -- neither of which
     # runs on a host that has never downloaded either of those optional
-    # weights.
+    # weights. The twentieth is "engine face targets" (2026-10-15): the engine's
+    # ``--help`` read for ``--faces``, beside the exe row.
     expected = (
-        19
+        20
         + len(model_registry.BASE_MODELS)
         + len(model_registry.STYLE_LORAS)
         + len(model_registry.IP_ADAPTERS)

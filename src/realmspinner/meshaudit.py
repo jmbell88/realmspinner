@@ -36,6 +36,7 @@ flood fill could not reach.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -83,6 +84,26 @@ _BATCH_MAX_CELLS = 4_000_000
 # Config.mesh_hole_max sits in, and below the ~0.3% noise floor the band sweep already established.
 # Nothing reclassifies.
 REQUEST_PATH_RESOLUTION = 1024
+
+
+def view_masks(
+    glb_path: Path,
+    directions: Sequence[tuple[float, float, float]],
+    resolution: int = 256,
+) -> list[np.ndarray]:
+    """Silhouette masks of the mesh from each direction, in *image* orientation.
+
+    ``_coverage`` puts +Y at larger row indices (a plot's convention); a picture has
+    row 0 at the top, so each mask is flipped here and a caller can lay one directly
+    over a reference's subject mask. The mesh is loaded once for the whole sweep --
+    the per-view cost is the rasteriser alone. ``kernels.mesh.score`` compares these
+    against the reference; it cannot import this module, so the rasterising stays here.
+    """
+    positions, faces = load_mesh(glb_path)
+    return [
+        np.ascontiguousarray(_coverage(positions, faces, direction, resolution)[::-1])
+        for direction in directions
+    ]
 
 
 def hole_fraction(

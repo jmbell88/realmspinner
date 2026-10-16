@@ -193,3 +193,46 @@ def test_recon_imports_nothing_outside_the_standard_library():
         elif isinstance(node, ast.Import):
             roots.update(alias.name.split(".")[0] for alias in node.names)
     assert roots <= {"__future__", "dataclasses", "pathlib", "typing"}
+
+
+async def test_generate_sends_faces_only_when_set(tmp_path, monkeypatch):
+    """``faces`` is the engine's QEM face target, a per-request multipart field.
+
+    Sent only when set, ``bg_removal``'s rule: an engine without ``--faces`` is not
+    handed a field it may answer with a 400, and ``None`` leaves the exe's own ~300k.
+    """
+    monkeypatch.setattr(trellis.httpx, "AsyncClient", _Capture)
+    monkeypatch.setattr(trellis, "_validate_glb", lambda data: None)
+    server = _server(tmp_path)
+
+    async def started() -> None:
+        return None
+
+    monkeypatch.setattr(server, "ensure_started", started)
+    image = tmp_path / "reference.png"
+    image.write_bytes(b"png")
+    _Capture.posts = []
+
+    await server.generate(image, tmp_path / "plain.glb", seed=7, resolution=1024)
+    await server.generate(image, tmp_path / "budget.glb", seed=7, resolution=1024, faces=5000)
+    plain, budget = (post[3] for post in _Capture.posts)
+    assert "faces" not in plain
+    assert budget["faces"] == "5000"
+
+
+async def test_reconstruct_forwards_the_requests_faces_to_generate(tmp_path, monkeypatch):
+    monkeypatch.setattr(trellis.httpx, "AsyncClient", _Capture)
+    monkeypatch.setattr(trellis, "_validate_glb", lambda data: None)
+    server = _server(tmp_path)
+
+    async def started() -> None:
+        return None
+
+    monkeypatch.setattr(server, "ensure_started", started)
+    image = tmp_path / "reference.png"
+    image.write_bytes(b"png")
+    _Capture.posts = []
+    await server.reconstruct(
+        recon.ReconRequest(images=(image,), output=tmp_path / "o.glb", faces=2000)
+    )
+    assert _Capture.posts[0][3]["faces"] == "2000"

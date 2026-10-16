@@ -47,6 +47,31 @@ from .validation import (
 log = logging.getLogger(__name__)
 
 
+def _refuse_above_source(
+    job: dict[str, Any], triangles: int | None, *, what: str, field: str
+) -> None:
+    """Refuse a budget the reconstruction cannot supply.
+
+    When the engine simplified to the budget itself, ``source.glb`` *is* the
+    budget mesh (``params["source_faces"]``): re-deriving it at a higher count
+    would quietly return the same few thousand triangles under a number that says
+    otherwise. A row with no ``source_faces`` -- every row made before the engine
+    took the budget, and every one whose engine ignored it -- is never refused.
+    """
+    from ..pipelines import remesh
+
+    source_faces = job["params"].get("source_faces")
+    if not triangles or not source_faces:
+        return
+    if triangles > int(source_faces) * remesh.SOURCE_FACES_TOLERANCE:
+        raise Invalid(
+            f"cannot {what} to {triangles:,} triangles: this job's reconstruction has only "
+            f"{int(source_faces):,} (the engine simplified it to the budget before texturing). "
+            "Rerun the job at the new budget to rebuild it from the engine.",
+            field=field,
+        )
+
+
 def optimize_job(
     svc: RealmspinnerService,
     job_id: str,
@@ -103,6 +128,10 @@ def optimize_job(
     resolved: dict[str, Any] = {}
     budget = resolve_profile(svc, resolved, profile, custom_triangles)
     profile = resolved["profile"]
+    _refuse_above_source(
+        job, budget, what="retarget",
+        field="custom_triangles" if profile == "custom" else "profile",
+    )
 
     with svc.convert_lock(job_id, modelhistory.MODEL_LOCK):
         # Re-read inside the lock, as ``revert_model`` does, not the ``job``
@@ -801,6 +830,10 @@ def remesh_job(
         raise Invalid(
             str(exc), field="custom_triangles" if key == "custom" else "remesh_profile"
         ) from exc
+    _refuse_above_source(
+        job, triangles, what="remesh",
+        field="custom_triangles" if key == "custom" else "remesh_profile",
+    )
     size = None if texture_size is None else int(texture_size)
     if size is not None and size not in remesh.TEXTURE_SIZES:
         raise Invalid(

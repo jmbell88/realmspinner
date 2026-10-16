@@ -45,7 +45,7 @@ def _create(svc, **kwargs):
 
 def test_new_jobs_record_shape_preservation_and_prompt_policy(svc, blender_present):
     params = _create(svc)
-    assert params["mesh_finishing"] == "preserve_shape"
+    assert params["mesh_finishing"] == "engine"
     assert params["prompt_policy"] == 9
     assert params["generation_type"] == "3d_model"
     assert _create(svc, mesh_finishing="repair")["mesh_finishing"] == "repair"

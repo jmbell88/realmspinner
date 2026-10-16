@@ -5,6 +5,10 @@ all, so every rule about *which* group is offered and *when* it is finished is
 assertable headlessly. Create's results tray (``modes/create/ui/workspace.py``)
 draws it, and ``panes/candidates_panel`` holds the keep/discard decisions.
 
+Candidates are ordered best silhouette match first (``order_key``, from
+``params["mesh_score"]``), ties and unscored ones by seed order -- a sort key, not
+a verdict; ``candidates_panel`` says why that is allowed now.
+
 The one design decision worth stating is why nothing is remembered. A group
 could have been recorded on ``AppState`` when it was submitted -- but the
 library hides an undecided candidate (``Filters.matches``, the same rule sweep
@@ -20,14 +24,33 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ..kernels.mesh import score as mesh_score
+
 # Terminal statuses, i.e. the ones a candidate can be judged from. ``cancelled``
 # counts: the user stopped that one, and waiting for it is waiting forever.
 _SETTLED = ("done", "error", "cancelled")
 
 
+def order_key(member: dict[str, Any]) -> tuple[Any, ...]:
+    """Where one candidate sits in its strip: best match first, ties by seed order.
+
+    ``params["mesh_score"]`` (``kernels.mesh.score``) is a sort key and never a verdict:
+    this orders the strip and changes nothing else. Keep stays a click, no candidate is
+    hidden, and an unscored one (still running, no reference to compare, a measurement
+    that broke) sorts after every scored one -- so while attempts are still arriving the
+    strip fills in at the back and the order only changes as scores land.
+    """
+    params = member.get("params") or {}
+    return (
+        mesh_score.rank_key(params.get("mesh_score")),
+        int(member.get("candidate_index") or 0),
+        str(member.get("id")),
+    )
+
+
 @dataclass(frozen=True)
 class Group:
-    """One undecided candidate group, in the order the seeds were drawn."""
+    """One undecided candidate group, best match first (see :func:`order_key`)."""
 
     group: str
     members: list[dict[str, Any]]
@@ -85,8 +108,53 @@ def pending(jobs: list[dict[str, Any]]) -> Group | None:
         groups.items(),
         key=lambda item: max((j.get("created_at") or 0.0, j["id"]) for j in item[1]),
     )
-    members = sorted(newest[1], key=lambda j: (int(j.get("candidate_index") or 0), j["id"]))
-    return Group(newest[0], members)
+    return Group(newest[0], sorted(newest[1], key=order_key))
+
+
+def batch(jobs: list[dict[str, Any]], group_id: str) -> Group | None:
+    """Every row of one candidate group, ranked -- *including* a Create workspace's.
+
+    ``pending`` deliberately skips a workspace's batch (it is ordinary work and gets no
+    Keep picker), but its attempts are still N seeds of one reference and still worth
+    ordering and pre-selecting by the same score. This is the group without that filter.
+    """
+    members = [j for j in jobs if str(j.get("candidate_group") or "") == str(group_id)]
+    return Group(str(group_id), sorted(members, key=order_key)) if members else None
+
+
+def rank_batches(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """``rows`` with each candidate group's members put best-match first, in place.
+
+    A group's members take the slots its members already occupied, so a creation's
+    strip stays newest-batch-first and only the order *inside* a batch changes; rows
+    that belong to no group are untouched. Pure, and a no-op for a list with no group.
+    """
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        group = row.get("candidate_group")
+        if group:
+            groups.setdefault(str(group), []).append(row)
+    if not groups:
+        return list(rows)
+    ranked = {g: iter(sorted(members, key=order_key)) for g, members in groups.items()}
+    return [
+        next(ranked[str(row["candidate_group"])]) if row.get("candidate_group") else row
+        for row in rows
+    ]
+
+
+def best(group: Group) -> dict[str, Any] | None:
+    """The top-ranked finished candidate, or None when there is no basis to prefer one.
+
+    Only a *finished* member with a real score qualifies: with nothing scored the order is
+    just the seed order, and "pre-select the best" would then mean "pre-select #1", which
+    is a pick the app has no grounds for.
+    """
+    for member in group.members:
+        score = (member.get("params") or {}).get("mesh_score")
+        if member.get("status") == "done" and mesh_score.rank_key(score)[0] == 0:
+            return member
+    return None
 
 
 #: One memoized answer: ``(key, Group | None)`` for :func:`pending_cached`.

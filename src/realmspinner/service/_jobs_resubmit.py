@@ -27,6 +27,7 @@ import uuid
 from typing import Any
 
 from .. import guidance, models, retired
+from ..generation import MESH_FINISHINGS
 from ..pipelines import recon, reference
 from ..provenance import file_fingerprint
 from . import matte
@@ -811,11 +812,15 @@ def promote_to_model(
     params.update(_normalize_guidance(svc, raw))
     params.update(history)
     resolve_profile(svc, params, profile, custom_triangles)
-    resolve_lowpoly(svc, params, profile, lowpoly_triangles)
+    # Before ``resolve_lowpoly``, which reads it: whether Blender is needed at the
+    # door depends on whether the engine is to finish the budget itself.
     if mesh_finishing is not None:
-        if mesh_finishing not in ("preserve_shape", "repair"):
-            raise Invalid("mesh_finishing must be preserve_shape or repair", field="mesh_finishing")
+        if mesh_finishing not in MESH_FINISHINGS:
+            raise Invalid(
+                "mesh_finishing must be engine, preserve_shape or repair", field="mesh_finishing"
+            )
         params["mesh_finishing"] = mesh_finishing
+    resolve_lowpoly(svc, params, profile, lowpoly_triangles)
     # create_job's own unset-follows-config rule, restated rather than
     # re-derived: an inherited value describes the *source* reference's mesh
     # stage, which never ran these flags (a reference is text/image, not

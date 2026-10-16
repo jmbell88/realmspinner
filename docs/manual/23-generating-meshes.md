@@ -115,6 +115,21 @@ rather than a surprise after the cutout.
 Each candidate is an ordinary mesh job: same validation, same VRAM admission, same worker. The first
 keeps the mesh seed you pinned, so a pinned seed still reproduces; the rest draw fresh ones.
 
+**The strip puts the best silhouette match first.** When a mesh finishes, the worker lays it over the
+picture it was reconstructed from, from 72 camera angles (24 around, at three heights), and records the
+best overlap. The reconstruction has no fixed camera, which is why it is the best of a sweep and not one
+view. Inside a batch of seeds the attempts are ordered by that overlap, the top one is marked **Best
+match**, and the order only changes as scores arrive: an attempt that is still running, or has nothing
+to be compared with, sorts last. Two things sort an attempt behind every one that avoided them
+whatever its overlap: it missed its triangle budget, or it is more see-through than the mesh audit
+allows. Ties keep the order the seeds were drawn in.
+
+This is a **sort key, not a verdict**. It does not know whether the mesh is good, only whether its
+outline matches. When the whole batch has settled, the selection moves to the best match once, and
+only if you have not already clicked one; it never moves again after your own click, nothing is hidden,
+and nothing is kept for you (an older undecided batch still has its **Keep** picker, and that stays a
+click). The overlap has not yet been compared with how you grade meshes, so judge by looking.
+
 New candidate batches are saved immediately as attempts in the current creation, and remain
 visible in the Library. The horizontally scrolling **Attempts** strip contains every loaded attempt
 for this creation. Click one to inspect it; **Load settings** loads its mesh settings and source
@@ -172,14 +187,24 @@ stops the reconstruction engine while the image model runs.
 to four families of entry, each drawn only when this machine can actually run it:
 
 - **Game-ready · 2,000 / 5,000 / 10,000 / 20,000 triangles** brings the surface down to that count inside the
-  model job, in Blender, and what it does on the way depends on the **Finishing** choice just
-  below it. This is what turns the engine's ~300k-face output into something an engine actually
-  budgets for, and **5k is the default** — Crash-Bandicoot-range fidelity on a whole-character
-  reconstruction. That figure came from a measurement document that is now lost (the backup it
-  lived on is gone), so treat it as the shipped default rather than a number you can check. It
-  needs Blender (the `rig` extra); without it, this family does not appear.
+  model job, and what does it depends on the **Finishing** choice just below it. This is what turns
+  the engine's ~300k-face output into something an engine actually budgets for, and **5k is the
+  default** — Crash-Bandicoot-range fidelity on a whole-character reconstruction. That figure came
+  from a measurement document that is now lost (the backup it lived on is gone), so treat it as the
+  shipped default rather than a number you can check. It needs either an engine that can take a face
+  target (see **Engine** below) or Blender (the `rig` extra); with neither, this family does not
+  appear.
   **Finishing** is a combo drawn in **Advanced** whenever a Game-ready rung is chosen, and it is not
-  drawn for Simplify, Raw or Custom. **Preserve shape**, the default, welds coincident vertices and
+  drawn for Simplify, Raw or Custom. **Engine**, the default, asks the reconstruction engine itself
+  to simplify to the budget **before it unwraps and textures the mesh**, so the colour and surface
+  maps are baked onto the mesh you get and Blender is not involved. It needs an engine that lists
+  `--faces` in its own help (`realmspinner doctor` has a row, "engine face targets", that says
+  whether yours does; the Settings → Models engine download is the one that does). The engine does
+  not keep the high-resolution mesh it simplified from, so this path cannot measure how much
+  silhouette the simplification cost, and it says so in the mesh's finishing lines rather than
+  reporting a pass. If the engine cannot take the target, or ignores it (a mesh more than 1.25 times
+  the budget comes back), the job falls through to the Blender finishers below, starting at
+  **Preserve shape**, and the finishing lines record which one ran. **Preserve shape** welds coincident vertices and
   then collapses triangles, keeping the mesh's own UVs and its existing colour, roughness and
   normal maps: no voxel pass, no new unwrap, no rebake, so it does not close holes. **Repair and
   close holes** is the older path: a voxel pass that seals the gaps a reconstruction leaves, a
@@ -188,6 +213,21 @@ to four families of entry, each drawn only when this machine can actually run it
   materials, because one atlas cannot carry both; it says so before the bakes start rather than
   after minutes of them, and an opaque mesh skips the opacity bake it would not use. A job saved
   before the choice existed ran Repair, and keeps that reading.
+
+  **Every Blender finisher is gated.** A Game-ready mesh is measured against the mesh it was made
+  from, in shared silhouettes: it may lose at most **5%** of the silhouette in its worst view, no
+  view's overlap may fall below **0.90**, and it must land within **1.25 times** the triangles you
+  asked for. A finisher that fails is not shipped; the next one is tried, in the order Preserve
+  shape, Repair and close holes, then `gltfpack`. The first to pass ships. If none does, the one that
+  missed by the least ships anyway, marked with a red **Over budget: 13,821 of 5,000** pill (or
+  **Missed the shape check** when it is inside the budget but lost too much outline) on the card and
+  in the inspector, and the job notes a degradation. Past 1.5 times the budget the job's record says
+  `over_budget`, never `complete`. The 5% and 0.90 limits are provisional, set from two
+  reconstructions measured on 2026-10-15 (the maintainer's notes, which this repository does not carry): on
+  those, Preserve shape could not reach a small budget at all (it stops at about 8,000–14,000
+  triangles whatever it is asked for, and lost 20–27% of the outline there), Repair held every budget
+  within half a percent while losing 1–5%, and `gltfpack` cannot go below about 50,000 triangles, so
+  it only helps for a large budget.
 - **Simplify · Draft/Standard/Detailed** are the gltfpack tiers (20k/50k/100k) — a plain triangle
   reduction of the reconstruction's own surface, no rebake. They need `gltfpack`
   (a one-time manual drop into `vendor/gltfpack/`, or `REALMSPINNER_GLTFPACK` pointed at a copy you
@@ -214,9 +254,10 @@ did it keep the UVs, both PBR maps and the material assignment, and add no exten
 lacked — so picking a Simplify tier here does not risk a silently worse mesh: if the check fails,
 the job ships the raw reconstruction instead and the mesh's status line names the reason
 ("the triangle budget was not applied…"). A Game-ready remesh is checked the same way, against the
-mesh it replaced, and a failure there keeps the optimized (pre-remesh) mesh instead. What neither
-check catches is silhouette damage — no number here scores a mangled blade or a lost finger, so look
-at the result. Whatever a job recorded is always recoverable: rebuild at **Raw** from
+mesh it replaced, and a failure there falls to the next finisher, and when none can keep the textures
+and UVs the optimized (pre-remesh) mesh stays. The UV and material check does not look at outline;
+the shape gate above does, for the Blender finishers, and the engine path does not measure it at all,
+so look at the result. Whatever a job recorded is always recoverable: rebuild at **Raw** from
 [Triangle budget](#triangle-budget) in the inspector and the mesh comes back from `source.glb`,
 which no tier in this control ever touches.
 
@@ -299,6 +340,12 @@ The reconstruction is kept, permanently, as `source.glb`, and nothing ever overw
 changing your mind about triangle count cheap: rebuilding at a different budget is a couple of
 seconds of mesh processing rather than another two minutes of reconstruction.
 
+**One exception, and it is the Engine finishing.** When the engine simplified to a Game-ready budget
+itself, `source.glb` is *that* mesh, not a ~300k-triangle reconstruction, and the job records how
+many triangles it holds. Rebuilding or remeshing at a budget more than a few percent above that is
+refused, naming the number: the same few thousand triangles would come back under a bigger label.
+Going down is fine. To go up, **Rerun** the job at the new budget, which asks the engine again.
+
 The control is in the inspector at the **Mesh** stage, under the collapsed **Triangle budget**
 header. It appears only on jobs that have a `source.glb` — older jobs and rig jobs do not.
 
@@ -344,8 +391,11 @@ the mesh is rebuilt at a **triangle** budget — quadriflow where the input allo
 fallback where it does not, both described below — unwrapped afresh, with the old colour, roughness
 and normals baked onto the new geometry. This is the step that turns the engine's ~300k-triangle
 output into something an engine budgets for, and it is what every commercial generator calls
-"game-ready". Because the high-resolution geometry ends up in a tangent-space normal map, even a
-2k-triangle prop keeps most of the detail the budget threw away.
+"game-ready". Through **Repair and close holes**, because the high-resolution geometry ends up in
+a tangent-space normal map, even a 2k-triangle prop keeps most of the detail the budget threw away.
+(The **Engine** finishing described under [Mesh parameters](#mesh-parameters) gets to the same
+triangle count a different way: it does not rebake from the high-resolution mesh, so it carries no
+such normal map.)
 
 **This is now the default, not an extra step.** Create's **Triangle budget** combo (see
 [Mesh parameters](#mesh-parameters)) offers Game-ready 2k/5k/10k/20k, and 5k runs automatically on
@@ -536,10 +586,17 @@ before the report: `Finished mesh: N triangles; requested M.`, then `Silhouette 
 added: y%.` and `Source opening pixels filled: z%.`, then any UV or material change the
 check found. They compare the finished mesh with the one it replaced in shared-frame silhouettes.
 Where a measurement could not be made the line says *unknown* rather than passing it, and a
-finishing that failed or was cancelled says so and points at `source.glb`. These are advisory
-numbers, not a readiness grade: they cannot tell a lost handle from a lost shadow, and the
-Preserve shape default, which does not seal holes, is exactly the case where the opening figure is
-worth reading.
+finishing that failed or was cancelled says so and points at `source.glb`. For a mesh the engine
+simplified itself, the lines say that and make no silhouette claim. The silhouette numbers are the
+ones the Blender finishers are gated on (see [Mesh parameters](#mesh-parameters)); they are still not
+a readiness grade, they cannot tell a lost handle from a lost shadow, and Preserve shape, which does
+not seal holes, is exactly the case where the opening figure is worth reading. A mesh that no
+finisher could bring inside the gate also shows the red **Over budget** or **Missed the shape check**
+pill above them.
+
+Every finished mesh also records a **silhouette overlap score** against its own reference (the figure
+behind **Best match** in the Attempts strip). It is a sort key for comparing attempts of one reference
+and says nothing about a mesh on its own.
 
 The **mesh audit** answers a different question: *can you see through it*. It is a silhouette check
 — render the mesh from several angles and measure how much of the subject is holes — reported as
@@ -791,7 +848,7 @@ The inspector's **Export** tab lists everything you can take away, as a two-colu
 | Button | File | Notes |
 | --- | --- | --- |
 | GLB | `model.glb` | The finished asset: optimised, grounded, textured. |
-| Source GLB | `source.glb` | The reconstruction as the engine returned it — already simplified to about 300k faces by the engine unless `REALMSPINNER_TRELLIS_DECIM=0` — before optimisation and grounding. |
+| Source GLB | `source.glb` | The reconstruction as the engine returned it — already simplified to about 300k faces by the engine unless `REALMSPINNER_TRELLIS_DECIM=0`, or to your Game-ready budget when the **Engine** finishing asked it to — before optimisation and grounding. |
 | STL | `model.stl` | Geometry only. |
 | OBJ (zip) | `model_obj.zip` | OBJ plus its material and texture files. |
 | FBX | `model.fbx` | Needs Blender; the button says so when it is missing. |

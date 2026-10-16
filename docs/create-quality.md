@@ -6,10 +6,16 @@ and sheets keep their specialized templates. Stored jobs without a policy retain
 policy 8. Every reference attempt keeps its own recipe, seed and measurements;
 selecting an earlier attempt selects its provenance too.
 
-New mesh jobs default to **Preserve shape**. It welds coincident vertices before
-collapse simplification, keeping per-loop UVs and existing material maps. It does
-not voxel-reconstruct the surface. **Repair and close holes** keeps the voxel,
-remesh, unwrap and bake path. Jobs without a finishing choice retain repair.
+New mesh jobs default to **Engine** finishing (2026-10-15): the engine simplifies to the
+Game-ready budget before it unwraps and textures the mesh, so no Blender remesh runs. It needs an
+engine whose help lists `--faces`; otherwise the job falls back to the Blender finishers, in order
+**Preserve shape**, **Repair and close holes**, then gltfpack, each gated on silhouette loss
+(at most 5%, no view's IoU below 0.90) and on landing within 1.25x of the budget
+(measured on two reconstructions, 2026-10-15; the limits are provisional). Before that the default was **Preserve
+shape**, which welds coincident vertices before collapse simplification, keeping per-loop UVs and
+existing material maps. It does not voxel-reconstruct the surface, and it cannot go below about
+8,000-14,000 triangles on the two reconstructions measured. **Repair and close holes** keeps the
+voxel, remesh, unwrap and bake path. Jobs without a finishing choice retain repair.
 Repair bakes metallic and alpha through emission, including linked textures and
 mixed materials. Roughness and metallic are exported in glTF's G and B data
 channels. Blend and mask behavior survive export. Combining mask and blend into

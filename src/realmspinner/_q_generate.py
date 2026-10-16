@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from . import fetch, guidance, models, provenance, retired
-from .pipelines import control, recon, reference, seam
+from .pipelines import control, recon, reference, seam, trellis
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .queue import Worker
@@ -817,6 +817,12 @@ class GenerateOps:
             or guidance.default_bg_removal(self.config.trellis_models_dir)
         )
         queue_mod._log_mem("before trellis generate")
+        faces = await self._engine_faces(params)
+        # Recorded whether or not it was sent: ``_lowpoly`` reads it to know
+        # whether the engine was asked for the budget (and so whether its answer
+        # is to be verified or remeshed), and a stored row then says which path
+        # made the mesh. Re-derived by every run (``DERIVED_PARAMS``).
+        params["engine_faces"] = faces
         await self.trellis.reconstruct(
             recon.ReconRequest(
                 images=(trellis_input,),
@@ -824,6 +830,7 @@ class GenerateOps:
                 seed=mesh_seed,
                 resolution=resolution,
                 bg_removal=bg_removal,
+                faces=faces,
             )
         )
         # The remesh loop, and it re-enters only the trellis half. Everything
@@ -958,6 +965,7 @@ class GenerateOps:
                             # that matted differently would not be the retry it
                             # reports itself as.
                             bg_removal=bg_removal,
+                            faces=faces,
                         )
                     )
                 except Exception:
@@ -1078,6 +1086,27 @@ class GenerateOps:
             for scratch in (keep, keep_source):
                 with contextlib.suppress(OSError):
                     scratch.unlink()
+
+    async def _engine_faces(self: Worker, params: dict[str, Any]) -> int | None:
+        """The face target to hand the engine for this job, or ``None``.
+
+        Set only when every part of "the engine finishes the budget" holds: the
+        job asked for it (``mesh_finishing == "engine"``, with a Game-ready
+        budget), the engine's own ``--help`` lists ``--faces``
+        (``trellis.engine_caps``; v0.8.1 does not), and no launch-time
+        ``--decim`` is in force, because the exe refuses the two together with a
+        400 -- a job that pins a ``trellis_decim`` rung is measuring the exe's
+        own simplifier and keeps it. Anything else is ``None``, and
+        ``_lowpoly`` takes the Blender path exactly as it did before the field
+        existed.
+        """
+        budget = params.get("lowpoly_triangles")
+        if not budget or params.get("mesh_finishing") != "engine":
+            return None
+        if params.get("trellis_decim", self.config.trellis_decim) is not None:
+            return None
+        caps = await asyncio.to_thread(trellis.engine_caps, self.config.resolve_trellis_exe())
+        return int(budget) if caps["faces"] else None
 
     async def _get_text2image(self: Worker, base_key: str):
         """The resident image pipeline, swapped if the job wants a different base.

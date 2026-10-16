@@ -432,7 +432,7 @@ DEFAULT_FORM_3D: dict[str, Any] = {
     # 5000, matching Config().lowpoly_triangles: the form and the door's own
     # default must not drift, the same rule "profile" above states.
     "lowpoly_triangles": 5000,
-    "mesh_finishing": "preserve_shape",
+    "mesh_finishing": "engine",
     # Reachable now that the Budget combo offers "custom" alongside every
     # other tier -- this used to sit unused behind a form with no widget for
     # it, kept only because the API and the retarget panel already read it.

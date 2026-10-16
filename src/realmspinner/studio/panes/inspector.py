@@ -1575,6 +1575,7 @@ def _quality(ctx: Any, job: Any) -> None:
 
         for line in finishing_lines(finishing):
             widgets.muted(line)
+        widgets.budget_pill(params)
     if isinstance(report, dict):
         widgets.quality_badge(job)
         for reason in report.get("reasons") or []:

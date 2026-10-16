@@ -32,11 +32,28 @@ counter the way `panes.landing.rows` already is, so it costs one query per
 just filed reaches it because `panes.inspector.record_verdict` already calls
 `ctx.cache.invalidate()`. What is drawn from it is deliberately thin: a
 grade beside the candidate that has one, and a muted line while a finished
-attempt does not. No ordering, no pre-selection, no filtering -- the judge's
+attempt does not. **Grades never order, pre-select or filter** -- the judge's
 own doctrine (`dev/INVARIANTS.md`, "advisory... sorts and never filters")
 applies here even though nothing here is the judge, because the failure mode
 is the same one: a picker that reordered or hid a candidate on the strength
-of a grade would be making the keep decision instead of nudging it.
+of a human's grade would be making the keep decision instead of nudging it.
+
+**The mesh score is the one thing that does order -- reversed 2026-10-15.** This
+used to say "no ordering, no pre-selection" about everything, and the reason
+for lifting it for *one* signal is that the signal is a different kind of fact.
+A grade is an opinion filed after the fact; ``params["mesh_score"]``
+(``kernels.mesh.score``) is a measurement made when the mesh finished -- how
+closely its silhouette matches the picture it was reconstructed from, best over
+a sweep of views, with a mesh that missed its triangle budget or is see-through
+sorted behind every one that did not. It is cheap, reproducible, and checkable by
+looking at the two pictures, so ordering the strip by it (``candidates.order_key``)
+and offering the best as the selection (``workspace.preselect_best_candidate``)
+saves a first look without taking the choice. What stays exactly as it was: Keep
+is a click, no candidate is ever hidden, the offer happens once when the group
+settles and never overrides a selection the user made, and an unscored candidate
+(still running, or nothing to compare against) simply sorts last. The score has
+been correlated with no human grade yet; until it is, it is a sort key and the
+strip says "Best match", not "Best".
 """
 
 from __future__ import annotations

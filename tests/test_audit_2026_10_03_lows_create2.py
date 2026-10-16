@@ -343,7 +343,7 @@ def test_validate_request_refuses_an_unknown_mesh_finishing():
 
 def test_the_recorded_mesh_finishing_is_the_one_the_job_runs_with(svc):
     """The coercion and the pass-through: dropping either leaves every request
-    recorded (and run) as ``preserve_shape``."""
+    recorded (and run) as the default finishing (``engine`` since 2026-10-15)."""
     from realmspinner.service import jobs as svc_jobs
 
     made = svc_jobs.create_generation_request(
@@ -354,4 +354,4 @@ def test_the_recorded_mesh_finishing_is_the_one_the_job_runs_with(svc):
     assert params["generation_request"]["model"]["mesh_finishing"] == "repair"
     assert params["mesh_finishing"] == "repair"
     default = svc_jobs.create_generation_request(svc, {"prompt": "a crate"})
-    assert svc.store.get(default["id"])["params"]["mesh_finishing"] == "preserve_shape"
+    assert svc.store.get(default["id"])["params"]["mesh_finishing"] == "engine"

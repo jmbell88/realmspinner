@@ -91,6 +91,10 @@ class CreateState:
     # takes the selection only while it is still there: a click on a sibling
     # mid-batch moves it, and nothing afterwards fights that choice.
     follow_selection: str | None = None
+    # Candidate groups whose best member has already been offered as the selection
+    # (``workspace.preselect_best_candidate``), so a group is pre-selected once --
+    # when it first settles -- and a later click is never undone. Volatile.
+    preselected: set[str] = field(default_factory=set)
     # --- the History pane (``ui/panes/history.py``). All volatile: the rows are a
     # cache of ``generation_log.history`` and the filters are this session's.
     # The loaded page, newest first; ``None`` until the first load lands.

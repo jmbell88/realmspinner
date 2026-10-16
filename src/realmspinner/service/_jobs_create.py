@@ -26,6 +26,7 @@ from typing import Any
 
 from .. import guidance, models
 from ..core.safeio import atomic as safeio_atomic
+from ..generation import DEFAULT_MESH_FINISHING, MESH_FINISHINGS
 from ..pipelines import recon
 from . import matte
 from .core import RealmspinnerService
@@ -158,6 +159,25 @@ def resolve_profile(
 _resolve_profile = resolve_profile
 
 
+def _engine_takes_budget(svc: RealmspinnerService, params: dict[str, Any]) -> bool:
+    """Would the engine itself finish a Game-ready budget for this job?
+
+    The door's mirror of ``_q_generate._engine_faces`` (which decides again at
+    dispatch, against the engine that is then installed): the job asked for
+    ``mesh_finishing == "engine"``, no ``--decim`` is pinned, and the engine's
+    ``--help`` lists ``--faces``. The probe is cached per file; a short timeout
+    because this runs on the frame thread, and a probe that did not answer is
+    "no" -- the Blender door, as before.
+    """
+    from ..pipelines import trellis
+
+    if params.get("mesh_finishing") != "engine":
+        return False
+    if params.get("trellis_decim", svc.config.trellis_decim) is not None:
+        return False
+    return trellis.engine_caps(svc.config.resolve_trellis_exe(), timeout=3.0)["faces"]
+
+
 def resolve_lowpoly(
     svc: RealmspinnerService,
     params: dict[str, Any],
@@ -200,18 +220,22 @@ def resolve_lowpoly(
     """
     from .. import doctor
 
+    # The engine finishes the budget itself (no Blender) when it was asked to and
+    # its --help lists --faces; otherwise this is the Blender door it always was.
+    engine_ok = _engine_takes_budget(svc, params)
     explicit = lowpoly_triangles is not None
     if not explicit:
-        blender_ok = doctor.blender_check(probe=False).ok
+        blender_ok = engine_ok or doctor.blender_check(probe=False).ok
         if profile is None and blender_ok and svc.config.lowpoly_triangles:
             lowpoly_triangles = svc.config.lowpoly_triangles
         else:
             params["lowpoly_triangles"] = None
             return
-    elif not doctor.blender_check(probe=False).ok:
+    elif not engine_ok and not doctor.blender_check(probe=False).ok:
         raise Invalid(
             "a game-ready budget remeshes in Blender, which is not installed "
-            "(`uv sync --extra rig` on Python 3.13)",
+            "(`uv sync --extra rig` on Python 3.13), unless the engine can finish "
+            "the budget itself (Settings -> Models: update the engine)",
             field="lowpoly_triangles",
         )
 
@@ -325,7 +349,7 @@ def create_job(
     profile: str | None = None,
     custom_triangles: int | None = None,
     lowpoly_triangles: int | None = None,
-    mesh_finishing: str = "preserve_shape",
+    mesh_finishing: str = DEFAULT_MESH_FINISHING,
     trellis_band: int | None = None,
     trellis_tex_res: int | None = None,
     trellis_gss: float | None = None,
@@ -368,8 +392,10 @@ def create_job(
     worker only records.
     """
     config = svc.config
-    if mesh_finishing not in ("preserve_shape", "repair"):
-        raise Invalid("mesh_finishing must be preserve_shape or repair", field="mesh_finishing")
+    if mesh_finishing not in MESH_FINISHINGS:
+        raise Invalid(
+            "mesh_finishing must be engine, preserve_shape or repair", field="mesh_finishing"
+        )
     if kind not in ("text", "image"):
         raise Invalid("kind must be 'text' or 'image'", field="kind")
     if asset_type is not None and asset_type not in {

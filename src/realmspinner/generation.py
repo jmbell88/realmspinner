@@ -210,11 +210,24 @@ class SpriteSettings:
         return self.frame_count or SPRITE_FRAME_COUNTS[self.action]
 
 
+#: How a Game-ready triangle budget is met, in the order the fallback ladder tries
+#: them. ``engine``: the engine simplifies to the budget itself, before it bakes the
+#: texture (a Blender-free path when the engine lists ``--faces``). ``preserve_shape``
+#: and ``repair`` are the two Blender remeshes; they are also what ``engine`` falls
+#: back to for an engine without ``--faces``. The default moved to ``engine`` on
+#: 2026-10-15 (``dev/measurements/2026-10-15-lowpoly-silhouette-gate.md``: the
+#: Blender preserve path missed a 5,000-triangle budget by 2.8x and lost 20% of the
+#: silhouette). A *stored row* with no ``mesh_finishing`` key still reads as
+#: ``repair``, the default it was made under -- see ``_q_mesh._lowpoly``.
+MESH_FINISHINGS = ("engine", "preserve_shape", "repair")
+DEFAULT_MESH_FINISHING = "engine"
+
+
 @dataclass(frozen=True, slots=True)
 class ModelSettings:
     output_profile: str = "raw"
     custom_triangles: int | None = None
-    mesh_finishing: str = "preserve_shape"
+    mesh_finishing: str = DEFAULT_MESH_FINISHING
 
 
 @dataclass(frozen=True, slots=True)
@@ -872,9 +885,9 @@ def validate_request(
             )
     if request.model_mode not in MODEL_MODES:
         issues.append(CompatibilityIssue("model_mode", "Model mode must be automatic or Advanced."))
-    if request.model.mesh_finishing not in ("preserve_shape", "repair"):
+    if request.model.mesh_finishing not in MESH_FINISHINGS:
         issues.append(CompatibilityIssue(
-            "model.mesh_finishing", "Choose Preserve shape or Repair."
+            "model.mesh_finishing", "Choose Engine, Preserve shape or Repair."
         ))
     # The 2026-10-03 audit, finding create-47: ``output_profile`` and
     # ``custom_triangles`` were accepted, stored in ``params["generation_request"]``

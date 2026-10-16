@@ -1188,6 +1188,7 @@ class TasksMixin:
             if job.get("stage") == "model" and job.get("kind") in ("text", "image"):
                 review_mode.refresh_findings(ctx)
                 self._select_finished_mesh_if_waiting(job)
+                self._preselect_best_candidate(job)
             # 2026-09-05 audit, finding create-02: a remesh or a re-texture
             # is a *queued* job, unlike a retarget's foreground task, so the
             # "remesh:"/"retexture:" keys the panels submit fire when the
@@ -1354,6 +1355,24 @@ class TasksMixin:
         if source_job and source_job == self.app_ctx.state.selected:
             self._reload_viewer()
 
+    def _preselect_best_candidate(self, job: dict[str, Any]) -> None:
+        """When a candidate group settles, offer its best-matching mesh as the selection.
+
+        Runs as each candidate finishes; ``workspace.preselect_best_candidate`` does
+        nothing until the whole group has settled, does it once, and never overrides a
+        selection the user made. ``job`` replaces its own (possibly one-landing-stale) row
+        in the group it is judged with, so the last member to finish counts as finished.
+        """
+        group_id = job.get("candidate_group")
+        if not group_id:
+            return
+        from ..candidates import batch
+        from ..modes.create.ui import workspace as create_workspace
+
+        ctx = self.app_ctx
+        jobs = [j for j in ctx.cache.jobs if j.get("id") != job.get("id")] + [job]
+        create_workspace.preselect_best_candidate(ctx, batch(jobs, str(group_id)))
+
     def _select_finished_mesh_if_waiting(self, job: dict[str, Any]) -> None:
         """A finished ``Make 3D`` becomes the selection, for a user still
         watching it land.
@@ -1381,6 +1400,11 @@ class TasksMixin:
         if parent is None or str(parent["id"]) != str(ctx.state.selected):
             return
         create_stages.go(ctx, "mesh", select=str(job["id"]))
+        # The app put the selection here, so it is the mark a later pre-selection
+        # compares against: without it the first candidate to land would look like the
+        # user's own click and the best one could never be offered
+        # (``workspace.preselect_best_candidate``).
+        ctx.state.create.follow_selection = str(job["id"])
 
     def _landed_character(self, result: dict[str, Any]) -> None:
         """A finished character, straight to the stage that can draw it.

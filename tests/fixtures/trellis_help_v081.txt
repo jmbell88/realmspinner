@@ -1,0 +1,86 @@
+usage: C:\Users\ILWT\.realmspinner\engine\trellis\trellis-server.exe [--host H] [--port P] [--models DIR] [--gpu N] [generation defaults...]
+
+  -i, --image PATH        input image                  (image->3D)
+  -o, --output PATH       output .glb                  (default model.glb)
+      --copyright TEXT    glTF asset.copyright metadata
+  -m, --models DIR        GGUF model directory
+      --model FAMILY      trellis (default) | pixal3d — which flow weights the model
+                          directory holds. pixal3d swaps the DINOv3 cross-attention for
+                          view-aligned projection conditioning; the samplers, decoders
+                          and every postprocessing stage are shared.
+      --fov DEG           pixal3d: horizontal field of view of the input image, which
+                          fixes the projection camera (default 49.13, Pixal3D's own).
+                          Upstream estimates this with MoGe-2; that model is not ported,
+                          so a wrong FOV shows up as geometry drifting off the silhouette.
+      --mesh-scale F      pixal3d: object scale inside the unit grid   (default 1.0)
+      --extend-pixel N    pixal3d: push the camera's virtual image border outward by N
+                          pixels of a 512 frame (default 0). Rarely useful: background
+                          removal already reframes around the subject, and extending
+                          past the cutout projects onto pixels that do not exist.
+      --no-naf            pixal3d: skip NAF guided upsampling (needs no naf.gguf, but
+                          the shape/texture stages then lose their high-frequency
+                          projection branch)
+      --gpu N             GPU index, <0 = CPU          (default 0)
+      --backend NAME      force a ggml backend: Vulkan | HTP | CPU | ...
+                          (HTP is the Qualcomm Hexagon NPU. Default: auto.
+                          Run trellis-devices to list what this build sees.
+                          Needed on Snapdragon, where the NPU and the Adreno
+                          GPU both register as GPU devices.)
+  -t, --threads N         CPU backend threads (default: all cores. ggml's own
+                          default is 4 regardless of core count.)
+      --sched on|off      run graphs through the multi-backend scheduler so ops
+                          the chosen backend cannot execute fall back to another
+                          (default: on unless the backend is the CPU). Required
+                          for --backend HTP, whose op coverage is partial.
+      --vulkan-fallback  with HTP, try Vulkan before CPU for unsupported ops
+                          (same as TRELLIS_VULKAN_FALLBACK=1)
+      --no-vulkan-fallback
+                          disable Vulkan fallback even if the environment enables it
+  -v, --verbose           per-stage timings, graph node counts, and a heartbeat
+                          while a backend compute is running (TRELLIS_VERBOSE=1;
+                          =2 also dumps the per-op histogram of each graph)
+  -s, --seed N            RNG seed                     (default 42)
+      --steps N           flow sampler steps (default 12). Lower is faster and
+                          rougher; useful for backend bring-up, where a CPU and
+                          an NPU run at the same N stay directly comparable.
+      --res 512|1024|1536 geometry resolution
+      --max-tokens N      HR token budget              (default 49152)
+      --bg-removal MODE   threshold | birefnet   (default: auto -- a pre-matted
+                          image keeps its alpha; otherwise BiRefNet when its model
+                          is present. The plain threshold matte cuts out specular
+                          highlights, which the flow then turns into holes.)
+      --birefnet          alias for --bg-removal birefnet
+      --no-texture        geometry only
+      --xatlas            xatlas UV unwrap (default)
+      --box-uv            voxel-native box projection (faster)
+      --band N            narrow-band DC remesh band width (default: auto —
+                          res/512, i.e. 1 @512 / 2 @1024, which suppresses the
+                          res-1024 outer-skin speckle; N forces that width)
+      --decim GRID        legacy cluster-grid decimation (default: quadric
+                          simplify to 300K faces @1024 / 150K @512; 0 = none)
+      --atlas PX          UV atlas size (default 2048 @1024 / 1024 @512)
+      --tex-res N         texture PBR resolution 512/1024 (default: auto — drops
+                          a dense res-1024 decode to a clean res-512 PBR volume)
+      --webp on|off       encode GLB textures as WebP (default: on when built with
+                          WebP support; off = PNG)
+      --dump-bg           also write the background-removal cutout as <out>_cutout.png
+      --dump-post PATH    write the raw decoded mesh + sparse PBR volume to PATH and
+                          exit (skips remesh/decimate/UV/bake/GLB) -- for external
+                          post-processing pipelines
+      --bg-only           background removal only: write the cutout and skip the rest
+      --retopo GRID FIRST_FACES FINAL_FACES  native quad export (Linux, retopo build)
+      --retopo-atlas PX   quad atlas size: 1024, 2048, 4096 (default 4096)
+      --retopo-no-weld-fill  skip initial weld/fill before tetra remesh
+      --retopo-dual-pbr  decode 1024 PBR for quad export with 512 primary PBR
+      --retopo-workdir DIR   large intermediates (default .codex/retopo/runs)
+      --f32               f32 sparse-conv compute
+      --fa-fast           force F16 K/V + fast accumulation (default on HTP)
+      --fa-f32            use BF16 K/V + F32 accumulation (HTP opt-out)
+      --no-fa             disable FlashAttention
+      --require-gpu       refuse CPU fallback
+      --threads N         CPU backend threads      (default all cores)
+      --gss F  --gsh F    guidance strengths
+      --host H  --port P  trellis-server bind address
+      --voxply            also dump the voxel point cloud as .ply
+      --dump-slat         dump the structured latent to disk
+  -h, --help              show this help

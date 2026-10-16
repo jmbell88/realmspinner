@@ -103,6 +103,16 @@ class _TierCheckRejected(RuntimeError):
         )
 
 
+class _NoUsableRemesh(RuntimeError):
+    """Every finisher on the ladder failed or lost a texture, UV or material."""
+
+    def __init__(self, attempts: list[dict[str, Any]]) -> None:
+        detail = "; ".join(
+            f"{a['rung']}: {a.get('error') or 'no mesh'}" for a in attempts
+        ) or "no finisher could run"
+        super().__init__(f"no finisher produced a usable mesh ({detail})")
+
+
 class MeshPostOps:
     """Mesh post-processing, mixed into :class:`~.queue.Worker`."""
 
@@ -536,10 +546,22 @@ class MeshPostOps:
         if not triangles:
             return
         from . import tiercheck
-        from .kernels.rig import blender_spec
-        from .pipelines import blender_run, remesh
+        from .pipelines import remesh
 
         triangles = int(triangles)
+        # Missing on a stored row means the previous repair path.
+        finishing = params.get("mesh_finishing", "repair")
+        if finishing == "engine":
+            if params.get("engine_faces") and await self._lowpoly_from_engine(
+                job_id, glb_path, params, triangles
+            ):
+                return
+            # The engine was never asked for the budget (an engine without
+            # --faces, a pinned --decim) or it did not honour the field: the
+            # reconstruction is the engine's full ~300k mesh, and Blender is
+            # what finishes it. ``preserve_shape`` is the first Blender rung and
+            # what "Finishing" meant before "engine" existed.
+            finishing = "preserve_shape"
         target = remesh.target_faces(triangles)
         asked = params.get("texture_size")
         if asked:
@@ -560,14 +582,13 @@ class MeshPostOps:
                 or remesh.DEFAULT_TEXTURE_PX
             )
         job_dir = self.config.job_dir(job_id)
-        # A dotfile beside the served model.glb, not a served name of its own
-        # -- ``_publish_model_version``'s reason doesn't apply here (this is
-        # the same, still-running job's own file, never a different job's
-        # served artifact), but the extension still has to be .glb: Blender's
-        # exporter is what writes it, not gltfpack, so nothing here checks it
-        # -- only the convention that keeps every staged mesh recognisable as
-        # one at a glance.
-        temp = job_dir / ".model.lowpoly.glb"
+        ladder = remesh.finishing_ladder(finishing)
+        # Staged per rung, as dotfiles beside the served model.glb, not served names
+        # of their own -- ``_publish_model_version``'s reason doesn't apply here
+        # (this is the same, still-running job's own file, never a different job's
+        # served artifact), but the extension still has to be .glb: Blender's exporter
+        # and gltfpack both pick their writer from it.
+        staged = {rung: job_dir / f".model.lowpoly.{rung}.glb" for rung in ladder}
 
         self.progress.update(
             job_id, phase="lowpoly", label="Starting Blender", inner=0.0,
@@ -580,53 +601,42 @@ class MeshPostOps:
                 inner_next=min(frac + 0.1, 1.0), nominal=120.0, detail="",
             )
 
+        attempts: list[dict[str, Any]] = []
         try:
             before = await asyncio.to_thread(tiercheck.survey, glb_path)
-            result = await asyncio.to_thread(
-                functools.partial(
-                    blender_run.run_worker,
-                    blender_spec.remesh_spec(
-                        glb_path,
-                        temp,
-                        job_dir,
-                        target_faces=target,
-                        texture_size=texture_size,
-                        # Missing on stored rows means the previous repair path.
-                        close_holes=params.get("mesh_finishing", "repair") == "repair",
-                        preserve_shape=params.get("mesh_finishing") == "preserve_shape",
-                        seed=remesh.QUADRIFLOW_SEED,
-                    ),
-                    on_progress=on_progress,
-                    on_start=self._note_blender,
-                    timeout=self.config.rig_timeout,
+            for index, rung in enumerate(ladder):
+                if rung == "gltfpack" and not self.config.gltfpack_exe.is_file():
+                    continue
+                if index:
+                    self.progress.update(
+                        job_id, phase="lowpoly", label=f"Trying {rung.replace('_', ' ')}",
+                        inner=0.0, inner_next=0.05, nominal=60.0,
+                        detail=f"{triangles:,} triangles",
+                    )
+                attempt = await self._lowpoly_attempt(
+                    rung, glb_path, staged[rung], job_dir,
+                    requested=triangles, target=target, texture_size=texture_size,
+                    before=before, on_progress=on_progress,
                 )
-            )
-            if self._cancel is not None and self._cancel.event.is_set():
-                params["lowpoly"] = {
-                    "requested": triangles, "status": "cancelled", "source": "source.glb",
-                    "finishing": params.get("mesh_finishing", "repair"),
-                }
-                await asyncio.to_thread(self.store.set_params, job_id, params)
-                return
-            if not temp.exists():
-                raise RuntimeError("Blender reported success but wrote no mesh")
-            after = await asyncio.to_thread(tiercheck.survey, temp)
-            verdict = tiercheck.compare(before, after)
-            comparison = await asyncio.to_thread(remesh.compare_geometry, glb_path, temp)
-            if self._cancel is not None and self._cancel.event.is_set():
-                params["lowpoly"] = {
-                    "requested": triangles, "status": "cancelled", "source": "source.glb",
-                }
-                await asyncio.to_thread(self.store.set_params, job_id, params)
-                return
-            if not verdict.ok:
-                # Manual 23: a remesh that dropped UVs, a PBR map or a material
-                # assignment is checked "against the mesh it replaced, and a
-                # failure there keeps the optimized mesh". It used to be
-                # published anyway with the failures only recorded (2026-10-03
-                # audit, pipelines-05).
-                raise _TierCheckRejected(verdict)
-            await asyncio.to_thread(os.replace, temp, glb_path)
+                if self._cancel is not None and self._cancel.event.is_set():
+                    params["lowpoly"] = {
+                        "requested": triangles, "status": "cancelled", "source": "source.glb",
+                        "finishing": rung,
+                    }
+                    await asyncio.to_thread(self.store.set_params, job_id, params)
+                    return
+                attempts.append(attempt)
+                # Every step is gated: the first finisher to pass ends the ladder.
+                if attempt["usable"] and attempt["miss"] <= 1.0:
+                    break
+            usable = [a for a in attempts if a["usable"]]
+            if not usable:
+                raise _NoUsableRemesh(attempts)
+            # Nothing passed -> the least-missed one ships and says so; ``miss`` is
+            # the largest excess over any limit (``remesh.gate``), so this prefers a
+            # mesh that is a little over on one limit to one that is far over on another.
+            winner = min(usable, key=lambda a: a["miss"])
+            await asyncio.to_thread(os.replace, winner["path"], glb_path)
         except Exception as exc:
             log.exception(
                 "lowpoly remesh failed for job %s; keeping the optimized mesh", job_id
@@ -641,37 +651,227 @@ class MeshPostOps:
                 "requested": triangles,
                 "status": "cancelled" if self._cancel and self._cancel.event.is_set() else "failed",
                 "error": str(exc),
-                "finishing": params.get("mesh_finishing", "repair"),
+                "finishing": finishing,
                 "source": "source.glb",
             }
-            if isinstance(exc, _TierCheckRejected):
-                params["lowpoly"]["tiercheck"] = {
-                    "ok": False,
-                    "failures": list(exc.verdict.failures),
-                    "notes": list(exc.verdict.notes),
-                }
+            # The first tier-check refusal among the attempts, in the shape the
+            # record always carried: what the remesh dropped, by name.
+            rejected = next(
+                (a for a in attempts if (a.get("tiercheck") or {}).get("ok") is False), None
+            )
+            if rejected is not None:
+                params["lowpoly"]["tiercheck"] = rejected["tiercheck"]
             await asyncio.to_thread(self.store.set_params, job_id, params)
             return
         finally:
-            with contextlib.suppress(OSError):
-                temp.unlink(missing_ok=True)
+            for path in staged.values():
+                with contextlib.suppress(OSError):
+                    path.unlink(missing_ok=True)
+        achieved = winner["achieved"]
+        passed = winner["miss"] <= 1.0
         params["lowpoly"] = {
-            "status": "complete",
-            "finishing": params.get("mesh_finishing", "repair"),
+            "status": (
+                "over_budget"
+                if isinstance(achieved, int) and achieved > triangles * remesh.OVER_BUDGET_RATIO
+                else "complete"
+            ),
+            "finishing": winner["rung"],
             "source": "source.glb",
             "requested": triangles,
-            "achieved": result.get("triangles", result.get("faces")),
-            "method": result.get("method"),
-            "triangles": result.get("triangles", result.get("faces")),
-            "geometry": comparison,
-            "texture_size": result.get("texture_size", texture_size),
-            "tiercheck": {
-                "ok": verdict.ok,
-                "failures": list(verdict.failures),
-                "notes": list(verdict.notes),
+            "achieved": achieved,
+            "method": winner["method"],
+            "triangles": achieved,
+            "geometry": winner["geometry"],
+            "texture_size": winner["texture_size"],
+            "tiercheck": winner["tiercheck"],
+            # What each finisher did, in the order tried. The winner is the last
+            # one when it passed; when nothing did, it is the one that missed least.
+            "attempts": [
+                {k: a[k] for k in ("rung", "achieved", "miss", "reasons", "error") if k in a}
+                for a in attempts
+            ],
+        }
+        if finishing != params.get("mesh_finishing", "repair"):
+            params["lowpoly"]["fell_back_from"] = params.get("mesh_finishing", "repair")
+        if passed:
+            params.pop("budget_miss", None)
+        else:
+            reason = "; ".join(winner["reasons"]) or "missed the Game-ready gate"
+            params["budget_miss"] = {"requested": triangles, "achieved": achieved, "reason": reason}
+            _note_degraded(
+                params,
+                "lowpoly",
+                f"no finisher met the {triangles:,}-triangle budget cleanly ({reason}); "
+                f"this is the closest of {len(attempts)} tried ({winner['rung']})",
+            )
+        await asyncio.to_thread(self.store.set_params, job_id, params)
+
+    async def _lowpoly_attempt(
+        self: Worker,
+        rung: str,
+        source: Path,
+        out: Path,
+        job_dir: Path,
+        *,
+        requested: int,
+        target: int,
+        texture_size: int,
+        before: Any,
+        on_progress: Any,
+    ) -> dict[str, Any]:
+        """Run one finisher and grade what it wrote against the Game-ready gate.
+
+        -> a dict with ``usable`` (the file at ``path`` may ship: it exists and kept
+        its UVs and materials -- ``tiercheck``), ``miss`` (``remesh.gate``: <= 1.0
+        passes), ``reasons``, and the figures the record keeps. A finisher that
+        raises is an attempt that is not usable, not an error: the next rung may
+        still work, and only a ladder with nothing usable fails the step.
+        """
+        from . import tiercheck
+        from .kernels.rig import blender_spec
+        from .pipelines import blender_run, optimize, remesh
+
+        outcome: dict[str, Any] = {
+            "rung": rung, "path": out, "usable": False, "miss": float("inf"), "reasons": [],
+            "achieved": None, "method": rung, "geometry": None, "tiercheck": None,
+            "texture_size": None,
+        }
+        try:
+            if rung == "gltfpack":
+                result = await asyncio.to_thread(
+                    functools.partial(
+                        optimize.run, source, out,
+                        target_triangles=requested, exe=self.config.gltfpack_exe,
+                    )
+                )
+                # optimize.run checks its own output (tiercheck) before it writes.
+                verdict = None
+                if result.get("achieved") == result.get("source_triangles"):
+                    # A copy: the mesh was already inside the budget (or the
+                    # simplifier could not reduce it at all), so nothing was
+                    # finished. Not a rung that "passed" -- a dead Blender and a
+                    # small reconstruction must still read as the failure they are.
+                    outcome["error"] = "gltfpack left the mesh unchanged"
+                    return outcome
+            else:
+                result = await asyncio.to_thread(
+                    functools.partial(
+                        blender_run.run_worker,
+                        blender_spec.remesh_spec(
+                            source,
+                            out,
+                            job_dir,
+                            target_faces=target,
+                            texture_size=texture_size,
+                            close_holes=rung == "repair",
+                            preserve_shape=rung == "preserve_shape",
+                            seed=remesh.QUADRIFLOW_SEED,
+                        ),
+                        on_progress=on_progress,
+                        on_start=self._note_blender,
+                        timeout=self.config.rig_timeout,
+                    )
+                )
+                if self._cancel is not None and self._cancel.event.is_set():
+                    return outcome
+                if not out.exists():
+                    raise RuntimeError("Blender reported success but wrote no mesh")
+                after = await asyncio.to_thread(tiercheck.survey, out)
+                verdict = tiercheck.compare(before, after)
+                outcome["method"] = result.get("method")
+                outcome["texture_size"] = result.get("texture_size", texture_size)
+            geometry = await asyncio.to_thread(remesh.compare_geometry, source, out)
+            achieved = result.get("triangles", result.get("faces", result.get("achieved")))
+            if achieved is None and geometry.get("measured"):
+                achieved = geometry.get("triangles")
+            outcome.update(achieved=achieved, geometry=geometry)
+            if verdict is not None:
+                outcome["tiercheck"] = {
+                    "ok": verdict.ok,
+                    "failures": list(verdict.failures),
+                    "notes": list(verdict.notes),
+                }
+                if not verdict.ok:
+                    # Manual 23: a remesh that dropped UVs, a PBR map or a material
+                    # assignment is checked "against the mesh it replaced, and a
+                    # failure there keeps the optimized mesh" (2026-10-03 audit,
+                    # pipelines-05) -- here, by not being a usable rung.
+                    outcome["error"] = str(_TierCheckRejected(verdict))
+                    return outcome
+            else:
+                outcome["tiercheck"] = result.get("tiercheck")
+            miss, reasons = remesh.gate(requested, achieved, geometry)
+            outcome.update(usable=True, miss=miss, reasons=reasons)
+        except Exception as exc:
+            log.exception("lowpoly finisher %s failed", rung)
+            outcome["error"] = str(exc)
+        return outcome
+
+    async def _lowpoly_from_engine(
+        self: Worker,
+        job_id: str,
+        glb_path: Path,
+        params: dict[str, Any],
+        requested: int,
+    ) -> bool:
+        """Verify a mesh the engine simplified to the budget itself.
+
+        The engine ran QEM to ``requested`` *before* its own UV and PBR bake,
+        so the texture was baked onto the mesh that ships and there is nothing
+        left to remesh: this only counts what came back and records it.
+        -> ``True`` when the mesh stands, ``False`` when it is more than
+        ``remesh.BUDGET_SLACK`` times the request (an exe that ignored the
+        field returns its built-in ~300k) and the caller should remesh in Blender.
+
+        ``source_faces`` is recorded either way: it is what ``source.glb``
+        really holds, and the retarget door refuses to go above it -- a mesh
+        already at 5,000 cannot be re-derived at 20,000.
+
+        No silhouette is measured. The gate compares a finished mesh with the
+        higher-resolution one it was made from, and the engine path keeps no
+        such mesh (the high-poly companion is a later slice), so ``geometry`` is
+        recorded as unmeasured rather than as a pass.
+        """
+        from . import meshaudit
+        from .pipelines import remesh
+
+        try:
+            _, faces = await asyncio.to_thread(meshaudit.load_mesh, glb_path)
+        except Exception as exc:
+            # An unreadable mesh fails the audit that follows with its own reason;
+            # remeshing from a file Blender would not read either helps nothing.
+            log.exception("could not count the engine's mesh for job %s", job_id)
+            params["lowpoly"] = {
+                "requested": requested, "status": "failed", "error": str(exc),
+                "finishing": "engine", "source": "source.glb", "method": "engine",
+            }
+            await asyncio.to_thread(self.store.set_params, job_id, params)
+            return True
+        achieved = int(len(faces))
+        params["source_faces"] = achieved
+        if achieved > requested * remesh.BUDGET_SLACK:
+            log.warning(
+                "job %s: asked the engine for %d triangles and got %d; remeshing in Blender",
+                job_id, requested, achieved,
+            )
+            await asyncio.to_thread(self.store.set_params, job_id, params)
+            return False
+        params["lowpoly"] = {
+            "status": "complete",
+            "finishing": "engine",
+            "source": "source.glb",
+            "requested": requested,
+            "achieved": achieved,
+            "method": "engine",
+            "triangles": achieved,
+            "geometry": {
+                "measured": False,
+                "reason": "the engine simplified before baking; no higher-resolution mesh was kept",
             },
+            "texture_size": None,
         }
         await asyncio.to_thread(self.store.set_params, job_id, params)
+        return True
 
     async def _apply_scale(
         self: Worker, job_id: str, glb_path: Path, params: dict[str, Any]
@@ -861,9 +1061,71 @@ class MeshPostOps:
                 f"the mesh could not be measured ({exc}); size, triangle count "
                 f"and watertightness are unknown for this asset",
             )
+        await self._score_mesh(job_id, glb_path, params)
         log.info(
             "job %s mesh audit: worst %.3f, mean %.3f over %d faces",
             job_id, report["worst"], report["mean"], report["faces"],
         )
         await asyncio.to_thread(self.store.set_params, job_id, params)
         return params["mesh_audit"]
+
+    async def _score_mesh(
+        self: Worker, job_id: str, glb_path: Path, params: dict[str, Any]
+    ) -> None:
+        """Record ``params["mesh_score"]``: how well the mesh matches its own reference.
+
+        A sort key for the candidate picker (``kernels.mesh.score``), never a verdict, and
+        like every step in this file it can only ever record or stay silent: no reference
+        image to compare against, or a measurement that broke, leaves the mesh unscored,
+        and an unscored mesh sorts after every scored one. Derived (``DERIVED_PARAMS``),
+        not a vector: it measures one run's artifact.
+        """
+        try:
+            from PIL import Image
+
+            from . import meshaudit
+            from .kernels.mesh import score
+            from .pipelines import reference
+
+            job_dir = self.config.job_dir(job_id)
+            # The approved matte when there is one, else the picture TRELLIS was given.
+            source = next(
+                (p for p in (job_dir / "cutout.png", job_dir / "reference.png") if p.is_file()),
+                None,
+            )
+            if source is None:
+                return
+
+            def _measure() -> tuple[float | None, int | None]:
+                with Image.open(source) as image:
+                    target = reference.subject_mask(image)
+                views = meshaudit.view_masks(glb_path, score.view_directions())
+                return score.best_view_iou(views, target)
+
+            iou, best_view = await asyncio.to_thread(_measure)
+            def _record(key: str) -> dict[str, Any]:
+                value = params.get(key)
+                return value if isinstance(value, dict) else {}
+
+            report, audit = _record("mesh_report"), _record("mesh_audit")
+            lowpoly = _record("lowpoly")
+            requested, achieved = lowpoly.get("requested"), lowpoly.get("achieved")
+            ratio = (
+                achieved / requested
+                if isinstance(requested, int) and requested > 0 and isinstance(achieved, int)
+                else None
+            )
+            params["mesh_score"] = score.build(
+                iou=iou,
+                best_view=best_view,
+                holes=audit.get("worst"),
+                hole_max=self.config.mesh_hole_max,
+                components=report.get("welded_components", report.get("components")),
+                nonmanifold=report.get("welded_nonmanifold_edges"),
+                boundary=report.get("welded_boundary_edges"),
+                budget_ratio=ratio,
+                budget_miss=params.get("budget_miss"),
+            )
+        except Exception:
+            log.exception("mesh score failed for job %s", job_id)
+            params.pop("mesh_score", None)

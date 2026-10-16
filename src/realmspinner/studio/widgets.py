@@ -467,6 +467,31 @@ def pill(label: str, colour: int, *, fill: float = 0.16) -> None:
     _chip(label, theme.rgba(colour), fill)
 
 
+def budget_pill(params: Any, *, inline: bool = False) -> None:
+    """The red chip a mesh wears when no finisher met its Game-ready gate.
+
+    Draws nothing unless ``params["budget_miss"]`` (``_q_mesh._lowpoly``) is there, so a
+    caller can offer it unconditionally -- and ``inline`` is the caller's *only* way to
+    ask for ``same_line``, for ``quality_badge``'s reason: a ``same_line`` issued before
+    a call that draws nothing is inherited by whatever comes next.
+
+    "Over budget: 13,821 of 5,000" when the mesh has more triangles than asked for, and
+    "Missed the shape check" when it is inside the budget and lost too much silhouette.
+    Glyph and word, never hue alone (``theme.STATUS_GLYPHS``' two-channel rule).
+    """
+    miss = params.get("budget_miss") if isinstance(params, dict) else None
+    if not isinstance(miss, dict):
+        return
+    achieved, requested = miss.get("achieved"), miss.get("requested")
+    if isinstance(achieved, int) and isinstance(requested, int) and achieved > requested:
+        label = f"Over budget: {achieved:,} of {requested:,}"
+    else:
+        label = "Missed the shape check"
+    if inline:
+        imgui.same_line()
+    _chip(f"{icons.TRIANGLE_ALERT} {label}", theme.status_color("error"), 0.16)
+
+
 def status_pill(status: str) -> None:
     """A rounded chip: colour *and* a glyph, because a pill that differs only
     by hue is unreadable to a chunk of people and useless in a screenshot."""

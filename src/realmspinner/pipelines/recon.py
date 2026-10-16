@@ -56,6 +56,11 @@ class ReconRequest:
     seed: int = 42
     resolution: int = 1024
     bg_removal: str | None = None
+    #: The engine's own QEM face target, applied before its UV and PBR bake
+    #: (``trellis-server``'s per-request ``faces`` field). ``None`` is "do not
+    #: send it": the engine's built-in ~300k target applies, which is also the only
+    #: thing an engine without ``--faces`` can do (``trellis.engine_caps``).
+    faces: int | None = None
 
 
 @runtime_checkable

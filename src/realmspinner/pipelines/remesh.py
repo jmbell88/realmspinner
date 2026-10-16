@@ -47,6 +47,31 @@ DEFAULT_TRIANGLE_PROFILE = "5k"
 TRIANGLES_MIN = 1_000
 TRIANGLES_MAX = 200_000
 
+#: How far over its budget a finished mesh may land and still count as meeting it.
+#: Blender's repair path lands within 0.5% of any budget and gltfpack and the
+#: preserve path land far above one (``dev/measurements/2026-10-15-lowpoly-silhouette-gate.md``);
+#: the engine's own QEM target is not measured yet (an open sitting). Also the
+#: line ``_q_mesh._lowpoly`` uses to decide an engine that was asked for ``faces``
+#: ignored the field (an old exe returns its built-in ~300k) and Blender must finish.
+BUDGET_SLACK = 1.25
+#: Past this many times the request a mesh is ``over_budget``, never ``complete``: the
+#: user asked for 5,000 and must not be told a 13,813 mesh is done.
+OVER_BUDGET_RATIO = 1.5
+#: The shape gate. A finished mesh may lose at most this share of its source's
+#: silhouette in its worst audit view, and no view's IoU may fall below the floor.
+#: **Provisional**: M0 measured two reconstructions (30 finisher runs): every mesh
+#: that met its budget lost 0.8-4.4% except one at 5.2%, and every deformed one lost
+#: 7.3-26.8%, so 0.05 sits in the gap between 0.052 and 0.073 with one row on the
+#: wrong side of it. A human decides 0.05 vs 0.06 after looking at those meshes.
+LOWPOLY_LOST_MAX = 0.05
+LOWPOLY_IOU_MIN = 0.90
+#: A rework budget is refused when it asks for more than this many times the
+#: triangles ``source.glb`` holds (``params["source_faces"]``, recorded when the
+#: engine simplified before baking). The margin is only so asking for the very
+#: number a job was made at -- which the engine lands a few triangles under --
+#: is not refused as "above" itself.
+SOURCE_FACES_TOLERANCE = 1.05
+
 #: Bake resolutions. ``None`` at the door means "match the mesh's own atlas",
 #: resolved by the worker against the file for ``retexture``'s reason.
 TEXTURE_SIZES = (512, 1024, 2048)
@@ -130,11 +155,79 @@ def target_faces(triangles: int) -> int:
     return max(int(triangles) // 2, 1)
 
 
+
+def gate(requested: int, achieved: int | None, geometry: Any) -> tuple[float, list[str]]:
+    """How far a finished mesh is from passing the Game-ready gate.
+
+    -> ``(miss, reasons)``. ``miss`` is the largest of the mesh's excesses, each as
+    a multiple of its own limit -- triangles over ``requested * BUDGET_SLACK``,
+    worst lost coverage over ``LOWPOLY_LOST_MAX``, worst IoU's shortfall over
+    ``1 - LOWPOLY_IOU_MIN`` -- so ``miss <= 1.0`` passes and a larger number is a
+    worse mesh in whichever way it is worst. That is what "the closest result"
+    means when no finisher passes: not the least silhouette loss (a 54,000-triangle
+    gltfpack mesh loses 2.5% and is ten times the budget), not the fewest
+    triangles (the preserve floor is 13,800 and loses 20%), but the smallest worst
+    miss. ``reasons`` names each failed limit in words.
+
+    Unmeasured geometry (``compare_geometry`` could not load a mesh) contributes
+    nothing: a silhouette that was not measured is not a silhouette that failed,
+    and the budget half of the gate still applies.
+    """
+    miss = 0.0
+    reasons: list[str] = []
+    if achieved is not None and requested > 0:
+        over = achieved / (requested * BUDGET_SLACK)
+        miss = max(miss, over)
+        if over > 1.0:
+            reasons.append(
+                f"{achieved:,} triangles is {achieved / requested:.1f}x the {requested:,} requested"
+            )
+    if isinstance(geometry, dict) and geometry.get("measured"):
+        lost = float(geometry.get("worst_lost_coverage", 0.0))
+        miss = max(miss, lost / LOWPOLY_LOST_MAX)
+        if lost > LOWPOLY_LOST_MAX:
+            reasons.append(
+                f"lost {lost:.1%} of the silhouette (limit {LOWPOLY_LOST_MAX:.0%})"
+            )
+        ious = [float(v["iou"]) for v in geometry.get("views") or () if "iou" in v]
+        if ious:
+            worst = min(ious)
+            miss = max(miss, (1.0 - worst) / (1.0 - LOWPOLY_IOU_MIN))
+            if worst < LOWPOLY_IOU_MIN:
+                reasons.append(
+                    f"a view's silhouette IoU fell to {worst:.2f} (floor {LOWPOLY_IOU_MIN:.2f})"
+                )
+    return miss, reasons
+
+
+#: The Blender rungs in the order they are tried. ``engine`` is not here: it is
+#: the step *before* these, and falls into the first one.
+BLENDER_LADDER = ("preserve_shape", "repair")
+
+
+def finishing_ladder(finishing: str) -> tuple[str, ...]:
+    """The finishers to try, in order, starting at ``finishing``.
+
+    ``engine`` (which reaches this only because the engine could not or did not
+    finish the budget) starts at the first Blender rung; ``repair`` starts at
+    itself and has only gltfpack after it. ``gltfpack`` is always last: it is the
+    one finisher that cannot hold a small budget (it floors at ~46-54k triangles,
+    ``dev/measurements/2026-10-15-lowpoly-silhouette-gate.md``), so it is a
+    fallback for budgets that large and otherwise only ever the "closest" of
+    meshes that all missed.
+    """
+    start = BLENDER_LADDER.index(finishing) if finishing in BLENDER_LADDER else 0
+    return (*BLENDER_LADDER[start:], "gltfpack")
+
+
 def compare_geometry(source: Any, finished: Any, resolution: int = 256) -> dict[str, Any]:
     """Shared-frame silhouettes, including openings, from the mesh audit views.
 
-    Measurements are advisory, not a technical-readiness grade. Identical bounds
-    alone cannot detect a lost handle or a closed opening; mask differences can.
+    The silhouette numbers feed ``gate`` (the Game-ready shape gate); they are not
+    a technical-readiness grade, and identical bounds alone cannot detect a lost
+    handle or a closed opening -- mask differences can. Both meshes must be in the
+    same frame: ``model.glb`` is grounded and scaled after the gate runs, so this
+    is only meaningful on the finisher's own output.
     """
     from .finishing import compare_geometry as measure
 
@@ -151,6 +244,14 @@ def finishing_lines(report: Any) -> list[str]:
     triangles = report.get("triangles", report.get("achieved"))
     count = f"{triangles:,}" if isinstance(triangles, int) else "unknown"
     lines = [f"Finished mesh: {count} triangles; requested {report.get('requested', 'unknown')}."]
+    if report.get("method") == "engine":
+        # The engine simplified before it baked, so there is no higher-resolution
+        # mesh to measure a silhouette against and nothing was rebaked from one.
+        lines.append(
+            "Simplified by the engine before it textured the mesh; no silhouette "
+            "comparison was made (there is no higher-resolution mesh to compare to)."
+        )
+        return lines
     geometry = report.get("geometry") or {}
     if geometry.get("measured"):
         lines.append(

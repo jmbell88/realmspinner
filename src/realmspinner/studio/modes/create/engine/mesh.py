@@ -42,11 +42,12 @@ from .recipe import LOAD_FINDINGS
 
 #: What a form that carries no ``mesh_finishing`` is sent as. Restated nowhere
 #: else in this package: ``state.DEFAULT_FORM_3D``, ``generation.ModelSettings``
-#: and the service doors all default to ``"preserve_shape"``, and the 2026-10-03
+#: and the service doors all default to ``generation.DEFAULT_MESH_FINISHING``
+#: (``"engine"`` since 2026-10-15; ``"preserve_shape"`` before), and the 2026-10-03
 #: audit (finding create-35) found three sites here falling back to ``"repair"``
 #: instead, so a partial restore or a hand-built form (Clay's hand-off) silently
 #: asked for hole-closing repair. A test pins this against all three.
-DEFAULT_MESH_FINISHING = "preserve_shape"
+DEFAULT_MESH_FINISHING = "engine"
 
 
 def findings_hint(ctx: Any, param: str, value: Any, doc: Any = LOAD_FINDINGS) -> str | None:

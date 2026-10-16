@@ -110,6 +110,23 @@ DERIVED_PARAMS = (
     "mesh_audit",
     "mesh_report",
     "optimize",
+    # What the engine was asked for, and what ``source.glb`` really holds, when
+    # the engine finished the Game-ready budget itself (``_q_generate._engine_faces``,
+    # ``_q_mesh._lowpoly_from_engine``). Facts about one run's reconstruction: a
+    # rerun builds a new one, and a promotion's child must not inherit a record of
+    # a mesh it did not make -- ``source_faces`` is also what the retarget door
+    # refuses to exceed.
+    "engine_faces",
+    "source_faces",
+    # Written by ``_q_mesh._lowpoly`` when no finisher on the ladder met the
+    # Game-ready gate ({requested, achieved, reason}). A fact about one run's mesh:
+    # a rerun that inherited it would flag a budget miss on a mesh not yet made.
+    "budget_miss",
+    # ``kernels.mesh.score``'s record of how one mesh matches its own reference: a sort
+    # key for the candidate picker, and a measurement of this run's artifact. A rerun makes
+    # a new mesh, so it must not inherit the old one's rank. Deliberately not in
+    # ``vectors.VECTOR_PARAMS``: it is an output, never a setting.
+    "mesh_score",
     "transform",
     "weighting",
     "weighting_reason",

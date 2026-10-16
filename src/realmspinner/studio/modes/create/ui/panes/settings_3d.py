@@ -662,7 +662,11 @@ def _finishing(ctx: Any, form: dict[str, Any]) -> None:
     form["mesh_finishing"] = widgets.labeled_combo(
         "Finishing",
         before,
-        [("preserve_shape", "Preserve shape"), ("repair", "Repair and close holes")],
+        [
+            ("engine", "Engine (at the budget)"),
+            ("preserve_shape", "Preserve shape"),
+            ("repair", "Repair and close holes"),
+        ],
     )
     if form["mesh_finishing"] != before:
         ctx.state.clear_field_error("mesh_finishing")

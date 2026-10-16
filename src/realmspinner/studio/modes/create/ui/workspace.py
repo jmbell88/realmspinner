@@ -458,7 +458,8 @@ def draw(ctx: Any, height: float = 0.0, stage: str | None = None) -> None:
         else:
             jobs = families.results(session.index(ctx), ctx.state.create.workspace, stage)
             if jobs:
-                _attempt_strip(ctx, jobs)
+                # Best match first inside each batch of seeds (``candidates.order_key``).
+                _attempt_strip(ctx, candidates_mod.rank_batches(jobs))
             elif not active:
                 # Only reachable from a caller that draws the tray without asking
                 # ``should_draw`` first; the shell always asks.
@@ -507,6 +508,47 @@ def follow_finished_reference(ctx: Any, job: dict[str, Any]) -> bool:
     return True
 
 
+def preselect_best_candidate(ctx: Any, group: Any) -> bool:
+    """Put the selection on a settled group's best-matching candidate. -> whether it did.
+
+    **A pre-selection, not a choice.** It only moves the selection -- Keep is still a
+    click, no candidate is hidden or reordered by it beyond the strip's own order
+    (``candidates.order_key``), and the group stays undecided until the user keeps one.
+    It reverses the old "never reorders or pre-selects" rule for mesh candidates
+    (2026-10-15, ``dev/INVARIANTS.md``) because a silhouette score is cheap to compute,
+    checkable by eye, and only ever offers a starting point.
+
+    Three guards, each a way it could steal a choice:
+
+    * **Once per group**, when it first settles: marked before anything else, whether or
+      not it moves, so no later frame re-applies it over a click.
+    * **Only while the selection is still where the app last put it**
+      (:func:`follow_finished_reference`'s rule): a click on any candidate, mid-batch or
+      after, moves the selection off that mark and nothing here takes it back.
+    * **Only for this creation, on the Mesh stage**: a finished attempt must not pull a
+      user who has gone elsewhere back.
+    """
+    from ...library.ui.panes import library
+    from . import stages
+
+    state = ctx.state
+    if group is None or not group.finished or group.group in state.create.preselected:
+        return False
+    state.create.preselected.add(group.group)
+    best = candidates_mod.best(group)
+    if best is None or not stages.at(state, "mesh"):
+        return False
+    if state.create.workspace is None or session.index(ctx).by_job.get(
+        str(best["id"])
+    ) != state.create.workspace:
+        return False
+    if state.selected is not None and state.selected != state.create.follow_selection:
+        return False
+    library.select(ctx, str(best["id"]))
+    state.create.follow_selection = str(best["id"])
+    return True
+
+
 def inspect_result(ctx: Any, job: dict[str, Any]) -> None:
     """Inspect without editing the draft or choosing a reconstruction source."""
     asset_open.open_asset(ctx, job, inspect_only=True)
@@ -537,6 +579,14 @@ def strip_window(count: int, scroll_x: float, view_w: float, cell_w: float) -> t
 
 
 def _attempt_strip(ctx: Any, jobs: list[dict[str, Any]]) -> None:
+    # The best-scoring member of each batch of seeds, named once per frame: a group of
+    # one is no comparison, so only a batch of two or more earns the label.
+    best_ids = set()
+    for batch_id in {str(j["candidate_group"]) for j in jobs if j.get("candidate_group")}:
+        group = candidates_mod.batch(jobs, batch_id)
+        top = candidates_mod.best(group) if group is not None and len(group.members) > 1 else None
+        if top is not None:
+            best_ids.add(str(top["id"]))
     flags = imgui.WindowFlags_.horizontal_scrollbar.value
     if imgui.begin_child("create-attempt-strip", (0, strip_height()), False, flags):
         side = sp(ATTEMPT_THUMB_DP)
@@ -572,6 +622,9 @@ def _attempt_strip(ctx: Any, jobs: list[dict[str, Any]]) -> None:
             ):
                 inspect_result(ctx, job)
             widgets.status_pill(str(job.get("status") or "queued"))
+            widgets.budget_pill(job.get("params"))
+            if str(job["id"]) in best_ids:
+                widgets.muted("Best match")
             if ctx.state.source_job == job["id"]:
                 widgets.muted("Chosen source")
             elif ctx.state.create.comparison_pin == job["id"]:
@@ -1036,6 +1089,9 @@ def _result_card(ctx: Any, job: dict[str, Any], group: Any = None) -> None:
     imgui.begin_group()
     widgets.status_pill(str(job.get("status") or "queued"))
     params = job.get("params") or {}
+    widgets.budget_pill(params)
+    if group is not None and candidates_mod.best(group) is job:
+        widgets.muted("Best silhouette match")
     seed = recorded_seed(job)
     if seed is not None:
         widgets.muted(f"seed {seed}")

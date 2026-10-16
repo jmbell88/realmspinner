@@ -1,4 +1,4 @@
-"""Advisory comparison of source and finished meshes in shared camera frames."""
+"""Source-versus-finished silhouettes in shared camera frames: the Game-ready gate's ruler."""
 
 from __future__ import annotations
 

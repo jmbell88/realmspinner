@@ -93,6 +93,11 @@ def _fake_app(svc, cache, *, accept_submits: bool = True):
             # no-op stand-in is right, the same call ``_sync_viewer`` gets.
             pass
 
+        def _preselect_best_candidate(self, job: dict[str, Any]) -> None:
+            # The candidate pre-selection (2026-10-15), called on the same landed mesh.
+            # About the selection and not the findings recompute: a no-op stand-in.
+            pass
+
         def _select_finished_mesh_if_waiting(self, job: dict[str, Any]) -> None:
             # 2026-09-07 Create review, item 5.8: ``announce`` calls this on a
             # landed mesh, beside ``review_mode.refresh_findings``. These tests
